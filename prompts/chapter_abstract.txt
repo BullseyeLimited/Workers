@@ -328,188 +328,32 @@ Make it thorough, accurate, and formatted exactly as specified.
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 Input:
 
-LIFETIME_NARRATIVE: <Lifetime Narrative Summary>
-LIFETIME_ABSTRACT: <Lifetime Abstract Summary>
-YEAR_1_NARRATIVE: <Year 1 Narrative Summary>
-YEAR_1_ABSTRACT: <Year 1 Abstract Summary>
-YEAR_2_NARRATIVE: <Year 2 Narrative Summary>
-YEAR_2_ABSTRACT: <Year 2 Abstract Summary>
-YEAR_3_NARRATIVE: <Year 3 Narrative Summary>
-YEAR_3_ABSTRACT: <Year 3 Abstract Summary>
-YEAR_4_NARRATIVE: <Year 4 Narrative Summary>
-YEAR_4_ABSTRACT: <Year 4 Abstract Summary>
-YEAR_5_NARRATIVE: <Year 5 Narrative Summary>
-YEAR_5_ABSTRACT: <Year 5 Abstract Summary>
-SEASON_1_NARRATIVE: <Season 1 Narrative Summary>
-SEASON_1_ABSTRACT: <Season 1 Abstract Summary>
-SEASON_2_NARRATIVE: <Season 2 Narrative Summary>
-SEASON_2_ABSTRACT: <Season 2 Abstract Summary>
-SEASON_3_NARRATIVE: <Season 3 Narrative Summary>
-SEASON_3_ABSTRACT: <Season 3 Abstract Summary>
-SEASON_4_NARRATIVE: <Season 4 Narrative Summary>
-SEASON_4_ABSTRACT: <Season 4 Abstract Summary>
-SEASON_5_NARRATIVE: <Season 5 Narrative Summary>
-SEASON_5_ABSTRACT: <Season 5 Abstract Summary>
-CHAPTER_1_NARRATIVE: <Chapter 1 Narrative Summary>
-CHAPTER_1_ABSTRACT: <Chapter 1 Abstract Summary>
-CHAPTER_2_NARRATIVE: <Chapter 2 Narrative Summary>
-CHAPTER_2_ABSTRACT: <Chapter 2 Abstract Summary>
-CHAPTER_3_NARRATIVE: <Chapter 3 Narrative Summary>
-CHAPTER_3_ABSTRACT: <Chapter 3 Abstract Summary>
-CHAPTER_4_NARRATIVE: <Chapter 4 Narrative Summary>
-CHAPTER_4_ABSTRACT: <Chapter 4 Abstract Summary>
-CHAPTER_5_NARRATIVE: <Chapter 5 Narrative Summary>
-CHAPTER_5_ABSTRACT: <Chapter 5 Abstract Summary>
-EPISODE_1_NARRATIVE: <Episode 1 Narrative Summary>
-EPISODE_1_ABSTRACT: <Episode 1 Abstract Summary>
-EPISODE_2_NARRATIVE: <Episode 2 Narrative Summary>
-EPISODE_2_ABSTRACT: <Episode 2 Abstract Summary>
-EPISODE_3_NARRATIVE: <Episode 3 Narrative Summary>
-EPISODE_3_ABSTRACT: <Episode 3 Abstract Summary>
-EPISODE_4_NARRATIVE: <Episode 4 Narrative Summary>
-EPISODE_4_ABSTRACT: <Episode 4 Abstract Summary>
-EPISODE_5_NARRATIVE: <Episode 5 Narrative Summary>
-EPISODE_5_ABSTRACT: <Episode 5 Abstract Summary>
-NEW_CHAPTER_TURNS: <Raw conversation transcript of the latest ~60 turns (the Episodes to be summarized)>
-FAN_PSYCHIC_CARD: <Fan’s Psychic Card (current, all segments with previous data)>
-FAN_IDENTITY_CARD: <Fan’s Identity Card (factual info)>
-CREATOR_PSYCHIC_CARD: <Creator’s Psychic Card (if provided)>
-CREATOR_IDENTITY_CARD: <Creator’s Identity Card>
+----------------
+{LIFETIME_BLOCK}
+{YEAR_BLOCK}
+{SEASON_BLOCK}
+{CHAPTER_BLOCK}
 
+{RAW_TURNS}
+
+{FAN_PSYCHIC_CARD}
+{FAN_IDENTITY_CARD}
+{CREATOR_PSYCHIC_CARD}
+{CREATOR_IDENTITY_CARD}
 
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 Output:
 
+----------------
 {
   "PSYCHIC_PATCH_OUTPUT": [
     {
-      "segment": "...", <!-- segment name exactly as defined in the Psychic Card -->
-      "action": "...", <!-- one of: add, reinforce, revise, deprecate, fork_variant, point_only -->
-      "confidence": "...", <!-- one of: tentative, possible, likely, confident, canonical -->
-      "text": ".... [confidence]", <!-- include confidence label in brackets at end -->
-      "reasoning": "...."
-    },
-    {
-      "segment": "...",
-      "action": "...",
-      "confidence": "...",
-      "text": ".... [confidence]",
-      "reasoning": "...."
+      "segment": "",
+      "action": "",
+      "confidence": "",
+      "text": "",
+      "reasoning": ""
     }
-    {
-      "segment": "...", <!-- segment name exactly as defined in the Psychic Card -->
-      "action": "...", <!-- one of: add, reinforce, revise, deprecate, fork_variant, point_only -->
-      "confidence": "...", <!-- one of: tentative, possible, likely, confident, canonical -->
-      "text": ".... [confidence]", <!-- include confidence label in brackets at end -->
-      "reasoning": "...."
-    },
-    {
-      "segment": "...",
-      "action": "...",
-      "confidence": "...",
-      "text": ".... [confidence]",
-      "reasoning": "...."
-    }
-    {
-      "segment": "...", <!-- segment name exactly as defined in the Psychic Card -->
-      "action": "...", <!-- one of: add, reinforce, revise, deprecate, fork_variant, point_only -->
-      "confidence": "...", <!-- one of: tentative, possible, likely, confident, canonical -->
-      "text": ".... [confidence]", <!-- include confidence label in brackets at end -->
-      "reasoning": "...."
-    },
-    {
-      "segment": "...",
-      "action": "...",
-      "confidence": "...",
-      "text": ".... [confidence]",
-      "reasoning": "...."
-    }
-    {
-      "segment": "...", <!-- segment name exactly as defined in the Psychic Card -->
-      "action": "...", <!-- one of: add, reinforce, revise, deprecate, fork_variant, point_only -->
-      "confidence": "...", <!-- one of: tentative, possible, likely, confident, canonical -->
-      "text": ".... [confidence]", <!-- include confidence label in brackets at end -->
-      "reasoning": "...."
-    },
-    {
-      "segment": "...",
-      "action": "...",
-      "confidence": "...",
-      "text": ".... [confidence]",
-      "reasoning": "...."
-    }
-    {
-      "segment": "...", <!-- segment name exactly as defined in the Psychic Card -->
-      "action": "...", <!-- one of: add, reinforce, revise, deprecate, fork_variant, point_only -->
-      "confidence": "...", <!-- one of: tentative, possible, likely, confident, canonical -->
-      "text": ".... [confidence]", <!-- include confidence label in brackets at end -->
-      "reasoning": "...."
-    },
-    {
-      "segment": "...",
-      "action": "...",
-      "confidence": "...",
-      "text": ".... [confidence]",
-      "reasoning": "...."
-    }
-    {
-      "segment": "...", <!-- segment name exactly as defined in the Psychic Card -->
-      "action": "...", <!-- one of: add, reinforce, revise, deprecate, fork_variant, point_only -->
-      "confidence": "...", <!-- one of: tentative, possible, likely, confident, canonical -->
-      "text": ".... [confidence]", <!-- include confidence label in brackets at end -->
-      "reasoning": "...."
-    },
-    {
-      "segment": "...",
-      "action": "...",
-      "confidence": "...",
-      "text": ".... [confidence]",
-      "reasoning": "...."
-    }
-    {
-      "segment": "...", <!-- segment name exactly as defined in the Psychic Card -->
-      "action": "...", <!-- one of: add, reinforce, revise, deprecate, fork_variant, point_only -->
-      "confidence": "...", <!-- one of: tentative, possible, likely, confident, canonical -->
-      "text": ".... [confidence]", <!-- include confidence label in brackets at end -->
-      "reasoning": "...."
-    },
-    {
-      "segment": "...",
-      "action": "...",
-      "confidence": "...",
-      "text": ".... [confidence]",
-      "reasoning": "...."
-    }
-    {
-      "segment": "...", <!-- segment name exactly as defined in the Psychic Card -->
-      "action": "...", <!-- one of: add, reinforce, revise, deprecate, fork_variant, point_only -->
-      "confidence": "...", <!-- one of: tentative, possible, likely, confident, canonical -->
-      "text": ".... [confidence]", <!-- include confidence label in brackets at end -->
-      "reasoning": "...."
-    },
-    {
-      "segment": "...",
-      "action": "...",
-      "confidence": "...",
-      "text": ".... [confidence]",
-      "reasoning": "...."
-    }
-    {
-      "segment": "...", <!-- segment name exactly as defined in the Psychic Card -->
-      "action": "...", <!-- one of: add, reinforce, revise, deprecate, fork_variant, point_only -->
-      "confidence": "...", <!-- one of: tentative, possible, likely, confident, canonical -->
-      "text": ".... [confidence]", <!-- include confidence label in brackets at end -->
-      "reasoning": "...."
-    },
-    {
-      "segment": "...",
-      "action": "...",
-      "confidence": "...",
-      "text": ".... [confidence]",
-      "reasoning": "...."
-    }
-    <!-- (There are many for you to fill out. There is a very very low chance that you will fill all of them out. Fill out as many as makes sense, if only 1 the fill only one, keep everything else empty. Do not force fill them up.) -->
   ],
-  "ABSTRACT_ARC_OUTPUT": "...."
+  "ABSTRACT_ARC_OUTPUT": ""
 }
- 
