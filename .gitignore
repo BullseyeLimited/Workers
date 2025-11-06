@@ -205,6 +205,9 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+<<<<<<< HEAD
 
 # macOS
+=======
+>>>>>>> ed9e509 (remove .DS_Store and ignore it)
 .DS_Store
