@@ -2,4 +2,3 @@ supabase
 psycopg[binary]
 pgmq
 requests
-# add more libs when you actually use them
