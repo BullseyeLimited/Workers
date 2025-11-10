@@ -9,6 +9,5 @@ RUN pip install --no-cache-dir -r /app/.base-requirements.txt
 COPY . .
 
 # Allow each app to set its entrypoint at build time
-ARG ENTRYPOINT_WILL_BE_REPLACED="workers/kairos/main.py"
-ENV WORKER_ENTRYPOINT=${ENTRYPOINT_WILL_BE_REPLACED}
-CMD ["sh","-lc","python \"$WORKER_ENTRYPOINT\""]
+ARG ENTRYPOINT_WILL_BE_REPLACED
+CMD ["python", "${ENTRYPOINT_WILL_BE_REPLACED}"]
