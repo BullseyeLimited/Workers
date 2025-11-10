@@ -46,7 +46,7 @@ ABSTRACT_KEYS = (
     "abstract_body",
 )
 MAX_RECENT_TURNS = 40
-VERBATIM_CUTOFF = 20
+FRESH_FAN_SUMMARY_LIMIT = 10
 
 
 def _resolve_client(client=None):
@@ -189,7 +189,7 @@ def live_turn_window(
 
     rows = (
         sb.table("messages")
-        .select("id,id,turn_index,sender,message_text")
+        .select("id,turn_index,sender,message_text")
         .eq("thread_id", thread_id)
         .gt("turn_index", boundary_turn)
         .order("turn_index", desc=True)
@@ -201,47 +201,44 @@ def live_turn_window(
     if not rows:
         return "[No recent turns]"
 
-    verbatim_limit = min(VERBATIM_CUTOFF, len(rows))
     fan_ids = [
         row["id"]
         for idx, row in enumerate(rows)
-        if idx >= verbatim_limit and row.get("sender") == "fan"
+        if idx < FRESH_FAN_SUMMARY_LIMIT and row.get("sender") == "fan"
     ]
 
     summaries: Dict[int, str] = {}
     if fan_ids:
         detail_rows = (
             sb.table("message_ai_details")
-            .select("message_id,turn_micro_note")
+            .select("message_id,kairos_summary")
             .in_("message_id", fan_ids)
             .execute()
             .data
             or []
         )
         for detail in detail_rows:
-            summary = _extract_turn_micro_summary(detail.get("turn_micro_note"))
+            summary = _extract_summary_text(detail.get("kairos_summary"))
             if summary:
                 summaries[detail["message_id"]] = summary
 
     lines = []
     for idx, row in enumerate(rows):
         turn = row["turn_index"]
-        sender = (row.get("sender") or "").title() or "?"
+        sender_key = row.get("sender") or ""
+        sender = sender_key.title() or "?"
         text = _clean_turn_text(row.get("message_text"))
-        prefix = f"{turn:04d} {sender}: "
-        if idx < verbatim_limit:
-            lines.append(prefix + text)
-            continue
-        if row.get("sender") == "fan":
-            summary = summaries.get(row["id"], "Summary unavailable")
-            lines.append(f"{prefix}{text} / Summary: {summary}")
+        prefix = f"{turn:04d} {sender}: {text}"
+        if idx < FRESH_FAN_SUMMARY_LIMIT and sender_key == "fan":
+            summary = summaries.get(row["id"], "N/A")
+            lines.append(f"{prefix} / Summary: {summary}")
         else:
-            lines.append(prefix + text)
+            lines.append(prefix)
 
     return "\n".join(lines)
 
 
-def _extract_turn_micro_summary(value: Any) -> str:
+def _extract_summary_text(value: Any) -> str:
     if value is None:
         return ""
     if isinstance(value, str):
@@ -253,9 +250,11 @@ def _extract_turn_micro_summary(value: Any) -> str:
         parsed = value
     else:
         return ""
-    if isinstance(parsed, dict) and parsed.get("summary"):
-        return str(parsed["summary"])
-    return ""
+    if isinstance(parsed, dict):
+        summary = parsed.get("summary")
+        if summary:
+            return str(summary)
+    return json.dumps(parsed, ensure_ascii=False)
 
 
 def _clean_turn_text(text: Any) -> str:
