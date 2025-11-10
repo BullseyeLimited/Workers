@@ -1,40 +1,159 @@
-import os, json, time, requests
+"""Kairos worker – builds prompts and records analytical outputs."""
+
+from __future__ import annotations
+
+import json
+import os
+import time
+import traceback
+from typing import Any, Dict
+
+import requests
 from supabase import create_client
 
-SB  = create_client(os.getenv("SUPABASE_URL"),
-                    os.getenv("SUPABASE_SERVICE_ROLE_KEY"))
+from lib.prompt_builder import build_prompt, live_turn_window
+
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+
+if not SUPABASE_URL or not SUPABASE_KEY:
+    raise RuntimeError("Missing Supabase configuration for Kairos")
+
+SB = create_client(SUPABASE_URL, SUPABASE_KEY)
 QUEUE = "kairos.analyse"
+NAPOLEON_QUEUE = "napoleon.reply"
 
-def runpod_call(prompt):
+
+def runpod_call(prompt: str) -> str:
     url = os.getenv("RUNPOD_URL")
-    headers = {"Content-Type": "application/json",
-               "Authorization": f"Bearer {os.getenv('RUNPOD_API_KEY')}"}
-    body = {"model": "gpt-4o-mini", "prompt": prompt, "max_tokens": 20}
-    r = requests.post(url, headers=headers, json=body, timeout=60)
-    return r.json()
+    api_key = os.getenv("RUNPOD_API_KEY")
+    if not url or not api_key:
+        raise RuntimeError("RunPod configuration missing")
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {api_key}",
+    }
+    body = {"model": "gpt-4o-mini", "prompt": prompt, "max_tokens": 1200}
+    response = requests.post(url, headers=headers, json=body, timeout=120)
+    response.raise_for_status()
+    payload = response.json()
+    try:
+        return payload["choices"][0]["text"]
+    except (KeyError, IndexError) as exc:
+        raise ValueError(f"Unexpected RunPod response: {payload}") from exc
 
-print("Kairos started — waiting for jobs")
-while True:
-    # 1 job at a time
-    job = SB.rpc("pgmq_receive", params={"q_name": QUEUE, "vt": 30}).data
-    if not job:
-        time.sleep(2)
-        continue
 
-    msg = job["message"]
-    message_id = msg["message_id"]
+def receive_job() -> Dict[str, Any] | None:
+    data = SB.rpc("pgmq_receive", params={"q_name": QUEUE, "vt": 30}).data
+    if isinstance(data, list):
+        return data[0] if data else None
+    return data
 
-    # fetch raw fan message
-    row = SB.table("messages").select("*").eq("id", message_id).single().execute().data
-    prompt = f"Dummy prompt: {row['message_text']}"
-    llm_json = runpod_call(prompt)
 
-    # write result
-    SB.table("message_ai_details").upsert({
+def ack_job(job: Dict[str, Any]) -> None:
+    msg_id = job.get("msg_id") or job.get("vt")
+    if msg_id is None:
+        return
+    SB.rpc("pgmq_delete", params={"q_name": QUEUE, "msg_id": msg_id})
+
+
+def process_job(job: Dict[str, Any]) -> None:
+    payload = job.get("message")
+    if isinstance(payload, str):
+        payload = json.loads(payload)
+    if not payload or "message_id" not in payload:
+        raise ValueError(f"Malformed job payload: {payload}")
+
+    message_id = payload["message_id"]
+    message_row = (
+        SB.table("messages")
+        .select("id,thread_id,sender")
+        .eq("id", message_id)
+        .single()
+        .execute()
+        .data
+    )
+    if not message_row:
+        raise ValueError(f"Message {message_id} missing")
+
+    thread_id = message_row["thread_id"]
+    raw_turns = live_turn_window(thread_id, client=SB)
+    prompt = build_prompt("kairos", thread_id, raw_turns, client=SB)
+
+    raw_text = runpod_call(prompt)
+    structured = json.loads(raw_text)
+
+    record = _build_ai_detail_payload(
+        structured,
+        raw_text,
+        message_id,
+        thread_id,
+        message_row.get("sender", "fan"),
+    )
+    SB.table("message_ai_details").insert(record).execute()
+
+    SB.rpc(
+        "pgmq_send",
+        params={
+            "q_name": NAPOLEON_QUEUE,
+            "message": json.dumps(
+                {"thread_id": thread_id, "prev_fan_id": message_id}
+            ),
+        },
+    )
+
+
+def _build_ai_detail_payload(
+    data: Dict[str, Any],
+    raw_text: str,
+    message_id: int,
+    thread_id: int,
+    sender: str,
+) -> Dict[str, Any]:
+    required_fields = [
+        "STRATEGIC_NARRATIVE",
+        "ALIGNMENT_STATUS",
+        "CONVERSATION_CRITICALITY",
+        "TACTICAL_SIGNALS",
+        "PSYCHOLOGICAL_LEVERS",
+        "RISKS",
+        "TURN_MICRO_NOTE",
+    ]
+    missing = [field for field in required_fields if field not in data]
+    if missing:
+        raise ValueError(f"Kairos output missing fields: {missing}")
+
+    return {
         "message_id": message_id,
-        "raw_output": llm_json,
-        "extract_status": "ok"
-    }).execute()
+        "thread_id": thread_id,
+        "sender": sender,
+        "strategic_narrative": data["STRATEGIC_NARRATIVE"],
+        "alignment_status": json.dumps(data["ALIGNMENT_STATUS"]),
+        "conversation_criticality": data["CONVERSATION_CRITICALITY"],
+        "tactical_signals": data["TACTICAL_SIGNALS"],
+        "psychological_levers": data["PSYCHOLOGICAL_LEVERS"],
+        "risks": data["RISKS"],
+        "turn_micro_note": json.dumps(data["TURN_MICRO_NOTE"]),
+        "raw_writer_json": raw_text,
+        "extract_status": "ok",
+    }
 
-    SB.rpc("pgmq_delete", params={"q_name": QUEUE, "msg_id": job["vt"]})
-    print(f"Processed {message_id}")
+
+def main() -> None:
+    print("Kairos started - waiting for jobs")
+    while True:
+        job = receive_job()
+        if not job:
+            time.sleep(1)
+            continue
+        try:
+            process_job(job)
+            ack_job(job)
+        except Exception as exc:  # noqa: BLE001
+            print("Kairos error:", exc)
+            traceback.print_exc()
+            time.sleep(2)
+
+
+if __name__ == "__main__":
+    main()
