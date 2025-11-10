@@ -2,7 +2,7 @@ app = "kairos-worker"
 primary_region = "fra"
 
 [build]
-  dockerfile = "workers/kairos/Dockerfile"
+  dockerfile = "Dockerfile"
 
 [[vm]]
   cpu_kind = "shared"
