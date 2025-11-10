@@ -189,7 +189,7 @@ def live_turn_window(
 
     rows = (
         sb.table("messages")
-        .select("id,turn_index,sender,message_text")
+        .select("id,id,turn_index,sender,message_text")
         .eq("thread_id", thread_id)
         .gt("turn_index", boundary_turn)
         .order("turn_index", desc=True)

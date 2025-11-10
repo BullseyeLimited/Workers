@@ -133,7 +133,7 @@ def _build_ai_detail_payload(
         "tactical_signals": data["TACTICAL_SIGNALS"],
         "psychological_levers": data["PSYCHOLOGICAL_LEVERS"],
         "risks": data["RISKS"],
-        "turn_micro_note": json.dumps(data["TURN_MICRO_NOTE"]),
+        "kairos_summary": json.dumps(data["TURN_MICRO_NOTE"]),
         "raw_writer_json": raw_text,
         "extract_status": "ok",
     }
