@@ -1,6 +1,14 @@
 FROM python:3.11-slim
 WORKDIR /app
-COPY base/requirements.txt /tmp/       # install layer is cached
-RUN pip install --no-cache-dir -r /tmp/requirements.txt
+
+# Copy requirements from the repo (context must be repo root)
+COPY base/requirements.txt /app/.base-requirements.txt
+RUN pip install --no-cache-dir -r /app/.base-requirements.txt
+
+# Copy full repo context after deps for better layering
 COPY . .
-CMD ["python","ENTRYPOINT_WILL_BE_REPLACED"]
+
+# Allow each app to set its entrypoint at build time
+ARG ENTRYPOINT_WILL_BE_REPLACED="workers/kairos/main.py"
+ENV WORKER_ENTRYPOINT=${ENTRYPOINT_WILL_BE_REPLACED}
+CMD ["sh","-lc","python \"$WORKER_ENTRYPOINT\""]
