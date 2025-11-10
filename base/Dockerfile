@@ -10,4 +10,5 @@ COPY . .
 
 # Allow each app to set its entrypoint at build time
 ARG ENTRYPOINT_WILL_BE_REPLACED
-CMD ["python", "${ENTRYPOINT_WILL_BE_REPLACED}"]
+# turn the arg into the final command at build time
+CMD python "$ENTRYPOINT_WILL_BE_REPLACED"
