@@ -1,12 +1,11 @@
 app = "kairos-worker"
 primary_region = "fra"
-context = "../.."
 
 [build]
-  dockerfile = "../../base/Dockerfile"
+  dockerfile = "base/Dockerfile"
+  context    = "../.."
 
-[build.args]
-  ENTRYPOINT_WILL_BE_REPLACED = "workers/kairos/main.py"
+command = ["python", "workers/kairos/main.py"]
 
 [[vm]]
   cpu_kind = "shared"
