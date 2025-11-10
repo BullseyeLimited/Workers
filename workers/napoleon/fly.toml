@@ -2,7 +2,7 @@ app = "napoleon-worker"
 primary_region = "fra"
 
 [build]
-  dockerfile = "base/Dockerfile"
+  dockerfile = "../../base/Dockerfile"
   context    = "../.."
 
 command = ["python", "workers/napoleon/main.py"]
