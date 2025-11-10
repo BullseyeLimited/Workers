@@ -14,7 +14,12 @@ jobs:
             config: workers/kairos/fly.toml
           - app: napoleon-worker
             config: workers/napoleon/fly.toml
-          # add more workers here later
+          - app: episode-abstract-writer-worker
+            config: workers/episode_abstract_writer/fly.toml
+          - app: spark-worker
+            config: workers/spark/fly.toml
+          - app: curiosity-hooker-worker
+            config: workers/curiosity_hooker/fly.toml
 
     steps:
       - uses: actions/checkout@v4

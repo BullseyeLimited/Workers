@@ -1,11 +1,11 @@
-app = "napoleon-worker"
+app = "episode-abstract-writer-worker"
 primary_region = "fra"
 
 [build]
   dockerfile = "../../base/Dockerfile"
 
 [build.args]
-  ENTRYPOINT_WILL_BE_REPLACED = "workers/napoleon/main.py"
+  ENTRYPOINT_WILL_BE_REPLACED = "workers/episode_abstract_writer/main.py"
 
 [[vm]]
   cpu_kind = "shared"
