@@ -2,7 +2,7 @@ app = "napoleon-worker"
 primary_region = "fra"
 
 [build]
-  dockerfile = "workers/napoleon/Dockerfile"
+  dockerfile = "Dockerfile"
 
 [[vm]]
   cpu_kind = "shared"
