@@ -1,4 +1,5 @@
 name: deploy-all-workers
+
 on:
   push:
     branches: [ main ]
@@ -13,11 +14,16 @@ jobs:
             config: workers/kairos/fly.toml
           - app: napoleon-worker
             config: workers/napoleon/fly.toml
+          # add more workers here as you create them
+          # - app: episode-abstract-worker
+          #   config: workers/episode_abstract_writer/fly.toml
+
     steps:
       - uses: actions/checkout@v4
-      - name: Deploy ${{ matrix.app }}
-        uses: superfly/flyctl-actions@v2
+
+      - name: Deploy \${{ matrix.app }}
+        uses: superfly/flyctl-actions@v1      # ← correct tag
         with:
-          args: "deploy --remote-only --app ${{ matrix.app }} --config ${{ matrix.config }}"
+          args: deploy --remote-only --app \${{ matrix.app }} --config \${{ matrix.config }}
         env:
-          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+          FLY_API_TOKEN: \${{ secrets.FLY_API_TOKEN }}
