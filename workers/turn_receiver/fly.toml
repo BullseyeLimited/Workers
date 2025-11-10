@@ -1,0 +1,9 @@
+app = "turn-receiver-worker"
+primary_region = "fra"
+
+[build]
+  dockerfile = "../../base/Dockerfile"
+  context    = "../.."
+
+# run this file when the VM starts
+command = ["python", "workers/turn_receiver/main.py"]

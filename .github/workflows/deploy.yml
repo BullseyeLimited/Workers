@@ -10,6 +10,8 @@ jobs:
     strategy:
       matrix:
         include:
+          - app: turn-receiver-worker
+            config: workers/turn_receiver/fly.toml
           - app: kairos-worker
             config: workers/kairos/fly.toml
           - app: napoleon-worker
