@@ -3,6 +3,7 @@ primary_region = "fra"
 
 [build]
   dockerfile = "../../base/Dockerfile"
+  context = "../.."
 
 [build.args]
   ENTRYPOINT_WILL_BE_REPLACED = "workers/napoleon/main.py"
