@@ -1,5 +1,4 @@
 name: deploy-all-workers
-
 on:
   push:
     branches: [ main ]
@@ -14,13 +13,20 @@ jobs:
             config: workers/kairos/fly.toml
           - app: napoleon-worker
             config: workers/napoleon/fly.toml
-          # add more workers here later
 
     steps:
       - uses: actions/checkout@v4
 
+      # optional guard; remove if you created the apps manually
+      - name: Ensure app exists
+        run: |
+          flyctl apps show ${{ matrix.app }} 2>/dev/null || \
+          flyctl apps create ${{ matrix.app }} --org personal --no-launch
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+
       - name: Deploy ${{ matrix.app }}
-        uses: superfly/flyctl-actions@1.4          # ← valid tag
+        uses: superfly/flyctl-actions@1.4        # stable tag
         with:
           args: deploy --remote-only --app ${{ matrix.app }} --config ${{ matrix.config }}
         env:
