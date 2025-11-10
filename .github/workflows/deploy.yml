@@ -14,13 +14,13 @@ jobs:
             config: workers/kairos/fly.toml
           - app: napoleon-worker
             config: workers/napoleon/fly.toml
-          # add more workers here
+          # add more workers here later
 
     steps:
       - uses: actions/checkout@v4
 
       - name: Deploy ${{ matrix.app }}
-        uses: superfly/flyctl-actions@v2.1.0
+        uses: superfly/flyctl-actions@1.4          # ← valid tag
         with:
           args: deploy --remote-only --app ${{ matrix.app }} --config ${{ matrix.config }}
         env:
