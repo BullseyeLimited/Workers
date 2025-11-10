@@ -1,5 +1,6 @@
 app = "kairos-worker"
 primary_region = "fra"
+context = "../.."
 
 [build]
   dockerfile = "../../base/Dockerfile"
