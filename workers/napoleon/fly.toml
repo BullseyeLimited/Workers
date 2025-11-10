@@ -1,0 +1,8 @@
+app = "napoleon-worker"
+primary_region = "fra"
+[build]
+  dockerfile = "workers/napoleon/Dockerfile"
+[[vm]]
+  cpu_kind = "shared"
+  cpus     = 1
+  memory   = "1gb"
