@@ -2,8 +2,7 @@ app = "kairos-worker"
 primary_region = "fra"
 
 [build]
-  dockerfile = "../../base/Dockerfile"
-  context = "../.."
+  dockerfile = "base/Dockerfile"
 
 [build.args]
   ENTRYPOINT_WILL_BE_REPLACED = "workers/kairos/main.py"
