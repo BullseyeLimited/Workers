@@ -22,6 +22,7 @@ SUMMARY_BLOCK_SPEC = {
     "YEAR_BLOCK": ("year", 3),
     "SEASON_BLOCK": ("season", 4),
     "CHAPTER_BLOCK": ("chapter", 6),
+    "EPISODE_BLOCK": ("episode", 6),
 }
 CARD_TAGS = {
     "fan_psychic": "FAN_PSYCHIC_CARD",
@@ -264,6 +265,47 @@ def _clean_turn_text(text: Any) -> str:
     return single_line[:2000]
 
 
+def latest_kairos_json(thread_id: int, *, client=None) -> str:
+    sb = _resolve_client(client)
+    row = (
+        sb.table("messages")
+        .select("message_ai_details")
+        .eq("thread_id", thread_id)
+        .neq("message_ai_details", None)
+        .order("turn_index", desc=True)
+        .limit(1)
+        .execute()
+        .data
+    )
+    payload = row[0]["message_ai_details"] if row else {}
+    return json.dumps(payload or {}, ensure_ascii=False)
+
+
+def latest_plan_fields(thread_id: int, *, client=None) -> dict:
+    sb = _resolve_client(client)
+    row = (
+        sb.table("message_ai_details")
+        .select(
+            "tactical_plan_3turn,"
+            "plan_episode,plan_chapter,plan_season,plan_year,plan_lifetime"
+        )
+        .eq("thread_id", thread_id)
+        .order("created_at", desc=True)
+        .limit(1)
+        .execute()
+        .data
+    )
+    row = row[0] if row else {}
+    return {
+        "CREATOR_TACTICAL_PLAN_3TURN": row.get("tactical_plan_3turn") or "",
+        "CREATOR_EPISODE_PLAN": row.get("plan_episode") or "",
+        "CREATOR_CHAPTER_PLAN": row.get("plan_chapter") or "",
+        "CREATOR_SEASON_PLAN": row.get("plan_season") or "",
+        "CREATOR_YEAR_PLAN": row.get("plan_year") or "",
+        "CREATOR_LIFETIME_PLAN": row.get("plan_lifetime") or "",
+    }
+
+
 def build_prompt(
     template_name: str,
     thread_id: int,
@@ -284,6 +326,13 @@ def build_prompt(
         context[macro] = make_block(thread_id, tier, limit, client=sb)
 
     context.update(_load_cards(thread_id, client=sb))
+
+    context.update(latest_plan_fields(thread_id, client=sb))
+
+    first_line = raw_turns.splitlines()[0] if raw_turns else ""
+    context["FAN_LATEST_VERBATIM"] = first_line
+
+    context["ANALYST_ANALYSIS_JSON"] = latest_kairos_json(thread_id, client=sb)
 
     for key, value in context.items():
         template = template.replace(f"{{{key}}}", value)
