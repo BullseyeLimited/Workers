@@ -64,17 +64,17 @@ def process_job(job: Dict[str, Any]) -> None:
     if not payload or "message_id" not in payload:
         raise ValueError(f"Malformed job payload: {payload}")
 
-    message_id = payload["message_id"]
+    fan_msg_id = payload["message_id"]
     message_row = (
         SB.table("messages")
         .select("id,thread_id,sender")
-        .eq("id", message_id)
+        .eq("id", fan_msg_id)
         .single()
         .execute()
         .data
     )
     if not message_row:
-        raise ValueError(f"Message {message_id} missing")
+        raise ValueError(f"Message {fan_msg_id} missing")
 
     thread_id = message_row["thread_id"]
     raw_turns = live_turn_window(thread_id, client=SB)
@@ -82,11 +82,44 @@ def process_job(job: Dict[str, Any]) -> None:
 
     raw_text = runpod_call(prompt)
     structured = json.loads(raw_text)
+    analysis = structured
+
+    # ---------- DB write-back for Kairos ----------
+    import hashlib, json, time
+    from datetime import datetime, timezone
+
+    def upsert_kairos_details(msg_id: int, thread_id: int, analysis: dict):
+        row = {
+            "message_id": msg_id,
+            "thread_id": thread_id,
+            "sender": "fan",
+            "raw_hash": hashlib.sha256(
+                json.dumps(analysis, sort_keys=True).encode()
+            ).hexdigest(),
+            "extract_status": "ok",
+            "extracted_at": datetime.now(timezone.utc).isoformat(),
+            "strategic_narrative": analysis["STRATEGIC_NARRATIVE"],
+            "alignment_status": json.dumps(analysis["ALIGNMENT_STATUS"]),
+            "conversation_criticality": int(analysis["CONVERSATION_CRITICALITY"]),
+            "tactical_signals": json.dumps(analysis["TACTICAL_SIGNALS"]),
+            "psychological_levers": json.dumps(analysis["PSYCHOLOGICAL_LEVERS"]),
+            "risks": json.dumps(analysis["RISKS"]),
+            "kairos_summary": analysis["TURN_MICRO_NOTE"]["SUMMARY"],
+        }
+        SB.table("message_ai_details").upsert(
+            row, on_conflict="message_id"
+        ).execute()
+
+    # write the row
+    upsert_kairos_details(fan_msg_id, thread_id, analysis)
+    SB.table("messages").update({"kairos_output": json.dumps(analysis)}).eq(
+        "id", fan_msg_id
+    ).execute()
 
     record = _build_ai_detail_payload(
         structured,
         raw_text,
-        message_id,
+        fan_msg_id,
         thread_id,
         message_row.get("sender", "fan"),
     )
@@ -97,7 +130,7 @@ def process_job(job: Dict[str, Any]) -> None:
         params={
             "q_name": NAPOLEON_QUEUE,
             "message": json.dumps(
-                {"thread_id": thread_id, "prev_fan_id": message_id}
+                {"thread_id": thread_id, "prev_fan_id": fan_msg_id}
             ),
         },
     )
