@@ -1,7 +1,8 @@
-import os, json, hashlib, uvicorn
-from datetime import datetime
-from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel, Field
+import os, json, hashlib, uuid, datetime
+
+import pytz
+import uvicorn
+from fastapi import FastAPI, HTTPException, Request
 from supabase import create_client
 from workers.lib.simple_queue import send
 
@@ -12,73 +13,84 @@ SB = create_client(os.getenv("SUPABASE_URL"),
 app = FastAPI()
 
 # -------------- helpers --------------
-def sha256(x:str) -> str:
-    return hashlib.sha256(x.encode()).hexdigest()
+def hash_fan(ext_id: str) -> str:
+    return hashlib.sha256(ext_id.encode()).hexdigest()
 
 def enqueue_kairos(mid:int):
     # put the message id on the queue so kairos-worker processes it
     send("kairos.analyse", {"message_id": mid})
 
-# -------------- payload schemas --------------
-class InMsg(BaseModel):
-    ext_message_id : str
-    sender         : str = Field(regex="^(fan|creator|system)$")
-    timestamp      : datetime
-    text           : str
-    content_id     : int | None = None
-    channel        : str = "live"
-
-class Payload(BaseModel):
-    creator_handle : str
-    fan_ext_id     : str
-    messages       : list[InMsg]
-
 # -------------- HTTP endpoint --------------
 @app.post("/turn")
-def receive(p: Payload):
-    # 1. look up creator by handle
-    c = SB.table("creators").select("id") \
-          .eq("of_handle", p.creator_handle) \
-          .single().execute().data
-    if not c:
-        raise HTTPException(404, "unknown creator_handle")
-    cid = c["id"]
-    fan_hash = sha256(p.fan_ext_id)
+async def receive(request: Request):
+    payload = await request.json()
+    try:
+        text = payload["text"]
+        creator = payload["creator_handle"]
+    except KeyError as exc:
+        raise HTTPException(422, f"Missing field: {exc.args[0]}") from exc
 
-    # 2. get or create the thread
-    thr = SB.table("threads").select("id,turn_count") \
-            .eq("creator_id", cid)\
-            .eq("fan_ext_id_hash", fan_hash)\
-            .single().execute().data
-    if not thr:
-        thr = SB.table("threads").insert({
-              "creator_id": cid,
-              "fan_ext_id_hash": fan_hash
-        }).execute().data[0]
+    thread_id = payload.get("thread_id")
+    fan_id = payload.get("fan_ext_id")
 
-    tid, turn = thr["id"], thr["turn_count"]
-    stored = queued = 0
+    ext_id = payload.get("ext_message_id") or str(uuid.uuid4())
+    ts = payload.get("timestamp") or datetime.datetime.utcnow().replace(
+        tzinfo=pytz.UTC
+    ).isoformat()
 
-    # 3. insert each message
-    for m in p.messages:
-        turn += 1
-        res = SB.table("messages").insert({
-              "thread_id": tid,
-              "turn_index": turn,
-              "ext_message_id": m.ext_message_id,
-              "sender": m.sender,
-              "message_text": m.text,
-              "content_id": m.content_id,
-              "source_channel": m.channel,
-              "created_at": m.timestamp.isoformat()
-        }, upsert=False).execute().data
-        if res:                              # not duplicate
-            stored += 1
-            if m.sender == "fan":
-                enqueue_kairos(res[0]["id"])
-                queued += 1
+    if not thread_id:
+        if not fan_id:
+            raise HTTPException(
+                400, "fan_ext_id is required when thread_id is not provided"
+            )
 
-    return {"stored": stored, "queued_kairos": queued, "thread_id": tid}
+        thread = (
+            SB.table("threads")
+            .select("id")
+            .eq("creator_handle", creator)
+            .eq("fan_ext_id_hash", hash_fan(fan_id))
+            .single()
+            .execute()
+            .data
+        )
+        if thread:
+            thread_id = thread["id"]
+        else:
+            thread_id = (
+                SB.table("threads")
+                .insert(
+                    {
+                        "creator_handle": creator,
+                        "fan_ext_id_hash": hash_fan(fan_id),
+                    }
+                )
+                .execute()
+                .data[0]["id"]
+            )
+
+    res = (
+        SB.table("messages")
+        .insert(
+            {
+                "thread_id": thread_id,
+                "ext_message_id": ext_id,
+                "sender": "fan",
+                "message_text": text,
+                "source_channel": payload.get("source_channel") or "live",
+                "created_at": ts,
+            },
+            upsert=False,
+        )
+        .execute()
+        .data
+    )
+    if not res:
+        raise HTTPException(409, "Duplicate message")
+
+    msg_id = res[0]["id"]
+    enqueue_kairos(msg_id)
+
+    return {"message_id": msg_id, "thread_id": thread_id}
 
 # When Fly (or local dev) runs `python main.py`, start the server
 if __name__ == "__main__":
