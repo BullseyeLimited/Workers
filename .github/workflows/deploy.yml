@@ -16,6 +16,8 @@ jobs:
             config: workers/kairos/fly.toml
           - app: napoleon-worker
             config: workers/napoleon/fly.toml
+          - app: historian-worker
+            config: workers/historian/fly.toml
 
     steps:
       - uses: actions/checkout@v4

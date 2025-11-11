@@ -11,6 +11,7 @@ SB = create_client(
     os.getenv("SUPABASE_SERVICE_ROLE_KEY"),
 )
 QUEUE = "napoleon.reply"
+HORIZONS = ["episode", "chapter", "season", "year", "lifetime"]
 
 
 def upsert_napoleon_details(msg_id: int, thread_id: int, out: dict):
@@ -81,6 +82,47 @@ while True:
         json={"prompt": prompt},
     ).json()
     out = json.loads(rsp["output"])
+
+    rethink = out["RETHINK_HORIZONS"]
+    if rethink != "no":
+        multi_plan = out["MULTI_HORIZON_PLAN"]
+        for hz in HORIZONS:
+            new_plan = multi_plan[hz]["PLAN"]
+            status = multi_plan[hz]["STATE"]
+            reason = multi_plan[hz]["NOTES"][0] if multi_plan[hz]["NOTES"] else ""
+            col = f"{hz}_plan"
+
+            old_plan = (
+                SB.table("threads")
+                .select(col)
+                .eq("id", thread_id)
+                .single()
+                .execute()
+                .data.get(col)
+                or ""
+            )
+
+            if new_plan != old_plan:
+                SB.postgrest.rpc(
+                    "pgmq_send",
+                    {
+                        "q_name": "plans.archive",
+                        "message": json.dumps(
+                            {
+                                "fan_message_id": fan_msg_id,
+                                "thread_id": thread_id,
+                                "horizon": hz,
+                                "previous_plan": old_plan,
+                                "plan_status": status,
+                                "reason_for_change": reason,
+                            }
+                        ),
+                    },
+                ).execute()
+
+                SB.table("threads").update({col: new_plan}).eq(
+                    "id", thread_id
+                ).execute()
 
     # 1) write creator reply row
     creator_msg_id = insert_creator_reply(thread_id, out["FINAL_MESSAGE"])
