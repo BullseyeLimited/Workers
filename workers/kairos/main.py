@@ -12,6 +12,7 @@ import requests
 from supabase import create_client
 
 from lib.prompt_builder import build_prompt, live_turn_window
+from workers.lib.simple_queue import receive, ack, send
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
@@ -43,24 +44,7 @@ def runpod_call(prompt: str) -> str:
         raise ValueError(f"Unexpected RunPod response: {payload}") from exc
 
 
-def receive_job() -> Dict[str, Any] | None:
-    data = SB.rpc("pgmq_receive", params={"q_name": QUEUE, "vt": 30}).data
-    if isinstance(data, list):
-        return data[0] if data else None
-    return data
-
-
-def ack_job(job: Dict[str, Any]) -> None:
-    msg_id = job.get("msg_id") or job.get("vt")
-    if msg_id is None:
-        return
-    SB.rpc("pgmq_delete", params={"q_name": QUEUE, "msg_id": msg_id})
-
-
-def process_job(job: Dict[str, Any]) -> None:
-    payload = job.get("message")
-    if isinstance(payload, str):
-        payload = json.loads(payload)
+def process_job(payload: Dict[str, Any]) -> None:
     if not payload or "message_id" not in payload:
         raise ValueError(f"Malformed job payload: {payload}")
 
@@ -125,15 +109,7 @@ def process_job(job: Dict[str, Any]) -> None:
     )
     SB.table("message_ai_details").insert(record).execute()
 
-    SB.rpc(
-        "pgmq_send",
-        params={
-            "q_name": NAPOLEON_QUEUE,
-            "message": json.dumps(
-                {"thread_id": thread_id, "prev_fan_id": fan_msg_id}
-            ),
-        },
-    )
+    send(NAPOLEON_QUEUE, {"message_id": fan_msg_id, "thread_id": thread_id})
 
 
 def _build_ai_detail_payload(
@@ -175,13 +151,13 @@ def _build_ai_detail_payload(
 def main() -> None:
     print("Kairos started - waiting for jobs")
     while True:
-        job = receive_job()
+        job = receive(QUEUE, 30)
         if not job:
-            time.sleep(1)
-            continue
+            time.sleep(1); continue
         try:
-            process_job(job)
-            ack_job(job)
+            payload = job["payload"]
+            process_job(payload)
+            ack(job["row_id"])
         except Exception as exc:  # noqa: BLE001
             print("Kairos error:", exc)
             traceback.print_exc()

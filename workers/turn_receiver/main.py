@@ -3,6 +3,7 @@ from datetime import datetime
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 from supabase import create_client
+from workers.lib.simple_queue import send
 
 # connect to Supabase using secrets that Fly will provide
 SB = create_client(os.getenv("SUPABASE_URL"),
@@ -16,10 +17,7 @@ def sha256(x:str) -> str:
 
 def enqueue_kairos(mid:int):
     # put the message id on the queue so kairos-worker processes it
-    SB.rpc("pgmq_send", params={
-        "q_name": "kairos.analyse",
-        "message": json.dumps({"message_id": mid})
-    })
+    send("kairos.analyse", {"message_id": mid})
 
 # -------------- payload schemas --------------
 class InMsg(BaseModel):

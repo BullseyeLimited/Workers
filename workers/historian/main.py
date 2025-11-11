@@ -1,5 +1,6 @@
 import os, json, time, traceback, requests
 from supabase import create_client
+from workers.lib.simple_queue import receive, ack, send  # send only Kairos
 
 SB = create_client(
     os.getenv("SUPABASE_URL"),
@@ -22,8 +23,8 @@ def call_llm(prompt: str) -> dict:
     return json.loads(r.json()["output"])
 
 
-def process(job):
-    data = json.loads(job["message"])
+def process(payload):
+    data = payload
     prompt = TPL.format(**data)
     summary = call_llm(prompt)
 
@@ -41,13 +42,13 @@ def process(job):
 
 def main():
     while True:
-        job = SB.rpc("pgmq_receive", {"q_name": QUEUE, "vt": 30}).data
+        job = receive(QUEUE, 30)
         if not job:
-            time.sleep(1)
-            continue
+            time.sleep(1); continue
         try:
-            process(job)
-            SB.rpc("pgmq_delete", {"q_name": QUEUE, "msg_id": job["msg_id"]})
+            payload = job["payload"]
+            process(payload)
+            ack(job["row_id"])
         except Exception:
             traceback.print_exc()
 

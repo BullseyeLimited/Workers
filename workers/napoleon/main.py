@@ -1,10 +1,12 @@
 import json, os, time
 from datetime import datetime, timezone
+import traceback
 
 import requests
 from supabase import create_client
 
 from lib.prompt_builder import build_prompt, live_turn_window
+from workers.lib.simple_queue import receive, ack, send  # send only Kairos
 
 SB = create_client(
     os.getenv("SUPABASE_URL"),
@@ -58,82 +60,69 @@ def insert_creator_reply(thread_id: int, final_text: str) -> int:
 
 # -------- main poll loop --------
 while True:
-    job = (
-        SB.postgrest.rpc("pgmq_poll", {"q_name": QUEUE, "vt": 30})
-        .execute()
-        .data
-    )
+    job = receive(QUEUE, 30)
     if not job:
-        time.sleep(2)
-        continue
+        time.sleep(1); continue
+    try:
+        payload = job["payload"]
+        fan_msg_id = payload["message_id"]
+        thread_id = payload["thread_id"]
 
-    payload = job["message"]
-    fan_msg_id = payload["message_id"]
-    thread_id = payload["thread_id"]
+        turns = live_turn_window(thread_id)
+        prompt = build_prompt("napoleon", thread_id, turns)
 
-    # build prompt
-    turns = live_turn_window(thread_id)
-    prompt = build_prompt("napoleon", thread_id, turns)
+        rsp = requests.post(
+            os.getenv("RUNPOD_URL"),
+            headers={"Authorization": f"Bearer {os.getenv('RUNPOD_API_KEY')}"},
+            json={"prompt": prompt},
+        ).json()
+        out = json.loads(rsp["output"])
 
-    # call RunPod / OpenAI
-    rsp = requests.post(
-        os.getenv("RUNPOD_URL"),
-        headers={"Authorization": f"Bearer {os.getenv('RUNPOD_API_KEY')}"},
-        json={"prompt": prompt},
-    ).json()
-    out = json.loads(rsp["output"])
+        rethink = out["RETHINK_HORIZONS"]
+        if rethink != "no":
+            multi_plan = out["MULTI_HORIZON_PLAN"]
+            for hz in HORIZONS:
+                new_plan = multi_plan[hz]["PLAN"]
+                status = multi_plan[hz]["STATE"]
+                reason = (
+                    multi_plan[hz]["NOTES"][0] if multi_plan[hz]["NOTES"] else ""
+                )
+                col = f"{hz}_plan"
 
-    rethink = out["RETHINK_HORIZONS"]
-    if rethink != "no":
-        multi_plan = out["MULTI_HORIZON_PLAN"]
-        for hz in HORIZONS:
-            new_plan = multi_plan[hz]["PLAN"]
-            status = multi_plan[hz]["STATE"]
-            reason = multi_plan[hz]["NOTES"][0] if multi_plan[hz]["NOTES"] else ""
-            col = f"{hz}_plan"
+                old_plan = (
+                    SB.table("threads")
+                    .select(col)
+                    .eq("id", thread_id)
+                    .single()
+                    .execute()
+                    .data.get(col)
+                    or ""
+                )
 
-            old_plan = (
-                SB.table("threads")
-                .select(col)
-                .eq("id", thread_id)
-                .single()
-                .execute()
-                .data.get(col)
-                or ""
-            )
+                if new_plan != old_plan:
+                    send(
+                        "plans.archive",
+                        {
+                            "fan_message_id": fan_msg_id,
+                            "thread_id": thread_id,
+                            "horizon": hz,
+                            "previous_plan": old_plan,
+                            "plan_status": status,
+                            "reason_for_change": reason,
+                        },
+                    )
 
-            if new_plan != old_plan:
-                SB.postgrest.rpc(
-                    "pgmq_send",
-                    {
-                        "q_name": "plans.archive",
-                        "message": json.dumps(
-                            {
-                                "fan_message_id": fan_msg_id,
-                                "thread_id": thread_id,
-                                "horizon": hz,
-                                "previous_plan": old_plan,
-                                "plan_status": status,
-                                "reason_for_change": reason,
-                            }
-                        ),
-                    },
-                ).execute()
+                    SB.table("threads").update({col: new_plan}).eq(
+                        "id", thread_id
+                    ).execute()
 
-                SB.table("threads").update({col: new_plan}).eq(
-                    "id", thread_id
-                ).execute()
+        creator_msg_id = insert_creator_reply(thread_id, out["FINAL_MESSAGE"])
 
-    # 1) write creator reply row
-    creator_msg_id = insert_creator_reply(thread_id, out["FINAL_MESSAGE"])
+        upsert_napoleon_details(fan_msg_id, thread_id, out)
+        SB.table("messages").update({"napoleon_output": json.dumps(out)}).eq(
+            "id", fan_msg_id
+        ).execute()
 
-    # 2) upsert ai_details for the triggering fan message
-    upsert_napoleon_details(fan_msg_id, thread_id, out)
-    SB.table("messages").update({"napoleon_output": json.dumps(out)}).eq(
-        "id", fan_msg_id
-    ).execute()
-
-    # ack job
-    SB.postgrest.rpc(
-        "pgmq_complete", {"q_name": QUEUE, "msg_id": job["msg_id"]}
-    ).execute()
+        ack(job["row_id"])
+    except Exception as e:
+        traceback.print_exc()
