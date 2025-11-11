@@ -306,6 +306,26 @@ def latest_plan_fields(thread_id: int, *, client=None) -> dict:
     }
 
 
+def recent_plan_summaries(
+    thread_id: int, horizon: str, limit: int = 5, *, client=None
+) -> str:
+    sb = _resolve_client(client)
+    rows = (
+        sb.table("plan_history")
+        .select("summary_json")
+        .eq("thread_id", thread_id)
+        .eq("horizon", horizon)
+        .order("id", desc=True)
+        .limit(limit)
+        .execute()
+        .data
+        or []
+    )
+    return "\n".join(
+        json.dumps(row["summary_json"], ensure_ascii=False) for row in rows
+    )
+
+
 def build_prompt(
     template_name: str,
     thread_id: int,
@@ -333,6 +353,26 @@ def build_prompt(
     context["FAN_LATEST_VERBATIM"] = first_line
 
     context["ANALYST_ANALYSIS_JSON"] = latest_kairos_json(thread_id, client=sb)
+
+    context.update(
+        {
+            "EPISODE_PLAN_HISTORY": recent_plan_summaries(
+                thread_id, "episode", 5, client=sb
+            ),
+            "CHAPTER_PLAN_HISTORY": recent_plan_summaries(
+                thread_id, "chapter", 5, client=sb
+            ),
+            "SEASON_PLAN_HISTORY": recent_plan_summaries(
+                thread_id, "season", 3, client=sb
+            ),
+            "YEAR_PLAN_HISTORY": recent_plan_summaries(
+                thread_id, "year", 3, client=sb
+            ),
+            "LIFETIME_PLAN_HISTORY": recent_plan_summaries(
+                thread_id, "lifetime", 2, client=sb
+            ),
+        }
+    )
 
     for key, value in context.items():
         template = template.replace(f"{{{key}}}", value)
