@@ -148,7 +148,7 @@ def _build_ai_detail_payload(
     }
 
 
-def main() -> None:
+if __name__ == "__main__":
     print("Kairos started - waiting for jobs")
     while True:
         job = receive(QUEUE, 30)
@@ -162,7 +162,3 @@ def main() -> None:
             print("Kairos error:", exc)
             traceback.print_exc()
             time.sleep(2)
-
-
-if __name__ == "__main__":
-    main()

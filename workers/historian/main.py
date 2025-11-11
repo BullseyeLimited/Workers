@@ -39,7 +39,7 @@ def process_job(payload):
     ).execute()
 
 
-def main():
+if __name__ == "__main__":
     while True:
         job = receive(QUEUE, 30)
         if not job:
@@ -49,7 +49,3 @@ def main():
             ack(job["row_id"])
         except Exception:
             traceback.print_exc()
-
-
-if __name__ == "__main__":
-    main()
