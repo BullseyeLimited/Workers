@@ -5,10 +5,9 @@ primary_region = "fra"
   dockerfile = "../../base/Dockerfile"
   context    = "../.."
 
-# run FastAPI server
 command = [
   "uvicorn",
   "workers.turn_receiver.main:app",
-  "--host", "0.0.0.0",
-  "--port", "8080"
+  "--host","0.0.0.0",
+  "--port","8080"
 ]

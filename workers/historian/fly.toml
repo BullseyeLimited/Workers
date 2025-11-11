@@ -5,5 +5,4 @@ primary_region = "fra"
   dockerfile = "../../base/Dockerfile"
   context    = "../.."
 
-[build.args]
-  ENTRYPOINT_WILL_BE_REPLACED = "workers/historian/main.py"
+command = ["python", "workers/historian/main.py"]

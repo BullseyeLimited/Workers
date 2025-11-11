@@ -6,7 +6,7 @@ import requests
 from supabase import create_client
 
 from lib.prompt_builder import build_prompt, live_turn_window
-from workers.lib.simple_queue import receive, ack, send  # send only Kairos
+from workers.lib.simple_queue import receive, ack, send
 
 SB = create_client(
     os.getenv("SUPABASE_URL"),
@@ -58,71 +58,77 @@ def insert_creator_reply(thread_id: int, final_text: str) -> int:
     return msg["id"]
 
 
-# -------- main poll loop --------
-while True:
-    job = receive(QUEUE, 30)
-    if not job:
-        time.sleep(1); continue
-    try:
-        payload = job["payload"]
-        fan_msg_id = payload["message_id"]
-        thread_id = payload["thread_id"]
+def process_job(payload):
+    fan_msg_id = payload["message_id"]
+    thread_id = payload["thread_id"]
 
-        turns = live_turn_window(thread_id)
-        prompt = build_prompt("napoleon", thread_id, turns)
+    turns = live_turn_window(thread_id)
+    prompt = build_prompt("napoleon", thread_id, turns)
 
-        rsp = requests.post(
-            os.getenv("RUNPOD_URL"),
-            headers={"Authorization": f"Bearer {os.getenv('RUNPOD_API_KEY')}"},
-            json={"prompt": prompt},
-        ).json()
-        out = json.loads(rsp["output"])
+    rsp = requests.post(
+        os.getenv("RUNPOD_URL"),
+        headers={"Authorization": f"Bearer {os.getenv('RUNPOD_API_KEY')}"},
+        json={"prompt": prompt},
+    ).json()
+    out = json.loads(rsp["output"])
 
-        rethink = out["RETHINK_HORIZONS"]
-        if rethink != "no":
-            multi_plan = out["MULTI_HORIZON_PLAN"]
-            for hz in HORIZONS:
-                new_plan = multi_plan[hz]["PLAN"]
-                status = multi_plan[hz]["STATE"]
-                reason = (
-                    multi_plan[hz]["NOTES"][0] if multi_plan[hz]["NOTES"] else ""
+    rethink = out["RETHINK_HORIZONS"]
+    if rethink != "no":
+        multi_plan = out["MULTI_HORIZON_PLAN"]
+        for hz in HORIZONS:
+            new_plan = multi_plan[hz]["PLAN"]
+            status = multi_plan[hz]["STATE"]
+            reason = (
+                multi_plan[hz]["NOTES"][0] if multi_plan[hz]["NOTES"] else ""
+            )
+            col = f"{hz}_plan"
+
+            old_plan = (
+                SB.table("threads")
+                .select(col)
+                .eq("id", thread_id)
+                .single()
+                .execute()
+                .data.get(col)
+                or ""
+            )
+
+            if new_plan != old_plan:
+                send(
+                    "plans.archive",
+                    {
+                        "fan_message_id": fan_msg_id,
+                        "thread_id": thread_id,
+                        "horizon": hz,
+                        "previous_plan": old_plan,
+                        "plan_status": status,
+                        "reason_for_change": reason,
+                    },
                 )
-                col = f"{hz}_plan"
 
-                old_plan = (
-                    SB.table("threads")
-                    .select(col)
-                    .eq("id", thread_id)
-                    .single()
-                    .execute()
-                    .data.get(col)
-                    or ""
-                )
+                SB.table("threads").update({col: new_plan}).eq(
+                    "id", thread_id
+                ).execute()
 
-                if new_plan != old_plan:
-                    send(
-                        "plans.archive",
-                        {
-                            "fan_message_id": fan_msg_id,
-                            "thread_id": thread_id,
-                            "horizon": hz,
-                            "previous_plan": old_plan,
-                            "plan_status": status,
-                            "reason_for_change": reason,
-                        },
-                    )
+    insert_creator_reply(thread_id, out["FINAL_MESSAGE"])
 
-                    SB.table("threads").update({col: new_plan}).eq(
-                        "id", thread_id
-                    ).execute()
+    upsert_napoleon_details(fan_msg_id, thread_id, out)
+    SB.table("messages").update({"napoleon_output": json.dumps(out)}).eq(
+        "id", fan_msg_id
+    ).execute()
 
-        creator_msg_id = insert_creator_reply(thread_id, out["FINAL_MESSAGE"])
 
-        upsert_napoleon_details(fan_msg_id, thread_id, out)
-        SB.table("messages").update({"napoleon_output": json.dumps(out)}).eq(
-            "id", fan_msg_id
-        ).execute()
+def main():
+    while True:
+        job = receive(QUEUE, 30)
+        if not job:
+            time.sleep(1); continue
+        try:
+            process_job(job["payload"])
+            ack(job["row_id"])
+        except Exception:
+            traceback.print_exc()
 
-        ack(job["row_id"])
-    except Exception as e:
-        traceback.print_exc()
+
+if __name__ == "__main__":
+    main()

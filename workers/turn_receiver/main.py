@@ -1,7 +1,6 @@
 import os, json, hashlib, uuid, datetime
 
 import pytz
-import uvicorn
 from fastapi import FastAPI, HTTPException, Request
 from supabase import create_client
 from workers.lib.simple_queue import send
@@ -92,6 +91,4 @@ async def receive(request: Request):
 
     return {"message_id": msg_id, "thread_id": thread_id}
 
-# When Fly (or local dev) runs `python main.py`, start the server
-if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8080)
+# Fly runs uvicorn via fly.toml command

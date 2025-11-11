@@ -1,6 +1,6 @@
 import os, json, time, traceback, requests
 from supabase import create_client
-from workers.lib.simple_queue import receive, ack, send  # send only Kairos
+from workers.lib.simple_queue import receive, ack
 
 SB = create_client(
     os.getenv("SUPABASE_URL"),
@@ -23,18 +23,17 @@ def call_llm(prompt: str) -> dict:
     return json.loads(r.json()["output"])
 
 
-def process(payload):
-    data = payload
-    prompt = TPL.format(**data)
+def process_job(payload):
+    prompt = TPL.format(**payload)
     summary = call_llm(prompt)
 
     SB.table("plan_history").insert(
         {
-            "thread_id": data["thread_id"],
-            "horizon": data["horizon"],
-            "plan_status": data["plan_status"],
-            "previous_plan": data["previous_plan"],
-            "reason_for_change": data["reason_for_change"],
+            "thread_id": payload["thread_id"],
+            "horizon": payload["horizon"],
+            "plan_status": payload["plan_status"],
+            "previous_plan": payload["previous_plan"],
+            "reason_for_change": payload["reason_for_change"],
             "summary_json": json.dumps(summary, ensure_ascii=False),
         }
     ).execute()
@@ -46,8 +45,7 @@ def main():
         if not job:
             time.sleep(1); continue
         try:
-            payload = job["payload"]
-            process(payload)
+            process_job(job["payload"])
             ack(job["row_id"])
         except Exception:
             traceback.print_exc()
