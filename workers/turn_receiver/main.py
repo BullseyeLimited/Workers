@@ -9,7 +9,7 @@ from workers.lib.simple_queue import send
 # connect to Supabase using secrets that Fly will provide
 SB = create_client(
     os.environ["SUPABASE_URL"],
-    os.environ["SUPABASE_SERVICE_ROLE_KEY"],
+    None,
     options=ClientOptions(
         headers={
             "apikey": os.environ["SUPABASE_SERVICE_ROLE_KEY"],
