@@ -12,8 +12,18 @@ SB = create_client(os.getenv("SUPABASE_URL"),
 app = FastAPI()
 
 # -------------- helpers --------------
-def hash_fan(ext_id: str) -> str:
-    return hashlib.sha256(ext_id.encode()).hexdigest()
+def get_creator_id(handle: str) -> int:
+    row = (
+        SB.table("creators")
+        .select("id")
+        .eq("of_handle", handle)
+        .single()
+        .execute()
+        .data
+    )
+    if not row:
+        raise ValueError(f"creator_handle {handle} not found")
+    return row["id"]
 
 def enqueue_kairos(mid:int):
     # put the message id on the queue so kairos-worker processes it
@@ -29,7 +39,6 @@ async def receive(request: Request):
     except KeyError as exc:
         raise HTTPException(422, f"Missing field: {exc.args[0]}") from exc
 
-    thread_id = payload.get("thread_id")
     fan_id = payload.get("fan_ext_id")
 
     ext_id = payload.get("ext_message_id") or str(uuid.uuid4())
@@ -37,35 +46,35 @@ async def receive(request: Request):
         tzinfo=pytz.UTC
     ).isoformat()
 
-    if not thread_id:
-        if not fan_id:
-            raise HTTPException(
-                400, "fan_ext_id is required when thread_id is not provided"
-            )
+    creator_id = get_creator_id(creator)
+    fan_hash = hashlib.sha256(fan_id.encode()).hexdigest()
 
+    thread = (
+        SB.table("threads")
+        .select("id,turn_count")
+        .eq("creator_id", creator_id)
+        .eq("fan_ext_id_hash", fan_hash)
+        .single()
+        .execute()
+        .data
+    )
+
+    if not thread:
         thread = (
             SB.table("threads")
-            .select("id")
-            .eq("creator_handle", creator)
-            .eq("fan_ext_id_hash", hash_fan(fan_id))
-            .single()
-            .execute()
-            .data
-        )
-        if thread:
-            thread_id = thread["id"]
-        else:
-            thread_id = (
-                SB.table("threads")
-                .insert(
-                    {
-                        "creator_handle": creator,
-                        "fan_ext_id_hash": hash_fan(fan_id),
-                    }
-                )
-                .execute()
-                .data[0]["id"]
+            .insert(
+                {
+                    "creator_id": creator_id,
+                    "fan_ext_id_hash": fan_hash,
+                    "turn_count": 0,
+                }
             )
+            .execute()
+            .data[0]
+        )
+
+    thread_id = thread["id"]
+    turn_index = (thread.get("turn_count") or 0) + 1
 
     res = (
         SB.table("messages")
@@ -77,6 +86,8 @@ async def receive(request: Request):
                 "message_text": text,
                 "source_channel": payload.get("source_channel") or "live",
                 "created_at": ts,
+                "creator_id": creator_id,
+                "turn_index": turn_index,
             },
             upsert=False,
         )
