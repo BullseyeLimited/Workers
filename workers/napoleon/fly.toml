@@ -6,7 +6,7 @@ primary_region = "fra"
   context    = "../.."
 
 [processes]
-  app = "python workers/napoleon/main.py"
+  app = "python -m workers.napoleon.main"
 
 [deploy]
   min_machines_running = 1

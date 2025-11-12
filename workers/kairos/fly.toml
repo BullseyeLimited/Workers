@@ -6,7 +6,7 @@ primary_region = "fra"
   context    = "../.."
 
 [processes]
-  app = "python workers/kairos/main.py"
+  app = "python -m workers.kairos.main"
 
 [deploy]
   min_machines_running = 1
