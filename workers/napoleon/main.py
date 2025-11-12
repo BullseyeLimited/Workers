@@ -5,7 +5,7 @@ import traceback
 import requests
 from supabase import create_client
 
-from lib.prompt_builder import build_prompt, live_turn_window
+from workers.lib.prompt_builder import build_prompt, live_turn_window
 from workers.lib.simple_queue import receive, ack, send
 
 SB = create_client(

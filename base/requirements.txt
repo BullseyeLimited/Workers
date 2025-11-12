@@ -2,3 +2,6 @@ supabase
 psycopg[binary]
 pgmq
 requests
+fastapi
+uvicorn[standard]
+pytz

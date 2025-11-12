@@ -11,7 +11,7 @@ from typing import Any, Dict
 import requests
 from supabase import create_client
 
-from lib.prompt_builder import build_prompt, live_turn_window
+from workers.lib.prompt_builder import build_prompt, live_turn_window
 from workers.lib.simple_queue import receive, ack, send
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
