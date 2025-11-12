@@ -9,5 +9,14 @@ primary_region = "fra"
   web = "uvicorn workers.turn_receiver.main:app --host 0.0.0.0 --port 8080"
 
 [[services]]
+  protocol = "tcp"
   internal_port = 8080
   processes     = ["web"]
+
+  [[services.ports]]
+    handlers = ["http"]
+    port     = 80
+
+  [[services.ports]]
+    handlers = ["tls", "http"]
+    port     = 443
