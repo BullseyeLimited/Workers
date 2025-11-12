@@ -5,4 +5,8 @@ primary_region = "fra"
   dockerfile = "../../base/Dockerfile"
   context    = "../.."
 
-command = ["python", "workers/historian/main.py"]
+[processes]
+  app = "python workers/historian/main.py"
+
+[deploy]
+  min_machines_running = 1

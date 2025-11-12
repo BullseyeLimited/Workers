@@ -5,9 +5,8 @@ primary_region = "fra"
   dockerfile = "../../base/Dockerfile"
   context    = "../.."
 
-command = ["python", "workers/napoleon/main.py"]
+[processes]
+  app = "python workers/napoleon/main.py"
 
-[[vm]]
-  cpu_kind = "shared"
-  cpus = 1
-  memory = "1gb"
+[deploy]
+  min_machines_running = 1
