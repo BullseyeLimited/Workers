@@ -3,18 +3,19 @@ import os, json, hashlib, uuid, datetime
 import pytz
 from fastapi import FastAPI, HTTPException, Request
 from supabase import create_client
+from supabase.client import ClientOptions
 from workers.lib.simple_queue import send
 
 # connect to Supabase using secrets that Fly will provide
 SB = create_client(
-    os.getenv("SUPABASE_URL"),
-    os.getenv("SUPABASE_SERVICE_ROLE_KEY"),
-    options={
-        "headers": {
-            "apikey": os.getenv("SUPABASE_SERVICE_ROLE_KEY"),
-            "Authorization": f"Bearer {os.getenv('SUPABASE_SERVICE_ROLE_KEY')}",
+    os.environ["SUPABASE_URL"],
+    os.environ["SUPABASE_SERVICE_ROLE_KEY"],
+    options=ClientOptions(
+        headers={
+            "apikey": os.environ["SUPABASE_SERVICE_ROLE_KEY"],
+            "Authorization": f"Bearer {os.environ['SUPABASE_SERVICE_ROLE_KEY']}",
         }
-    },
+    ),
 )
 
 app = FastAPI()
