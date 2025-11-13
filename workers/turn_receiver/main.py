@@ -21,17 +21,16 @@ app = FastAPI()
 
 # -------------- helpers --------------
 def get_creator_id(handle: str) -> int:
-    row = (
+    data = (
         SB.table("creators")
         .select("id")
         .eq("of_handle", handle)
-        .single()
         .execute()
         .data
     )
-    if not row:
-        raise ValueError(f"creator_handle {handle} not found")
-    return row["id"]
+    if not data:
+        raise HTTPException(404, f"unknown creator_handle {handle}")
+    return data[0]["id"]
 
 def enqueue_kairos(mid:int):
     # put the message id on the queue so kairos-worker processes it
@@ -57,17 +56,18 @@ async def receive(request: Request):
     creator_id = get_creator_id(creator)
     fan_hash = hashlib.sha256(fan_id.encode()).hexdigest()
 
-    thread = (
+    thread_rows = (
         SB.table("threads")
         .select("id,turn_count")
         .eq("creator_id", creator_id)
         .eq("fan_ext_id_hash", fan_hash)
-        .single()
         .execute()
         .data
     )
 
-    if not thread:
+    if thread_rows:
+        thread = thread_rows[0]
+    else:
         thread = (
             SB.table("threads")
             .insert(
