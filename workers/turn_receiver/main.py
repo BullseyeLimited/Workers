@@ -12,7 +12,6 @@ SB = create_client(
     supabase_key=SERVICE_KEY,
     options=ClientOptions(
         headers={
-            "apikey": SERVICE_KEY,
             "Authorization": f"Bearer {SERVICE_KEY}",
         }
     ),
