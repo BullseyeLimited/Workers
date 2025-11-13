@@ -1,10 +1,13 @@
 import os, json, time, traceback, requests
-from supabase import create_client
+from supabase import create_client, ClientOptions
 from workers.lib.simple_queue import receive, ack
 
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
 SB = create_client(
-    os.getenv("SUPABASE_URL"),
-    os.getenv("SUPABASE_SERVICE_ROLE_KEY"),
+    SUPABASE_URL,
+    SUPABASE_KEY,
+    options=ClientOptions(headers={"apikey": SUPABASE_KEY}),
 )
 QUEUE = "plans.archive"
 TPL = open("/app/prompts/historian.txt").read()

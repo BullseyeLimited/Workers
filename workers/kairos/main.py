@@ -9,7 +9,7 @@ import traceback
 from typing import Any, Dict
 
 import requests
-from supabase import create_client
+from supabase import create_client, ClientOptions
 
 from workers.lib.prompt_builder import build_prompt, live_turn_window
 from workers.lib.simple_queue import receive, ack, send
@@ -20,7 +20,11 @@ SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
 if not SUPABASE_URL or not SUPABASE_KEY:
     raise RuntimeError("Missing Supabase configuration for Kairos")
 
-SB = create_client(SUPABASE_URL, SUPABASE_KEY)
+SB = create_client(
+    SUPABASE_URL,
+    SUPABASE_KEY,
+    options=ClientOptions(headers={"apikey": SUPABASE_KEY}),
+)
 QUEUE = "kairos.analyse"
 NAPOLEON_QUEUE = "napoleon.reply"
 
