@@ -94,7 +94,6 @@ async def receive(request: Request):
                 "message_text": text,
                 "source_channel": payload.get("source_channel") or "live",
                 "created_at": ts,
-                "creator_id": creator_id,
                 "turn_index": turn_index,
             },
             upsert=False,
