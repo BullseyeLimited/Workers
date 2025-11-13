@@ -6,12 +6,14 @@ from supabase import create_client, ClientOptions
 from workers.lib.simple_queue import send
 
 # connect to Supabase using secrets that Fly will provide
+SERVICE_KEY = os.environ["SUPABASE_SERVICE_ROLE_KEY"]
 SB = create_client(
     supabase_url=os.environ["SUPABASE_URL"],
-    supabase_key=os.environ["SUPABASE_SERVICE_ROLE_KEY"],
+    supabase_key=SERVICE_KEY,
     options=ClientOptions(
         headers={
-            "apikey": os.environ["SUPABASE_SERVICE_ROLE_KEY"],
+            "apikey": SERVICE_KEY,
+            "Authorization": f"Bearer {SERVICE_KEY}",
         }
     ),
 )

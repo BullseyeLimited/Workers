@@ -23,7 +23,12 @@ if not SUPABASE_URL or not SUPABASE_KEY:
 SB = create_client(
     SUPABASE_URL,
     SUPABASE_KEY,
-    options=ClientOptions(headers={"apikey": SUPABASE_KEY}),
+    options=ClientOptions(
+        headers={
+            "apikey": SUPABASE_KEY,
+            "Authorization": f"Bearer {SUPABASE_KEY}",
+        }
+    ),
 )
 QUEUE = "kairos.analyse"
 NAPOLEON_QUEUE = "napoleon.reply"

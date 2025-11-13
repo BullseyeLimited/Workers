@@ -14,7 +14,12 @@ SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
 SB = create_client(
     SUPABASE_URL,
     SUPABASE_KEY,
-    options=ClientOptions(headers={"apikey": SUPABASE_KEY}),
+    options=ClientOptions(
+        headers={
+            "apikey": SUPABASE_KEY,
+            "Authorization": f"Bearer {SUPABASE_KEY}",
+        }
+    ),
 )
 QUEUE = "napoleon.reply"
 HORIZONS = ["episode", "chapter", "season", "year", "lifetime"]
