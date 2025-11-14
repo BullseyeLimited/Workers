@@ -187,7 +187,8 @@ def live_turn_window(
         sb.table("messages")
         .select(
             "id,turn_index,sender,message_text,"
-            "message_ai_details(kairos_summary)"
+            "message_ai_details:message_ai_details!"
+            "message_ai_details_message_id_fkey(kairos_summary)"
         )
         .eq("thread_id", thread_id)
         .lte("turn_index", boundary_turn)
@@ -252,7 +253,10 @@ def latest_kairos_json(thread_id: int, *, client=None) -> str:
     sb = _resolve_client(client)
     row = (
         sb.table("messages")
-        .select("message_ai_details")
+        .select(
+            "message_ai_details:message_ai_details!"
+            "message_ai_details_message_id_fkey(*)"
+        )
         .eq("thread_id", thread_id)
         .neq("message_ai_details", None)
         .order("turn_index", desc=True)
