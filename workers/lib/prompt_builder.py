@@ -243,22 +243,26 @@ def _clean_turn_text(text: Any) -> str:
 
 
 def latest_kairos_json(thread_id: int, *, client=None) -> str:
+    """Return the most recent Kairos analysis row for this thread."""
+
     sb = _resolve_client(client)
-    row = (
-        sb.table("messages")
-        .select(
-            "message_ai_details:message_ai_details!"
-            "message_ai_details_message_id_fkey(*)"
-        )
+    rows = (
+        sb.table("message_ai_details")
+        .select("*")
         .eq("thread_id", thread_id)
-        .neq("message_ai_details", None)
-        .order("turn_index", desc=True)
+        .eq("sender", "fan")
+        .eq("extract_status", "ok")
+        .order("message_id", desc=True)
         .limit(1)
         .execute()
         .data
+        or []
     )
-    payload = row[0]["message_ai_details"] if row else {}
-    return json.dumps(payload or {}, ensure_ascii=False)
+
+    if not rows:
+        return ""
+
+    return json.dumps(rows[0], ensure_ascii=False)
 
 
 def latest_plan_fields(thread_id: int, *, client=None) -> dict:
