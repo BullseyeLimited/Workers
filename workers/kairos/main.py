@@ -94,9 +94,6 @@ def process_job(payload: Dict[str, Any], row_id: int) -> bool:
     analysis = structured
 
     # ---------- DB write-back for Kairos ----------
-    import hashlib, json, time
-    from datetime import datetime, timezone
-
     def upsert_kairos_details(msg_id: int, thread_id: int, analysis: dict):
         row = {
             "message_id": msg_id,
