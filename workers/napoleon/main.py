@@ -1,7 +1,6 @@
 import json, os, time
 import traceback
 
-import requests
 from supabase import create_client, ClientOptions
 
 from workers.lib.prompt_builder import build_prompt, live_turn_window
@@ -65,6 +64,23 @@ def insert_creator_reply(thread_id: int, final_text: str) -> int:
     return msg["id"]
 
 
+def runpod_call(prompt: str) -> dict:
+    return {
+        "TACTICAL_PLAN_3TURNS": {"plan": "fake 3-turn plan"},
+        "MULTI_HORIZON_PLAN": {
+            "EPISODE": {"PLAN": "fake episode"},
+            "CHAPTER": {"PLAN": "fake chapter"},
+            "SEASON": {"PLAN": "fake season"},
+            "YEAR": {"PLAN": "fake year"},
+            "LIFETIME": {"PLAN": "fake lifetime"},
+        },
+        "RETHINK_HORIZONS": {"note": "fake rethink"},
+        "FINAL_MESSAGE": "[TEST] This is a fake Napoleon reply.",
+        "EXTRAS": {"stub": True},
+        "HISTORIAN_ENTRY": {"note": "fake historian"},
+    }
+
+
 def process_job(payload):
     msg_id = payload["message_id"]
 
@@ -104,12 +120,7 @@ def process_job(payload):
     prompt = build_prompt("napoleon", thread_id, raw_turns, client=SB)
 
     try:
-        rsp = requests.post(
-            os.getenv("RUNPOD_URL"),
-            headers={"Authorization": f"Bearer {os.getenv('RUNPOD_API_KEY')}"},
-            json={"prompt": prompt},
-        ).json()
-        out = json.loads(rsp["output"])
+        out = runpod_call(prompt)
     except Exception as exc:
         print("Napoleon error:", exc)
         return False
