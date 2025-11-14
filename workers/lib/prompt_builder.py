@@ -165,76 +165,59 @@ def _load_cards(thread_id: int, *, client=None) -> Dict[str, str]:
 def live_turn_window(
     thread_id: int,
     boundary_turn: int | None = None,
+    limit: int = MAX_RECENT_TURNS,
     *,
     client=None,
 ) -> str:
-    """Return a zebra block of the latest turns around the Episode boundary."""
-
     sb = _resolve_client(client)
     if boundary_turn is None:
-        boundary_resp = (
-            sb.table("summaries")
-            .select("end_turn")
+        latest = (
+            sb.table("messages")
+            .select("turn_index")
             .eq("thread_id", thread_id)
-            .eq("tier", "episode")
-            .order("end_turn", desc=True)
+            .order("turn_index", desc=True)
             .limit(1)
-            .execute()
-        )
-        boundary_rows = boundary_resp.data or []
-        boundary_turn = (
-            boundary_rows[0].get("end_turn")
-            if boundary_rows and boundary_rows[0].get("end_turn") is not None
-            else 0
-        )
-
-    rows = (
-        sb.table("messages")
-        .select("id,turn_index,sender,message_text")
-        .eq("thread_id", thread_id)
-        .gt("turn_index", boundary_turn)
-        .order("turn_index", desc=True)
-        .limit(MAX_RECENT_TURNS)
-        .execute()
-        .data
-        or []
-    )
-    if not rows:
-        return "[No recent turns]"
-
-    fan_ids = [
-        row["id"]
-        for idx, row in enumerate(rows)
-        if idx < FRESH_FAN_SUMMARY_LIMIT and row.get("sender") == "fan"
-    ]
-
-    summaries: Dict[int, str] = {}
-    if fan_ids:
-        detail_rows = (
-            sb.table("message_ai_details")
-            .select("message_id,kairos_summary")
-            .in_("message_id", fan_ids)
             .execute()
             .data
             or []
         )
-        for detail in detail_rows:
-            summary = _extract_summary_text(detail.get("kairos_summary"))
-            if summary:
-                summaries[detail["message_id"]] = summary
+        boundary_turn = latest[0]["turn_index"] if latest else 0
 
-    lines = []
+    rows = (
+        sb.table("messages")
+        .select(
+            "id,turn_index,sender,message_text,"
+            "message_ai_details(kairos_summary)"
+        )
+        .eq("thread_id", thread_id)
+        .lte("turn_index", boundary_turn)
+        .order("turn_index", desc=True)
+        .limit(limit)
+        .execute()
+        .data
+        or []
+    )
+
+    if not rows:
+        return ""
+
+    half = len(rows) // 2 or 1
+    lines: list[str] = []
     for idx, row in enumerate(rows):
-        turn = row["turn_index"]
-        sender_key = row.get("sender") or ""
-        sender = sender_key.title() or "?"
-        text = _clean_turn_text(row.get("message_text"))
-        prefix = f"{turn:04d} {sender}: {text}"
-        if idx < FRESH_FAN_SUMMARY_LIMIT and sender_key == "fan":
-            summary = summaries.get(row["id"], "N/A")
-            lines.append(f"{prefix} / Summary: {summary}")
+        sender_key = (row.get("sender") or "").strip()[:1].upper() or "?"
+        text = row.get("message_text") or ""
+        details = row.get("message_ai_details") or {}
+        if isinstance(details, list):
+            details = details[0] if details else {}
+        summary = details.get("kairos_summary")
+
+        if idx < half:
+            lines.append(f"[{sender_key}] {text}")
         else:
-            lines.append(prefix)
+            if sender_key == "F" and summary:
+                lines.append(f"[F_SUM] {summary}")
+            else:
+                lines.append(f"[{sender_key}] {text}")
 
     return "\n".join(lines)
 

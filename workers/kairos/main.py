@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import time
@@ -52,7 +53,7 @@ def runpod_call(prompt: str) -> str:
         raise ValueError(f"Unexpected RunPod response: {payload}") from exc
 
 
-def process_job(payload: Dict[str, Any]) -> None:
+def process_job(payload: Dict[str, Any], row_id: int) -> bool:
     if not payload or "message_id" not in payload:
         raise ValueError(f"Malformed job payload: {payload}")
 
@@ -72,8 +73,24 @@ def process_job(payload: Dict[str, Any]) -> None:
     raw_turns = live_turn_window(thread_id, client=SB)
     prompt = build_prompt("kairos", thread_id, raw_turns, client=SB)
 
-    raw_text = runpod_call(prompt)
-    structured = json.loads(raw_text)
+    try:
+        raw_text = runpod_call(prompt)
+        structured = json.loads(raw_text)
+    except Exception as exc:  # noqa: BLE001
+        SB.table("message_ai_details").upsert(
+            {
+                "message_id": fan_msg_id,
+                "thread_id": thread_id,
+                "sender": "fan",
+                "raw_hash": hashlib.sha256(prompt.encode("utf-8")).hexdigest(),
+                "extract_status": "failed",
+                "extract_error": str(exc),
+            },
+            on_conflict="message_id",
+        ).execute()
+        ack(row_id)
+        return False
+
     analysis = structured
 
     # ---------- DB write-back for Kairos ----------
@@ -118,6 +135,7 @@ def process_job(payload: Dict[str, Any]) -> None:
     SB.table("message_ai_details").insert(record).execute()
 
     send(NAPOLEON_QUEUE, {"message_id": fan_msg_id, "thread_id": thread_id})
+    return True
 
 
 def _build_ai_detail_payload(
@@ -162,10 +180,11 @@ if __name__ == "__main__":
         job = receive(QUEUE, 30)
         if not job:
             time.sleep(1); continue
+        row_id = job["row_id"]
         try:
             payload = job["payload"]
-            process_job(payload)
-            ack(job["row_id"])
+            if process_job(payload, row_id):
+                ack(row_id)
         except Exception as exc:  # noqa: BLE001
             print("Kairos error:", exc)
             traceback.print_exc()
