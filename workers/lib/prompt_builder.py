@@ -102,7 +102,7 @@ def make_block(thread_id: int, tier: str, limit: int = 4, *, client=None) -> str
     response = (
         sb.table("summaries")
         .select(
-            "id,tier,label,start_turn,end_turn,"
+            "id,start_turn,end_turn,"
             "narrative,narrative_text,narrative_summary,narrative_card," \
             "abstract,abstract_text,abstract_summary,abstract_card"
         )
@@ -118,13 +118,11 @@ def make_block(thread_id: int, tier: str, limit: int = 4, *, client=None) -> str
 
     blocks = []
     for idx, row in enumerate(reversed(rows), 1):
-        label = row.get("label") or row.get("title")
-        if not label:
-            start, end = row.get("start_turn"), row.get("end_turn")
-            if start is not None and end is not None:
-                label = f"{tier.title()} {start}-{end}"
-            else:
-                label = f"{tier.title()} #{row.get('id') or idx}"
+        start, end = row.get("start_turn"), row.get("end_turn")
+        if start is not None and end is not None:
+            label = f"{tier.title()} {start}-{end}"
+        else:
+            label = f"{tier.title()} #{row.get('id') or idx}"
         narrative = _extract_first(row, NARRATIVE_KEYS)
         abstract = _extract_first(row, ABSTRACT_KEYS)
         if narrative:
