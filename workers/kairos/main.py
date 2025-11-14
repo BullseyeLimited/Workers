@@ -11,7 +11,6 @@ from typing import Any, Dict
 
 import requests
 from supabase import create_client, ClientOptions
-from datetime import datetime, timezone
 
 from workers.lib.prompt_builder import build_prompt, live_turn_window
 from workers.lib.simple_queue import receive, ack, send
@@ -95,6 +94,9 @@ def process_job(payload: Dict[str, Any], row_id: int) -> bool:
     analysis = structured
 
     # ---------- DB write-back for Kairos ----------
+    import hashlib, json, time
+    from datetime import datetime, timezone
+
     def upsert_kairos_details(msg_id: int, thread_id: int, analysis: dict):
         row = {
             "message_id": msg_id,

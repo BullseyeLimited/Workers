@@ -1,11 +1,9 @@
 import os, json, datetime, time
-from supabase import create_client, ClientOptions
+from supabase import create_client
 
-SERVICE_KEY = os.environ["SUPABASE_SERVICE_ROLE_KEY"]
 SB = create_client(
-    os.environ["SUPABASE_URL"],
-    SERVICE_KEY,
-    options=ClientOptions(headers={"Authorization": f"Bearer {SERVICE_KEY}"}),
+    os.getenv("SUPABASE_URL"),
+    os.getenv("SUPABASE_SERVICE_ROLE_KEY"),
 )
 
 
