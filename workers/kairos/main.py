@@ -102,10 +102,9 @@ def process_job(payload: Dict[str, Any], row_id: int) -> bool:
             "message_id": msg_id,
             "thread_id": thread_id,
             "sender": "fan",
-            "raw_hash": hashlib.sha256(
-                json.dumps(analysis, sort_keys=True).encode()
-            ).hexdigest(),
+            "raw_hash": hashlib.sha256(prompt.encode("utf-8")).hexdigest(),
             "extract_status": "ok",
+            "extract_error": None,
             "extracted_at": datetime.now(timezone.utc).isoformat(),
             "strategic_narrative": analysis["STRATEGIC_NARRATIVE"],
             "alignment_status": json.dumps(analysis["ALIGNMENT_STATUS"]),
@@ -114,6 +113,7 @@ def process_job(payload: Dict[str, Any], row_id: int) -> bool:
             "psychological_levers": json.dumps(analysis["PSYCHOLOGICAL_LEVERS"]),
             "risks": json.dumps(analysis["RISKS"]),
             "kairos_summary": analysis["TURN_MICRO_NOTE"]["SUMMARY"],
+            "extras": json.dumps(analysis.get("EXTRAS", {})),
         }
         SB.table("message_ai_details").upsert(
             row, on_conflict="message_id"
@@ -125,53 +125,8 @@ def process_job(payload: Dict[str, Any], row_id: int) -> bool:
         "id", fan_msg_id
     ).execute()
 
-    record = _build_ai_detail_payload(
-        structured,
-        raw_text,
-        fan_msg_id,
-        thread_id,
-        message_row.get("sender", "fan"),
-    )
-    SB.table("message_ai_details").insert(record).execute()
-
     send(NAPOLEON_QUEUE, {"message_id": fan_msg_id, "thread_id": thread_id})
     return True
-
-
-def _build_ai_detail_payload(
-    data: Dict[str, Any],
-    raw_text: str,
-    message_id: int,
-    thread_id: int,
-    sender: str,
-) -> Dict[str, Any]:
-    required_fields = [
-        "STRATEGIC_NARRATIVE",
-        "ALIGNMENT_STATUS",
-        "CONVERSATION_CRITICALITY",
-        "TACTICAL_SIGNALS",
-        "PSYCHOLOGICAL_LEVERS",
-        "RISKS",
-        "TURN_MICRO_NOTE",
-    ]
-    missing = [field for field in required_fields if field not in data]
-    if missing:
-        raise ValueError(f"Kairos output missing fields: {missing}")
-
-    return {
-        "message_id": message_id,
-        "thread_id": thread_id,
-        "sender": sender,
-        "strategic_narrative": data["STRATEGIC_NARRATIVE"],
-        "alignment_status": json.dumps(data["ALIGNMENT_STATUS"]),
-        "conversation_criticality": data["CONVERSATION_CRITICALITY"],
-        "tactical_signals": data["TACTICAL_SIGNALS"],
-        "psychological_levers": data["PSYCHOLOGICAL_LEVERS"],
-        "risks": data["RISKS"],
-        "kairos_summary": json.dumps(data["TURN_MICRO_NOTE"]),
-        "raw_writer_json": raw_text,
-        "extract_status": "ok",
-    }
 
 
 if __name__ == "__main__":

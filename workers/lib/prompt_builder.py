@@ -102,13 +102,13 @@ def make_block(thread_id: int, tier: str, limit: int = 4, *, client=None) -> str
     response = (
         sb.table("summaries")
         .select(
-            "id,start_turn,end_turn,"
-            "narrative,narrative_text,narrative_summary,narrative_card," \
-            "abstract,abstract_text,abstract_summary,abstract_card"
+            "id,thread_id,tier,tier_index,"
+            "start_turn,end_turn,"
+            "narrative_summary,abstract_summary"
         )
         .eq("thread_id", thread_id)
         .eq("tier", tier)
-        .order("end_turn", desc=True)
+        .order("tier_index", desc=True)
         .limit(limit)
         .execute()
     )
@@ -123,41 +123,36 @@ def make_block(thread_id: int, tier: str, limit: int = 4, *, client=None) -> str
             label = f"{tier.title()} {start}-{end}"
         else:
             label = f"{tier.title()} #{row.get('id') or idx}"
-        narrative = _extract_first(row, NARRATIVE_KEYS)
-        abstract = _extract_first(row, ABSTRACT_KEYS)
+        narrative = row.get("narrative_summary")
+        abstract = row.get("abstract_summary")
         if narrative:
-            blocks.append(f"{label} - Narrative:\n{narrative.strip()}")
+            blocks.append(f"{label} – Narrative:\n{narrative.strip()}")
         if abstract:
-            blocks.append(f"{label} - Abstract:\n{abstract.strip()}")
+            blocks.append(f"{label} – Abstract:\n{abstract.strip()}")
     return "\n\n".join(blocks)
 
 
 def _load_cards(thread_id: int, *, client=None) -> Dict[str, str]:
     sb = _resolve_client(client)
-    placeholders = {
-        macro: f"[{macro.replace('_', ' ').title()} unavailable]"
-        for macro in CARD_TAGS.values()
-    }
-    response = (
-        sb.table("cards")
-        .select("card_type,card_text,text,body,content")
-        .eq("thread_id", thread_id)
-        .in_("card_type", list(CARD_TAGS.keys()))
+    row = (
+        sb.table("threads")
+        .select(
+            "fan_identity_card,fan_psychic_card,"
+            "creator_identity_card,creator_psychic_card"
+        )
+        .eq("id", thread_id)
+        .single()
         .execute()
+        .data
+        or {}
     )
-    rows = response.data or []
-    for row in rows:
-        macro = CARD_TAGS.get(row.get("card_type"))
-        if not macro:
-            continue
-        text = _stringify(
-            row.get("card_text")
-            or row.get("text")
-            or row.get("body")
-            or row.get("content")
-        ).strip()
-        placeholders[macro] = text or placeholders[macro]
-    return placeholders
+
+    return {
+        "FAN_IDENTITY_CARD": row.get("fan_identity_card") or "[Fan Identity Card unavailable]",
+        "FAN_PSYCHIC_CARD": row.get("fan_psychic_card") or "[Fan Psychic Card unavailable]",
+        "CREATOR_IDENTITY_CARD": row.get("creator_identity_card") or "[Creator Identity Card unavailable]",
+        "CREATOR_PSYCHIC_CARD": row.get("creator_psychic_card") or "[Creator Psychic Card unavailable]",
+    }
 
 
 def live_turn_window(
@@ -189,7 +184,7 @@ def live_turn_window(
             "message_ai_details_message_id_fkey(kairos_summary)"
         )
         .eq("thread_id", thread_id)
-        .lte("turn_index", boundary_turn)
+        .gt("turn_index", boundary_turn)
         .order("turn_index", desc=True)
         .limit(limit)
         .execute()

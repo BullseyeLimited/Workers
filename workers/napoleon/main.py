@@ -1,5 +1,4 @@
 import json, os, time
-from datetime import datetime, timezone
 import traceback
 
 import requests
@@ -37,8 +36,6 @@ def upsert_napoleon_details(msg_id: int, thread_id: int, out: dict):
         "plan_lifetime": json.dumps(out["MULTI_HORIZON_PLAN"]["LIFETIME"]),
         "rethink_horizons": json.dumps(out["RETHINK_HORIZONS"]),
         "napoleon_final_message": out["FINAL_MESSAGE"],
-        "extract_status": "ok",
-        "extracted_at": datetime.now(timezone.utc).isoformat(),
     }
     SB.table("message_ai_details").upsert(row, on_conflict="message_id").execute()
 
@@ -118,11 +115,11 @@ def process_job(payload):
                     "id", thread_id
                 ).execute()
 
-    insert_creator_reply(thread_id, out["FINAL_MESSAGE"])
+    creator_msg_id = insert_creator_reply(thread_id, out["FINAL_MESSAGE"])
 
     upsert_napoleon_details(fan_msg_id, thread_id, out)
     SB.table("messages").update({"napoleon_output": json.dumps(out)}).eq(
-        "id", fan_msg_id
+        "id", creator_msg_id
     ).execute()
 
 
