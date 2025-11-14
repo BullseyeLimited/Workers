@@ -36,6 +36,8 @@ def upsert_napoleon_details(msg_id: int, thread_id: int, out: dict):
         "plan_lifetime": json.dumps(out["MULTI_HORIZON_PLAN"]["LIFETIME"]),
         "rethink_horizons": json.dumps(out["RETHINK_HORIZONS"]),
         "napoleon_final_message": out["FINAL_MESSAGE"],
+        "extras": json.dumps(out.get("EXTRAS", {})),
+        "historian_entry": json.dumps(out.get("HISTORIAN_ENTRY", {})),
     }
     SB.table("message_ai_details").upsert(row, on_conflict="message_id").execute()
 
@@ -64,18 +66,53 @@ def insert_creator_reply(thread_id: int, final_text: str) -> int:
 
 
 def process_job(payload):
-    fan_msg_id = payload["message_id"]
-    thread_id = payload["thread_id"]
+    msg_id = payload["message_id"]
 
-    turns = live_turn_window(thread_id)
-    prompt = build_prompt("napoleon", thread_id, turns)
+    msg = (
+        SB.table("messages")
+        .select("thread_id,sender,message_text,turn_index")
+        .eq("id", msg_id)
+        .single()
+        .execute()
+        .data
+    )
+    if not msg:
+        raise ValueError(f"Message {msg_id} not found")
 
-    rsp = requests.post(
-        os.getenv("RUNPOD_URL"),
-        headers={"Authorization": f"Bearer {os.getenv('RUNPOD_API_KEY')}"},
-        json={"prompt": prompt},
-    ).json()
-    out = json.loads(rsp["output"])
+    thread_id = msg["thread_id"]
+
+    analysis = (
+        SB.table("message_ai_details")
+        .select(
+            "strategic_narrative,"
+            "alignment_status,"
+            "conversation_criticality,"
+            "tactical_signals,"
+            "psychological_levers,"
+            "risks,"
+            "kairos_summary"
+        )
+        .eq("message_id", msg_id)
+        .single()
+        .execute()
+        .data
+    )
+    if not analysis:
+        raise ValueError(f"Kairos analysis missing for message {msg_id}")
+
+    raw_turns = live_turn_window(thread_id, client=SB)
+    prompt = build_prompt("napoleon", thread_id, raw_turns, client=SB)
+
+    try:
+        rsp = requests.post(
+            os.getenv("RUNPOD_URL"),
+            headers={"Authorization": f"Bearer {os.getenv('RUNPOD_API_KEY')}"},
+            json={"prompt": prompt},
+        ).json()
+        out = json.loads(rsp["output"])
+    except Exception as exc:
+        print("Napoleon error:", exc)
+        return False
 
     rethink = out["RETHINK_HORIZONS"]
     if rethink != "no":
@@ -102,7 +139,7 @@ def process_job(payload):
                 send(
                     "plans.archive",
                     {
-                        "fan_message_id": fan_msg_id,
+                        "fan_message_id": msg_id,
                         "thread_id": thread_id,
                         "horizon": hz,
                         "previous_plan": old_plan,
@@ -117,10 +154,11 @@ def process_job(payload):
 
     creator_msg_id = insert_creator_reply(thread_id, out["FINAL_MESSAGE"])
 
-    upsert_napoleon_details(fan_msg_id, thread_id, out)
+    upsert_napoleon_details(msg_id, thread_id, out)
     SB.table("messages").update({"napoleon_output": json.dumps(out)}).eq(
         "id", creator_msg_id
     ).execute()
+    return True
 
 
 if __name__ == "__main__":
@@ -128,8 +166,12 @@ if __name__ == "__main__":
         job = receive(QUEUE, 30)
         if not job:
             time.sleep(1); continue
+        row_id = job["row_id"]
         try:
-            process_job(job["payload"])
-            ack(job["row_id"])
-        except Exception:
+            payload = job["payload"]
+            process_job(payload)
+        except Exception as exc:  # noqa: BLE001
+            print("Napoleon error:", exc)
             traceback.print_exc()
+        finally:
+            ack(row_id)

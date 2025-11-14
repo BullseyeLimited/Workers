@@ -54,6 +54,10 @@ def runpod_call(prompt: str) -> str:
         raise ValueError(f"Unexpected RunPod response: {payload}") from exc
 
 
+def enqueue_napoleon_job(message_id: int) -> None:
+    send(NAPOLEON_QUEUE, {"message_id": message_id})
+
+
 def process_job(payload: Dict[str, Any], row_id: int) -> bool:
     if not payload or "message_id" not in payload:
         raise ValueError(f"Malformed job payload: {payload}")
@@ -123,7 +127,8 @@ def process_job(payload: Dict[str, Any], row_id: int) -> bool:
         "id", fan_msg_id
     ).execute()
 
-    send(NAPOLEON_QUEUE, {"message_id": fan_msg_id, "thread_id": thread_id})
+    if analysis is not None:
+        enqueue_napoleon_job(fan_msg_id)
     return True
 
 
