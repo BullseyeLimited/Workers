@@ -36,22 +36,29 @@ NAPOLEON_QUEUE = "napoleon.reply"
 
 
 def runpod_call(prompt: str) -> str:
-    url = os.getenv("RUNPOD_URL")
-    api_key = os.getenv("RUNPOD_API_KEY")
-    if not url or not api_key:
-        raise RuntimeError("RunPod configuration missing")
+    """
+    Call the RunPod vLLM OpenAI-compatible server and return text completion.
+    """
+    base = os.getenv("RUNPOD_URL", "").rstrip("/")
+    if not base:
+        raise RuntimeError("RUNPOD_URL is not set")
+
+    url = f"{base}/v1/completions"
     headers = {
         "Content-Type": "application/json",
-        "Authorization": f"Bearer {api_key}",
+        "Authorization": f"Bearer {os.getenv('RUNPOD_API_KEY', '')}",
     }
-    body = {"model": "gpt-4o-mini", "prompt": prompt, "max_tokens": 1200}
-    response = requests.post(url, headers=headers, json=body, timeout=120)
-    response.raise_for_status()
-    payload = response.json()
-    try:
-        return payload["choices"][0]["text"]
-    except (KeyError, IndexError) as exc:
-        raise ValueError(f"Unexpected RunPod response: {payload}") from exc
+    body = {
+        "model": os.getenv("RUNPOD_MODEL_NAME", "qwq-32b-ablit"),
+        "prompt": prompt,
+        "max_tokens": 16384,
+        "temperature": 0.3,
+    }
+
+    resp = requests.post(url, headers=headers, json=body, timeout=120)
+    resp.raise_for_status()
+    data = resp.json()
+    return data["choices"][0]["text"]
 
 
 def enqueue_napoleon_job(message_id: int) -> None:

@@ -1,6 +1,7 @@
 import json, os, time
 import traceback
 
+import requests
 from supabase import create_client, ClientOptions
 
 from workers.lib.prompt_builder import build_prompt, live_turn_window
@@ -64,21 +65,30 @@ def insert_creator_reply(thread_id: int, final_text: str) -> int:
     return msg["id"]
 
 
-def runpod_call(prompt: str) -> dict:
-    return {
-        "TACTICAL_PLAN_3TURNS": {"plan": "fake 3-turn plan"},
-        "MULTI_HORIZON_PLAN": {
-            "EPISODE": {"PLAN": "fake episode"},
-            "CHAPTER": {"PLAN": "fake chapter"},
-            "SEASON": {"PLAN": "fake season"},
-            "YEAR": {"PLAN": "fake year"},
-            "LIFETIME": {"PLAN": "fake lifetime"},
-        },
-        "RETHINK_HORIZONS": {"note": "fake rethink"},
-        "FINAL_MESSAGE": "[TEST] This is a fake Napoleon reply.",
-        "EXTRAS": {"stub": True},
-        "HISTORIAN_ENTRY": {"note": "fake historian"},
+def runpod_call(prompt: str) -> str:
+    """
+    Call the RunPod vLLM OpenAI-compatible server and return text completion.
+    """
+    base = os.getenv("RUNPOD_URL", "").rstrip("/")
+    if not base:
+        raise RuntimeError("RUNPOD_URL is not set")
+
+    url = f"{base}/v1/completions"
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {os.getenv('RUNPOD_API_KEY', '')}",
     }
+    body = {
+        "model": os.getenv("RUNPOD_MODEL_NAME", "qwq-32b-ablit"),
+        "prompt": prompt,
+        "max_tokens": 16384,
+        "temperature": 0.3,
+    }
+
+    resp = requests.post(url, headers=headers, json=body, timeout=120)
+    resp.raise_for_status()
+    data = resp.json()
+    return data["choices"][0]["text"]
 
 
 def process_job(payload):
@@ -120,7 +130,8 @@ def process_job(payload):
     prompt = build_prompt("napoleon", thread_id, raw_turns, client=SB)
 
     try:
-        out = runpod_call(prompt)
+        raw_text = runpod_call(prompt)
+        out = json.loads(raw_text)
     except Exception as exc:
         print("Napoleon error:", exc)
         return False
