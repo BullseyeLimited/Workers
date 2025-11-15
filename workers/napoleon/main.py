@@ -1,9 +1,12 @@
-import json, os, time
+import os
+import time
 import traceback
+from datetime import datetime, timezone
 
 import requests
 from supabase import create_client, ClientOptions
 
+from workers.lib.json_utils import safe_parse_model_json
 from workers.lib.prompt_builder import build_prompt, live_turn_window
 from workers.lib.simple_queue import receive, ack, send
 
@@ -23,23 +26,79 @@ QUEUE = "napoleon.reply"
 HORIZONS = ["episode", "chapter", "season", "year", "lifetime"]
 
 
-def upsert_napoleon_details(msg_id: int, thread_id: int, out: dict):
+def record_napoleon_failure(
+    fan_message_id: int,
+    thread_id: int,
+    prompt: str,
+    raw_text: str,
+    error_message: str,
+) -> None:
+    """
+    Mark a Napoleon job as failed on the message_ai_details row
+    attached to the *fan* message.
+    """
     row = {
-        "message_id": msg_id,
+        "message_id": fan_message_id,
         "thread_id": thread_id,
         "sender": "fan",
-        "tactical_plan_3turn": json.dumps(out["TACTICAL_PLAN_3TURNS"]),
-        "plan_episode": json.dumps(out["MULTI_HORIZON_PLAN"]["EPISODE"]),
-        "plan_chapter": json.dumps(out["MULTI_HORIZON_PLAN"]["CHAPTER"]),
-        "plan_season": json.dumps(out["MULTI_HORIZON_PLAN"]["SEASON"]),
-        "plan_year": json.dumps(out["MULTI_HORIZON_PLAN"]["YEAR"]),
-        "plan_lifetime": json.dumps(out["MULTI_HORIZON_PLAN"]["LIFETIME"]),
-        "rethink_horizons": json.dumps(out["RETHINK_HORIZONS"]),
-        "napoleon_final_message": out["FINAL_MESSAGE"],
-        "extras": json.dumps(out.get("EXTRAS", {})),
-        "historian_entry": json.dumps(out.get("HISTORIAN_ENTRY", {})),
+        "extract_status": "failed",
+        "extract_error": error_message,
+        "extracted_at": datetime.now(timezone.utc).isoformat(),
+        "extras": {
+            "napoleon_raw_text_preview": (raw_text or "")[:2000],
+        },
     }
-    SB.table("message_ai_details").upsert(row, on_conflict="message_id").execute()
+
+    (
+        SB.table("message_ai_details")
+        .upsert(row, on_conflict="message_id")
+        .execute()
+    )
+
+
+def upsert_napoleon_details(
+    fan_message_id: int,
+    thread_id: int,
+    prompt: str,
+    raw_text: str,
+    analysis: dict,
+    creator_message_id: int,
+) -> None:
+    """
+    Persist Napoleon planning fields for the fan turn.
+    The creator reply message already got inserted separately.
+    """
+    row = {
+        "message_id": fan_message_id,
+        "thread_id": thread_id,
+        "sender": "fan",
+        "extract_status": "ok",
+        "extract_error": None,
+        "extracted_at": datetime.now(timezone.utc).isoformat(),
+        "tactical_plan_3turn": analysis["TACTICAL_PLAN_3TURNS"],
+        "plan_episode": analysis["MULTI_HORIZON_PLAN"]["EPISODE"],
+        "plan_chapter": analysis["MULTI_HORIZON_PLAN"]["CHAPTER"],
+        "plan_season": analysis["MULTI_HORIZON_PLAN"]["SEASON"],
+        "plan_year": analysis["MULTI_HORIZON_PLAN"]["YEAR"],
+        "plan_lifetime": analysis["MULTI_HORIZON_PLAN"]["LIFETIME"],
+        "rethink_horizons": analysis["RETHINK_HORIZONS"],
+        "napoleon_final_message": analysis["FINAL_MESSAGE"],
+        "extras": {
+            "napoleon_raw_json": analysis,
+            "napoleon_raw_text_preview": (raw_text or "")[:2000],
+            "creator_reply_message_id": creator_message_id,
+        },
+        "historian_entry": analysis.get("HISTORIAN_ENTRY", {}),
+    }
+    (
+        SB.table("message_ai_details")
+        .upsert(row, on_conflict="message_id")
+        .execute()
+    )
+
+    SB.table("messages").update({"napoleon_output": analysis}).eq(
+        "id", creator_message_id
+    ).execute()
 
 
 def insert_creator_reply(thread_id: int, final_text: str) -> int:
@@ -92,22 +151,22 @@ def runpod_call(prompt: str) -> str:
 
 
 def process_job(payload):
-    msg_id = payload["message_id"]
+    fan_message_id = payload["message_id"]
 
     msg = (
         SB.table("messages")
         .select("thread_id,sender,message_text,turn_index")
-        .eq("id", msg_id)
+        .eq("id", fan_message_id)
         .single()
         .execute()
         .data
     )
     if not msg:
-        raise ValueError(f"Message {msg_id} not found")
+        raise ValueError(f"Message {fan_message_id} not found")
 
     thread_id = msg["thread_id"]
 
-    analysis = (
+    kairos_analysis = (
         SB.table("message_ai_details")
         .select(
             "strategic_narrative,"
@@ -118,27 +177,48 @@ def process_job(payload):
             "risks,"
             "kairos_summary"
         )
-        .eq("message_id", msg_id)
+        .eq("message_id", fan_message_id)
         .single()
         .execute()
         .data
     )
-    if not analysis:
-        raise ValueError(f"Kairos analysis missing for message {msg_id}")
+    if not kairos_analysis:
+        raise ValueError(f"Kairos analysis missing for message {fan_message_id}")
 
     raw_turns = live_turn_window(thread_id, client=SB)
     prompt = build_prompt("napoleon", thread_id, raw_turns, client=SB)
 
     try:
         raw_text = runpod_call(prompt)
-        out = json.loads(raw_text)
-    except Exception as exc:
-        print("Napoleon error:", exc)
-        return False
+    except Exception as exc:  # noqa: BLE001
+        record_napoleon_failure(
+            fan_message_id=fan_message_id,
+            thread_id=thread_id,
+            prompt=prompt,
+            raw_text="",
+            error_message=f"RunPod error: {exc}",
+        )
+        print(f"[Napoleon] RunPod error for fan message {fan_message_id}: {exc}")
+        return True
 
-    rethink = out["RETHINK_HORIZONS"]
+    analysis, parse_error = safe_parse_model_json(raw_text)
+
+    if parse_error is not None or analysis is None:
+        record_napoleon_failure(
+            fan_message_id=fan_message_id,
+            thread_id=thread_id,
+            prompt=prompt,
+            raw_text=raw_text,
+            error_message=f"JSON parse error: {parse_error}",
+        )
+        print(
+            f"[Napoleon] JSON parse error for fan message {fan_message_id}: {parse_error}"
+        )
+        return True
+
+    rethink = analysis["RETHINK_HORIZONS"]
     if rethink != "no":
-        multi_plan = out["MULTI_HORIZON_PLAN"]
+        multi_plan = analysis["MULTI_HORIZON_PLAN"]
         for hz in HORIZONS:
             new_plan = multi_plan[hz]["PLAN"]
             status = multi_plan[hz]["STATE"]
@@ -161,7 +241,7 @@ def process_job(payload):
                 send(
                     "plans.archive",
                     {
-                        "fan_message_id": msg_id,
+                        "fan_message_id": fan_message_id,
                         "thread_id": thread_id,
                         "horizon": hz,
                         "previous_plan": old_plan,
@@ -174,12 +254,16 @@ def process_job(payload):
                     "id", thread_id
                 ).execute()
 
-    creator_msg_id = insert_creator_reply(thread_id, out["FINAL_MESSAGE"])
+    creator_msg_id = insert_creator_reply(thread_id, analysis["FINAL_MESSAGE"])
 
-    upsert_napoleon_details(msg_id, thread_id, out)
-    SB.table("messages").update({"napoleon_output": json.dumps(out)}).eq(
-        "id", creator_msg_id
-    ).execute()
+    upsert_napoleon_details(
+        fan_message_id=fan_message_id,
+        thread_id=thread_id,
+        prompt=prompt,
+        raw_text=raw_text,
+        analysis=analysis,
+        creator_message_id=creator_msg_id,
+    )
     return True
 
 

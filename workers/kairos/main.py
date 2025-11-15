@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import os
 import time
 import traceback
@@ -13,6 +12,7 @@ from typing import Any, Dict
 import requests
 from supabase import create_client, ClientOptions
 
+from workers.lib.json_utils import safe_parse_model_json
 from workers.lib.prompt_builder import build_prompt, live_turn_window
 from workers.lib.simple_queue import receive, ack, send
 
@@ -61,6 +61,75 @@ def runpod_call(prompt: str) -> str:
     return data["choices"][0]["text"]
 
 
+def record_kairos_failure(
+    message_id: int,
+    thread_id: int,
+    prompt: str,
+    raw_text: str,
+    error_message: str,
+) -> None:
+    """
+    Upsert a message_ai_details row that marks this analysis as failed,
+    and keep a snippet of the raw model output for debugging.
+    """
+    row = {
+        "message_id": message_id,
+        "thread_id": thread_id,
+        "sender": "fan",
+        "raw_hash": hashlib.sha256(prompt.encode("utf-8")).hexdigest(),
+        "extract_status": "failed",
+        "extract_error": error_message,
+        "extracted_at": datetime.now(timezone.utc).isoformat(),
+        "extras": {
+            "kairos_raw_text_preview": (raw_text or "")[:2000],
+        },
+    }
+
+    (
+        SB.table("message_ai_details")
+        .upsert(row, on_conflict="message_id")
+        .execute()
+    )
+
+
+def upsert_kairos_details(
+    message_id: int,
+    thread_id: int,
+    prompt: str,
+    raw_text: str,
+    analysis: dict,
+) -> None:
+    """
+    Persist a successful Kairos analysis into message_ai_details.
+    Assumes `analysis` is the dict parsed from the model JSON.
+    """
+    row = {
+        "message_id": message_id,
+        "thread_id": thread_id,
+        "sender": "fan",
+        "raw_hash": hashlib.sha256(prompt.encode("utf-8")).hexdigest(),
+        "extract_status": "ok",
+        "extract_error": None,
+        "extracted_at": datetime.now(timezone.utc).isoformat(),
+        "strategic_narrative": analysis["STRATEGIC_NARRATIVE"],
+        "alignment_status": analysis["ALIGNMENT_STATUS"],
+        "conversation_criticality": int(analysis["CONVERSATION_CRITICALITY"]),
+        "tactical_signals": analysis["TACTICAL_SIGNALS"],
+        "psychological_levers": analysis["PSYCHOLOGICAL_LEVERS"],
+        "risks": analysis["RISKS"],
+        "kairos_summary": analysis["TURN_MICRO_NOTE"]["SUMMARY"],
+        "extras": {
+            "kairos_raw_json": analysis,
+            "kairos_raw_text_preview": (raw_text or "")[:2000],
+        },
+    }
+    (
+        SB.table("message_ai_details")
+        .upsert(row, on_conflict="message_id")
+        .execute()
+    )
+
+
 def enqueue_napoleon_job(message_id: int) -> None:
     send(NAPOLEON_QUEUE, {"message_id": message_id})
 
@@ -87,55 +156,42 @@ def process_job(payload: Dict[str, Any], row_id: int) -> bool:
 
     try:
         raw_text = runpod_call(prompt)
-        structured = json.loads(raw_text)
     except Exception as exc:  # noqa: BLE001
-        SB.table("message_ai_details").upsert(
-            {
-                "message_id": fan_msg_id,
-                "thread_id": thread_id,
-                "sender": "fan",
-                "raw_hash": hashlib.sha256(prompt.encode("utf-8")).hexdigest(),
-                "extract_status": "failed",
-                "extract_error": str(exc),
-            },
-            on_conflict="message_id",
-        ).execute()
-        ack(row_id)
-        return False
+        record_kairos_failure(
+            message_id=fan_msg_id,
+            thread_id=thread_id,
+            prompt=prompt,
+            raw_text="",
+            error_message=f"RunPod error: {exc}",
+        )
+        print(f"[Kairos] RunPod error for message {fan_msg_id}: {exc}")
+        return True
 
-    analysis = structured
+    analysis, parse_error = safe_parse_model_json(raw_text)
 
-    # ---------- DB write-back for Kairos ----------
-    def upsert_kairos_details(msg_id: int, thread_id: int, analysis: dict):
-        row = {
-            "message_id": msg_id,
-            "thread_id": thread_id,
-            "sender": "fan",
-            "raw_hash": hashlib.sha256(prompt.encode("utf-8")).hexdigest(),
-            "extract_status": "ok",
-            "extract_error": None,
-            "extracted_at": datetime.now(timezone.utc).isoformat(),
-            "strategic_narrative": analysis["STRATEGIC_NARRATIVE"],
-            "alignment_status": json.dumps(analysis["ALIGNMENT_STATUS"]),
-            "conversation_criticality": int(analysis["CONVERSATION_CRITICALITY"]),
-            "tactical_signals": json.dumps(analysis["TACTICAL_SIGNALS"]),
-            "psychological_levers": json.dumps(analysis["PSYCHOLOGICAL_LEVERS"]),
-            "risks": json.dumps(analysis["RISKS"]),
-            "kairos_summary": analysis["TURN_MICRO_NOTE"]["SUMMARY"],
-            "extras": json.dumps(analysis.get("EXTRAS", {})),
-        }
-        SB.table("message_ai_details").upsert(
-            row, on_conflict="message_id"
-        ).execute()
+    if parse_error is not None or analysis is None:
+        record_kairos_failure(
+            message_id=fan_msg_id,
+            thread_id=thread_id,
+            prompt=prompt,
+            raw_text=raw_text,
+            error_message=f"JSON parse error: {parse_error}",
+        )
+        print(f"[Kairos] JSON parse error for message {fan_msg_id}: {parse_error}")
+        return True
 
-    # write the row
-    upsert_kairos_details(fan_msg_id, thread_id, analysis)
-    SB.table("messages").update({"kairos_output": json.dumps(analysis)}).eq(
+    upsert_kairos_details(
+        message_id=fan_msg_id,
+        thread_id=thread_id,
+        prompt=prompt,
+        raw_text=raw_text,
+        analysis=analysis,
+    )
+    SB.table("messages").update({"kairos_output": analysis}).eq(
         "id", fan_msg_id
     ).execute()
 
-    if analysis is not None:
-        enqueue_napoleon_job(fan_msg_id)
+    enqueue_napoleon_job(fan_msg_id)
     return True
 
 
