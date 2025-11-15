@@ -147,7 +147,13 @@ def runpod_call(prompt: str) -> str:
     resp = requests.post(url, headers=headers, json=body, timeout=120)
     resp.raise_for_status()
     data = resp.json()
-    return data["choices"][0]["text"]
+    choice = data["choices"][0]
+    raw_text = (
+        choice.get("text")
+        or (choice.get("message") or {}).get("content")
+        or ""
+    )
+    return raw_text
 
 
 def process_job(payload):
