@@ -263,7 +263,17 @@ END ANALYST INPUT TEMPLATE
 
 
 <ANALYST_OUTPUT>  
-Return a JSON object with exactly these keys and structure. **Important**: The output must be valid JSON only (no Markdown, no extra text, no code fences). Do not include any XML-style tags or angle-bracket formats. Each key’s value should be filled with appropriate content based on the analysis method explained above.
+
+CRITICAL RULES FOR OUTPUT:
+- Output MUST be valid JSON. No trailing commas, no comments.
+- Do NOT wrap the JSON in markdown fences (no ```).
+- Do NOT add any text before or after the JSON object.
+- Do NOT include XML-style tags or angle brackets.
+- Use exactly these keys and structure.
+- Fill each string field with the analysis content described above.
+- Use only the allowed label values for alignment fields.
+Schema (structure and keys):
+
 
 {
     "STRATEGIC_NARRATIVE": "",
@@ -286,3 +296,4 @@ Return a JSON object with exactly these keys and structure. **Important**: The o
     }
 }
 </ANALYST_OUTPUT>
+
