@@ -63,6 +63,7 @@ Return a JSON object with exactly these keys:
 - RISKS: string
 - TURN_MICRO_NOTE: object with key SUMMARY (string).
 Output ONLY valid JSON matching this shape. Do not include markdown or prose.
+Do not paraphrase or inject new content; preserve the original wording in each field.
 """
 
 
@@ -120,7 +121,12 @@ def translate_kairos_output(raw_text: str) -> Tuple[dict | None, str | None]:
             messages=[
                 {
                     "role": "system",
-                    "content": "You convert Kairos analysis text into strict JSON for downstream processing. Output only JSON.",
+                    "content": (
+                        "You convert Kairos analysis text into STRICT JSON. "
+                        "DO NOT paraphrase, summarize, or omit any content. "
+                        "Copy every header/value exactly as given into the JSON fields. "
+                        "If a field is missing, use an empty string. Output ONLY valid JSON."
+                    ),
                 },
                 {
                     "role": "user",
