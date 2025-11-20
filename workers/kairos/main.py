@@ -3,18 +3,19 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import time
 import traceback
 from datetime import datetime, timezone
-from typing import Any, Dict
+from typing import Any, Dict, Tuple
 
 import requests
+from openai import OpenAI
 from supabase import create_client, ClientOptions
 
-from workers.lib.json_utils import safe_parse_model_json
 from workers.lib.prompt_builder import build_prompt, live_turn_window
-from workers.lib.simple_queue import receive, ack, send
+from workers.lib.simple_queue import ack, receive, send
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
@@ -33,6 +34,32 @@ SB = create_client(
 )
 QUEUE = "kairos.analyse"
 NAPOLEON_QUEUE = "napoleon.reply"
+
+TRANSLATOR_MODEL = os.getenv("TRANSLATOR_MODEL", "gpt-4o-mini")
+TRANSLATOR_BASE_URL = os.getenv("TRANSLATOR_BASE_URL", "https://api.openai.com/v1")
+TRANSLATOR_API_KEY = os.getenv("TRANSLATOR_API_KEY") or os.getenv("OPENAI_API_KEY")
+
+if not TRANSLATOR_API_KEY:
+    raise RuntimeError("Missing TRANSLATOR_API_KEY or OPENAI_API_KEY for Kairos translator")
+
+TRANSLATOR_CLIENT = OpenAI(
+    base_url=TRANSLATOR_BASE_URL,
+    api_key=TRANSLATOR_API_KEY,
+)
+
+KAIROS_TRANSLATOR_SCHEMA = """
+Return a JSON object with exactly these keys:
+- STRATEGIC_NARRATIVE: string
+- ALIGNMENT_STATUS: object with keys:
+    - SHORT_TERM_PLAN: one of ["aligned", "partial", "drift", "conflict"]
+    - LONG_TERM_PLANS: object with keys LIFETIME_PLAN, YEAR_PLAN, SEASON_PLAN, CHAPTER_PLAN, EPISODE_PLAN. Each value must be one of ["aligned", "partial", "drift", "conflict"].
+- CONVERSATION_CRITICALITY: integer 1-5 expressing urgency (5 = highest urgency). If the text is qualitative, map it to an integer 1 (low) through 5 (highest).
+- TACTICAL_SIGNALS: string
+- PSYCHOLOGICAL_LEVERS: string
+- RISKS: string
+- TURN_MICRO_NOTE: object with key SUMMARY (string).
+Output ONLY valid JSON matching this shape. Do not include markdown or prose.
+"""
 
 
 def runpod_call(prompt: str) -> str:
@@ -67,12 +94,123 @@ def runpod_call(prompt: str) -> str:
     return raw_text
 
 
+def translate_kairos_output(raw_text: str) -> Tuple[dict | None, str | None]:
+    """
+    Convert Kairos' freeform text into structured JSON using a translator model.
+
+    Returns (parsed_json, error_message). On success error_message is None.
+    """
+    if not raw_text or not raw_text.strip():
+        return None, "empty_raw_text"
+
+    try:
+        resp = TRANSLATOR_CLIENT.chat.completions.create(
+            model=TRANSLATOR_MODEL,
+            response_format={"type": "json_object"},
+            messages=[
+                {
+                    "role": "system",
+                    "content": "You convert Kairos analysis text into strict JSON for downstream processing. Output only JSON.",
+                },
+                {
+                    "role": "user",
+                    "content": f"{KAIROS_TRANSLATOR_SCHEMA.strip()}\n\nRaw Kairos analysis:\n{raw_text}",
+                },
+            ],
+            temperature=0,
+            max_tokens=1200,
+        )
+    except Exception as exc:  # noqa: BLE001
+        return None, f"Translator API error: {exc}"
+
+    message = resp.choices[0].message
+    content = (message.content or "").strip()
+    if not content:
+        return None, "translator_empty_response"
+
+    try:
+        parsed = json.loads(content)
+    except Exception as exc:  # noqa: BLE001
+        return None, f"Translator JSON decode error: {exc}"
+
+    return parsed, None
+
+
+def _validated_analysis(fragments: dict) -> dict:
+    """
+    Ensure all required fields exist and have the right shapes before persisting.
+    Raises ValueError on missing or invalid data.
+    """
+    if not isinstance(fragments, dict):
+        raise ValueError("analysis is not an object")
+
+    def _require_text(key: str) -> str:
+        if key not in fragments:
+            raise ValueError(f"missing field: {key}")
+        return str(fragments[key] or "").strip()
+
+    strategic_narrative = _require_text("STRATEGIC_NARRATIVE")
+
+    alignment = fragments.get("ALIGNMENT_STATUS")
+    if not isinstance(alignment, dict):
+        raise ValueError("ALIGNMENT_STATUS must be an object")
+
+    def _normalize_status(value: Any) -> str:
+        v = str(value or "").strip().lower()
+        allowed = {"aligned", "partial", "drift", "conflict"}
+        if v not in allowed:
+            raise ValueError(f"invalid alignment status: {v}")
+        return v
+
+    st_plan = _normalize_status(alignment.get("SHORT_TERM_PLAN"))
+    long_plans = alignment.get("LONG_TERM_PLANS") or {}
+    if not isinstance(long_plans, dict):
+        raise ValueError("LONG_TERM_PLANS must be an object")
+    lt = {k: _normalize_status(long_plans.get(k)) for k in (
+        "LIFETIME_PLAN",
+        "YEAR_PLAN",
+        "SEASON_PLAN",
+        "CHAPTER_PLAN",
+        "EPISODE_PLAN",
+    )}
+
+    try:
+        conv_crit = int(fragments.get("CONVERSATION_CRITICALITY"))
+    except Exception as exc:  # noqa: BLE001
+        raise ValueError(f"invalid CONVERSATION_CRITICALITY: {exc}") from exc
+
+    tactical = _require_text("TACTICAL_SIGNALS")
+    levers = _require_text("PSYCHOLOGICAL_LEVERS")
+    risks = _require_text("RISKS")
+
+    micro = fragments.get("TURN_MICRO_NOTE")
+    if not isinstance(micro, dict):
+        raise ValueError("TURN_MICRO_NOTE must be an object")
+    micro_summary = str(micro.get("SUMMARY") or "").strip()
+    if not micro_summary:
+        raise ValueError("TURN_MICRO_NOTE.SUMMARY missing or empty")
+
+    return {
+        "STRATEGIC_NARRATIVE": strategic_narrative,
+        "ALIGNMENT_STATUS": {
+            "SHORT_TERM_PLAN": st_plan,
+            "LONG_TERM_PLANS": lt,
+        },
+        "CONVERSATION_CRITICALITY": conv_crit,
+        "TACTICAL_SIGNALS": tactical,
+        "PSYCHOLOGICAL_LEVERS": levers,
+        "RISKS": risks,
+        "TURN_MICRO_NOTE": {"SUMMARY": micro_summary},
+    }
+
+
 def record_kairos_failure(
     message_id: int,
     thread_id: int,
     prompt: str,
     raw_text: str,
     error_message: str,
+    translator_error: str | None = None,
 ) -> None:
     """
     Upsert a message_ai_details row that marks this analysis as failed,
@@ -86,6 +224,9 @@ def record_kairos_failure(
         "extract_status": "failed",
         "extract_error": error_message,
         "extracted_at": datetime.now(timezone.utc).isoformat(),
+        "kairos_prompt_raw": prompt,
+        "kairos_output_raw": raw_text,
+        "translator_error": translator_error,
         "extras": {
             "kairos_raw_text_preview": (raw_text or "")[:2000],
         },
@@ -117,6 +258,9 @@ def upsert_kairos_details(
         "extract_status": "ok",
         "extract_error": None,
         "extracted_at": datetime.now(timezone.utc).isoformat(),
+        "kairos_prompt_raw": prompt,
+        "kairos_output_raw": raw_text,
+        "translator_error": None,
         "strategic_narrative": analysis["STRATEGIC_NARRATIVE"],
         "alignment_status": analysis["ALIGNMENT_STATUS"],
         "conversation_criticality": int(analysis["CONVERSATION_CRITICALITY"]),
@@ -173,17 +317,33 @@ def process_job(payload: Dict[str, Any], row_id: int) -> bool:
         print(f"[Kairos] RunPod error for message {fan_msg_id}: {exc}")
         return True
 
-    analysis, parse_error = safe_parse_model_json(raw_text)
-
-    if parse_error is not None or analysis is None:
+    translated, translator_error = translate_kairos_output(raw_text)
+    if translator_error is not None or translated is None:
         record_kairos_failure(
             message_id=fan_msg_id,
             thread_id=thread_id,
             prompt=prompt,
             raw_text=raw_text,
-            error_message=f"JSON parse error: {parse_error}",
+            error_message="Translator failure",
+            translator_error=translator_error,
         )
-        print(f"[Kairos] JSON parse error for message {fan_msg_id}: {parse_error}")
+        print(
+            f"[Kairos] Translator failure for message {fan_msg_id}: {translator_error}"
+        )
+        return True
+
+    try:
+        analysis = _validated_analysis(translated)
+    except ValueError as exc:  # noqa: BLE001
+        record_kairos_failure(
+            message_id=fan_msg_id,
+            thread_id=thread_id,
+            prompt=prompt,
+            raw_text=raw_text,
+            error_message=f"Validation error: {exc}",
+            translator_error=None,
+        )
+        print(f"[Kairos] Validation error for message {fan_msg_id}: {exc}")
         return True
 
     upsert_kairos_details(

@@ -2,3 +2,4 @@ supabase
 psycopg[binary]
 pgmq
 requests
+openai>=1.35.0
