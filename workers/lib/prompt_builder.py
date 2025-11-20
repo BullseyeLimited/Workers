@@ -310,14 +310,14 @@ def recent_plan_summaries(
     )
 
 
-def build_prompt(
+def _render_template(
     template_name: str,
     thread_id: int,
     raw_turns: str,
     *,
     client=None,
 ) -> str:
-    """Load a template and replace all macro tags in one pass."""
+    """Shared renderer that replaces macros in a prompt template."""
 
     sb = _resolve_client(client)
     template = _load_template(template_name)
@@ -364,4 +364,40 @@ def build_prompt(
     return template
 
 
-__all__ = ["build_prompt", "live_turn_window", "make_block"]
+def build_prompt(
+    template_name: str,
+    thread_id: int,
+    raw_turns: str,
+    *,
+    client=None,
+) -> str:
+    """Load a template and replace all macro tags in one pass."""
+    return _render_template(template_name, thread_id, raw_turns, client=client)
+
+
+def build_prompt_sections(
+    template_name: str,
+    thread_id: int,
+    raw_turns: str,
+    *,
+    client=None,
+) -> tuple[str, str]:
+    """
+    Render a template and split into (system_prompt, user_message) for chat models.
+    Expects the template to contain <ANALYST_INPUT> ... </ANALYST_INPUT> markers.
+    """
+    rendered = _render_template(template_name, thread_id, raw_turns, client=client)
+    start = rendered.find("<ANALYST_INPUT>")
+    end = rendered.find("</ANALYST_INPUT>")
+
+    if start == -1 or end == -1 or end <= start:
+        # Fallback: treat entire prompt as user content
+        return rendered.strip(), ""
+
+    system_prompt = rendered[: start].strip()
+    user_body = rendered[start + len("<ANALYST_INPUT>") : end].strip()
+    user_message = f"<ANALYST_INPUT>\n{user_body}\n</ANALYST_INPUT>"
+    return system_prompt, user_message
+
+
+__all__ = ["build_prompt", "build_prompt_sections", "live_turn_window", "make_block"]

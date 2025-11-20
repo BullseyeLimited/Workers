@@ -14,7 +14,11 @@ import requests
 from openai import OpenAI
 from supabase import create_client, ClientOptions
 
-from workers.lib.prompt_builder import build_prompt, live_turn_window
+from workers.lib.prompt_builder import (
+    build_prompt,
+    build_prompt_sections,
+    live_turn_window,
+)
 from workers.lib.simple_queue import ack, receive, send
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
@@ -62,27 +66,33 @@ Output ONLY valid JSON matching this shape. Do not include markdown or prose.
 """
 
 
-def runpod_call(prompt: str) -> str:
+def runpod_call(system_prompt: str, user_message: str) -> tuple[str, dict]:
     """
-    Call the RunPod vLLM OpenAI-compatible server and return text completion.
+    Call the RunPod vLLM OpenAI-compatible server using chat completions.
+    Returns (raw_text, request_payload) for logging.
     """
     base = os.getenv("RUNPOD_URL", "").rstrip("/")
     if not base:
         raise RuntimeError("RUNPOD_URL is not set")
 
-    url = f"{base}/v1/completions"
+    url = f"{base}/v1/chat/completions"
     headers = {
         "Content-Type": "application/json",
         "Authorization": f"Bearer {os.getenv('RUNPOD_API_KEY', '')}",
     }
-    body = {
+    payload = {
         "model": os.getenv("RUNPOD_MODEL_NAME", "qwq-32b-ablit"),
-        "prompt": prompt,
-        "max_tokens": 16384,
-        "temperature": 0.3,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_message},
+        ],
+        "max_tokens": 2048,
+        "temperature": 0.0,
+        "top_p": 1,
+        "stop": ["### END"],
     }
 
-    resp = requests.post(url, headers=headers, json=body, timeout=120)
+    resp = requests.post(url, headers=headers, json=payload, timeout=120)
     resp.raise_for_status()
     data = resp.json()
     choice = data["choices"][0]
@@ -91,7 +101,7 @@ def runpod_call(prompt: str) -> str:
         or (choice.get("message") or {}).get("content")
         or ""
     )
-    return raw_text
+    return raw_text, payload
 
 
 def translate_kairos_output(raw_text: str) -> Tuple[dict | None, str | None]:
@@ -302,15 +312,24 @@ def process_job(payload: Dict[str, Any], row_id: int) -> bool:
 
     thread_id = message_row["thread_id"]
     raw_turns = live_turn_window(thread_id, client=SB)
-    prompt = build_prompt("kairos", thread_id, raw_turns, client=SB)
+
+    system_prompt, user_prompt = build_prompt_sections(
+        "kairos", thread_id, raw_turns, client=SB
+    )
 
     try:
-        raw_text = runpod_call(prompt)
+        raw_text, _request_payload = runpod_call(system_prompt, user_prompt)
     except Exception as exc:  # noqa: BLE001
         record_kairos_failure(
             message_id=fan_msg_id,
             thread_id=thread_id,
-            prompt=prompt,
+            prompt=json.dumps(
+                {
+                    "system": system_prompt,
+                    "user": user_prompt,
+                },
+                ensure_ascii=False,
+            ),
             raw_text="",
             error_message=f"RunPod error: {exc}",
         )
@@ -322,7 +341,13 @@ def process_job(payload: Dict[str, Any], row_id: int) -> bool:
         record_kairos_failure(
             message_id=fan_msg_id,
             thread_id=thread_id,
-            prompt=prompt,
+            prompt=json.dumps(
+                {
+                    "system": system_prompt,
+                    "user": user_prompt,
+                },
+                ensure_ascii=False,
+            ),
             raw_text=raw_text,
             error_message="Translator failure",
             translator_error=translator_error,
@@ -338,7 +363,13 @@ def process_job(payload: Dict[str, Any], row_id: int) -> bool:
         record_kairos_failure(
             message_id=fan_msg_id,
             thread_id=thread_id,
-            prompt=prompt,
+            prompt=json.dumps(
+                {
+                    "system": system_prompt,
+                    "user": user_prompt,
+                },
+                ensure_ascii=False,
+            ),
             raw_text=raw_text,
             error_message=f"Validation error: {exc}",
             translator_error=None,
@@ -349,7 +380,13 @@ def process_job(payload: Dict[str, Any], row_id: int) -> bool:
     upsert_kairos_details(
         message_id=fan_msg_id,
         thread_id=thread_id,
-        prompt=prompt,
+        prompt=json.dumps(
+                {
+                    "system": system_prompt,
+                    "user": user_prompt,
+                },
+                ensure_ascii=False,
+            ),
         raw_text=raw_text,
         analysis=analysis,
     )
