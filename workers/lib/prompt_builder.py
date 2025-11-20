@@ -387,8 +387,10 @@ def build_prompt_sections(
     Expects the template to contain <ANALYST_INPUT> ... </ANALYST_INPUT> markers.
     """
     rendered = _render_template(template_name, thread_id, raw_turns, client=client)
-    start = rendered.find("<ANALYST_INPUT>")
-    end = rendered.find("</ANALYST_INPUT>")
+
+    # Use the last <ANALYST_INPUT> block to avoid matching instructional mentions near the top.
+    start = rendered.rfind("<ANALYST_INPUT>")
+    end = rendered.rfind("</ANALYST_INPUT>")
 
     if start == -1 or end == -1 or end <= start:
         # Fallback: treat entire prompt as user content

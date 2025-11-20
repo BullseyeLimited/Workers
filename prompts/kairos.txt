@@ -243,4 +243,3 @@ You only WRITE your output later, as described in the output format section.
 
 END ANALYST INPUT TEMPLATE
 ────────────────────────────────────────────────────────────────────────
-
