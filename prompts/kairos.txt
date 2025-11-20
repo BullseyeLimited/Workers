@@ -131,6 +131,7 @@ Long-Term Plans: The stable objectives at each timeframe level – one each for 
 Affect & Intent: Uncover what the fan is really feeling and seeking at this moment. Interpret the subtext, needs, boundaries, and opportunities hidden in their message. This nuanced read ensures the next response feels truly personal and meaningful.
 
 Plain-Text Header Output & Requirements
+
 STRATEGIC_NARRATIVE
 (text)
 
@@ -242,3 +243,4 @@ You only WRITE your output later, as described in the output format section.
 
 END ANALYST INPUT TEMPLATE
 ────────────────────────────────────────────────────────────────────────
+
