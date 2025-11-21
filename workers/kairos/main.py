@@ -87,7 +87,7 @@ HEADER_PATTERN = re.compile(
     r"^[\s>*-]*\**\s*(?P<header>"
     r"STRATEGIC[_ ]NARRATIVE|ALIGNMENT[_ ]STATUS|CONVERSATION[_ ]CRITICALITY|"
     r"TACTICAL[_ ]SIGNALS|PSYCHOLOGICAL[_ ]LEVERS|RISKS|TURN[_ ]MICRO[_ ]NOTE)"
-    r")\s*\**\s*:?\s*$",
+    r"\s*\**\s*:?\s*$",
     re.IGNORECASE | re.MULTILINE,
 )
 
