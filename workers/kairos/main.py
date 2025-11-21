@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import time
 import traceback
 from datetime import datetime, timezone
@@ -65,6 +66,30 @@ Return a JSON object with exactly these keys:
 Output ONLY valid JSON matching this shape. Do not include markdown or prose.
 Do not paraphrase, summarize, or inject new content; preserve the original wording in each field.
 """
+
+HEADER_MAP = {
+    "STRATEGIC_NARRATIVE": "STRATEGIC_NARRATIVE",
+    "STRATEGIC NARRATIVE": "STRATEGIC_NARRATIVE",
+    "ALIGNMENT_STATUS": "ALIGNMENT_STATUS",
+    "ALIGNMENT STATUS": "ALIGNMENT_STATUS",
+    "CONVERSATION_CRITICALITY": "CONVERSATION_CRITICALITY",
+    "CONVERSATION CRITICALITY": "CONVERSATION_CRITICALITY",
+    "TACTICAL_SIGNALS": "TACTICAL_SIGNALS",
+    "TACTICAL SIGNALS": "TACTICAL_SIGNALS",
+    "PSYCHOLOGICAL_LEVERS": "PSYCHOLOGICAL_LEVERS",
+    "PSYCHOLOGICAL LEVERS": "PSYCHOLOGICAL_LEVERS",
+    "RISKS": "RISKS",
+    "TURN_MICRO_NOTE": "TURN_MICRO_NOTE",
+    "TURN MICRO NOTE": "TURN_MICRO_NOTE",
+}
+
+HEADER_PATTERN = re.compile(
+    r"^[\s>*-]*\**\s*(?P<header>"
+    r"STRATEGIC[_ ]NARRATIVE|ALIGNMENT[_ ]STATUS|CONVERSATION[_ ]CRITICALITY|"
+    r"TACTICAL[_ ]SIGNALS|PSYCHOLOGICAL[_ ]LEVERS|RISKS|TURN[_ ]MICRO[_ ]NOTE)"
+    r")\s*\**\s*:?\s*$",
+    re.IGNORECASE | re.MULTILINE,
+)
 
 
 def runpod_call(system_prompt: str, user_message: str) -> tuple[str, dict]:
@@ -152,6 +177,107 @@ def translate_kairos_output(raw_text: str) -> Tuple[dict | None, str | None]:
         return None, f"Translator JSON decode error: {exc}"
 
     return parsed, None
+
+
+def _parse_alignment_block(block: str) -> dict:
+    """
+    Try to extract alignment fields from a freeform block.
+    Falls back to putting the whole block in SHORT_TERM_PLAN if nothing is found.
+    """
+    st_plan = ""
+    lt_plans = {
+        "LIFETIME_PLAN": "",
+        "YEAR_PLAN": "",
+        "SEASON_PLAN": "",
+        "CHAPTER_PLAN": "",
+        "EPISODE_PLAN": "",
+    }
+
+    for line in block.splitlines():
+        lower = line.lower()
+        if "short" in lower and "plan" in lower and not st_plan:
+            if ":" in line:
+                st_plan = line.split(":", 1)[1].strip()
+            else:
+                st_plan = line.strip()
+        for key, label in (
+            ("LIFETIME_PLAN", "lifetime"),
+            ("YEAR_PLAN", "year"),
+            ("SEASON_PLAN", "season"),
+            ("CHAPTER_PLAN", "chapter"),
+            ("EPISODE_PLAN", "episode"),
+        ):
+            if label in lower and "plan" in lower:
+                if ":" in line:
+                    lt_plans[key] = line.split(":", 1)[1].strip()
+                else:
+                    lt_plans[key] = line.strip()
+
+    if not st_plan:
+        st_plan = block.strip()
+    # If no long-term items were found, keep them empty (or whole block if you prefer).
+    return {
+        "SHORT_TERM_PLAN": st_plan,
+        "LONG_TERM_PLANS": lt_plans,
+    }
+
+
+def parse_kairos_headers(raw_text: str) -> Tuple[dict | None, str | None]:
+    """
+    Parse the RunPod (Kairos) freeform text by header labels.
+    Returns (dict, None) on success; (None, error) on failure.
+    """
+    if not raw_text or not raw_text.strip():
+        return None, "empty_text"
+
+    lines = raw_text.splitlines()
+    matches: list[tuple[int, str]] = []
+    for idx, line in enumerate(lines):
+        m = HEADER_PATTERN.match(line)
+        if not m:
+            continue
+        raw_header = m.group("header")
+        normalized = HEADER_MAP.get(raw_header.upper().replace("_", " "), None)
+        if normalized:
+            matches.append((idx, normalized))
+
+    if not matches:
+        return None, "no_headers_found"
+
+    matches.sort(key=lambda x: x[0])
+    sections: dict[str, str] = {}
+    for i, (idx, key) in enumerate(matches):
+        start = idx + 1
+        end = matches[i + 1][0] if i + 1 < len(matches) else len(lines)
+        segments = lines[start:end]
+        sections[key] = "\n".join(segments).strip()
+
+    # Build analysis dict with defaults
+    analysis: dict[str, Any] = {
+        "STRATEGIC_NARRATIVE": sections.get("STRATEGIC_NARRATIVE", ""),
+        "ALIGNMENT_STATUS": _parse_alignment_block(
+            sections.get("ALIGNMENT_STATUS", "")
+        ),
+        "CONVERSATION_CRITICALITY": sections.get(
+            "CONVERSATION_CRITICALITY", ""
+        ),
+        "TACTICAL_SIGNALS": sections.get("TACTICAL_SIGNALS", ""),
+        "PSYCHOLOGICAL_LEVERS": sections.get("PSYCHOLOGICAL_LEVERS", ""),
+        "RISKS": sections.get("RISKS", ""),
+        "TURN_MICRO_NOTE": {"SUMMARY": ""},
+    }
+
+    tmn_block = sections.get("TURN_MICRO_NOTE", "")
+    if tmn_block:
+        # Try to pull after "summary:" if present, else whole block
+        summary = tmn_block
+        for line in tmn_block.splitlines():
+            if "summary" in line.lower():
+                summary = line.split(":", 1)[-1].strip() or summary
+                break
+        analysis["TURN_MICRO_NOTE"]["SUMMARY"] = summary.strip()
+
+    return analysis, None
 
 
 def _validated_analysis(fragments: dict) -> dict:
@@ -346,46 +472,57 @@ def process_job(payload: Dict[str, Any], row_id: int) -> bool:
         print(f"[Kairos] RunPod error for message {fan_msg_id}: {exc}")
         return True
 
-    translated, translator_error = translate_kairos_output(raw_text)
-    if translator_error is not None or translated is None:
-        record_kairos_failure(
-            message_id=fan_msg_id,
-            thread_id=thread_id,
-            prompt=json.dumps(
-                {
-                    "system": system_prompt,
-                    "user": user_prompt,
-                },
-                ensure_ascii=False,
-            ),
-            raw_text=raw_text,
-            error_message="Translator failure",
-            translator_error=translator_error,
-        )
-        print(
-            f"[Kairos] Translator failure for message {fan_msg_id}: {translator_error}"
-        )
-        return True
+    # Try code parser first
+    parsed, parse_error = parse_kairos_headers(raw_text)
+    analysis = None
+    if parsed is not None and parse_error is None:
+        try:
+            analysis = _validated_analysis(parsed)
+        except ValueError as exc:  # noqa: BLE001
+            print(f"[Kairos] Parser validation error for message {fan_msg_id}: {exc}")
+            analysis = None
 
-    try:
-        analysis = _validated_analysis(translated)
-    except ValueError as exc:  # noqa: BLE001
-        record_kairos_failure(
-            message_id=fan_msg_id,
-            thread_id=thread_id,
-            prompt=json.dumps(
-                {
-                    "system": system_prompt,
-                    "user": user_prompt,
-                },
-                ensure_ascii=False,
-            ),
-            raw_text=raw_text,
-            error_message=f"Validation error: {exc}",
-            translator_error=None,
-        )
-        print(f"[Kairos] Validation error for message {fan_msg_id}: {exc}")
-        return True
+    if analysis is None:
+        translated, translator_error = translate_kairos_output(raw_text)
+        if translator_error is not None or translated is None:
+            record_kairos_failure(
+                message_id=fan_msg_id,
+                thread_id=thread_id,
+                prompt=json.dumps(
+                    {
+                        "system": system_prompt,
+                        "user": user_prompt,
+                    },
+                    ensure_ascii=False,
+                ),
+                raw_text=raw_text,
+                error_message="Translator failure",
+                translator_error=translator_error,
+            )
+            print(
+                f"[Kairos] Translator failure for message {fan_msg_id}: {translator_error}"
+            )
+            return True
+
+        try:
+            analysis = _validated_analysis(translated)
+        except ValueError as exc:  # noqa: BLE001
+            record_kairos_failure(
+                message_id=fan_msg_id,
+                thread_id=thread_id,
+                prompt=json.dumps(
+                    {
+                        "system": system_prompt,
+                        "user": user_prompt,
+                    },
+                    ensure_ascii=False,
+                ),
+                raw_text=raw_text,
+                error_message=f"Validation error: {exc}",
+                translator_error=None,
+            )
+            print(f"[Kairos] Validation error for message {fan_msg_id}: {exc}")
+            return True
 
     upsert_kairos_details(
         message_id=fan_msg_id,
