@@ -307,7 +307,7 @@ def process_job(payload: Dict[str, Any], row_id: int) -> bool:
     fan_msg_id = payload["message_id"]
     message_row = (
         SB.table("messages")
-        .select("id,thread_id,sender")
+        .select("id,thread_id,sender,turn_index,message_text")
         .eq("id", fan_msg_id)
         .single()
         .execute()
@@ -317,10 +317,20 @@ def process_job(payload: Dict[str, Any], row_id: int) -> bool:
         raise ValueError(f"Message {fan_msg_id} missing")
 
     thread_id = message_row["thread_id"]
-    raw_turns = live_turn_window(thread_id, client=SB)
+    turn_index = message_row.get("turn_index")
+    latest_fan_text = message_row.get("message_text") or ""
+    raw_turns = live_turn_window(
+        thread_id,
+        boundary_turn=turn_index,
+        client=SB,
+    )
 
     system_prompt, user_prompt = build_prompt_sections(
-        "kairos", thread_id, raw_turns, client=SB
+        "kairos",
+        thread_id,
+        raw_turns,
+        latest_fan_text=latest_fan_text,
+        client=SB,
     )
 
     try:

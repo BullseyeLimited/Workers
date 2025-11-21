@@ -163,20 +163,7 @@ def live_turn_window(
     client=None,
 ) -> str:
     sb = _resolve_client(client)
-    if boundary_turn is None:
-        latest = (
-            sb.table("messages")
-            .select("turn_index")
-            .eq("thread_id", thread_id)
-            .order("turn_index", desc=True)
-            .limit(1)
-            .execute()
-            .data
-            or []
-        )
-        boundary_turn = latest[0]["turn_index"] if latest else 0
-
-    rows = (
+    query = (
         sb.table("messages")
         .select(
             "id,turn_index,sender,message_text,"
@@ -184,13 +171,14 @@ def live_turn_window(
             "message_ai_details_message_id_fkey(kairos_summary)"
         )
         .eq("thread_id", thread_id)
-        .gt("turn_index", boundary_turn)
         .order("turn_index", desc=True)
         .limit(limit)
-        .execute()
-        .data
-        or []
     )
+    if boundary_turn is not None:
+        # Exclude the current turn; only include earlier turns in the context window.
+        query = query.lt("turn_index", boundary_turn)
+
+    rows = query.execute().data or []
 
     if not rows:
         return ""
@@ -314,6 +302,7 @@ def _render_template(
     template_name: str,
     thread_id: int,
     raw_turns: str,
+    latest_fan_text: str | None = None,
     *,
     client=None,
 ) -> str:
@@ -333,8 +322,11 @@ def _render_template(
 
     context.update(latest_plan_fields(thread_id, client=sb))
 
-    first_line = raw_turns.splitlines()[0] if raw_turns else ""
-    context["FAN_LATEST_VERBATIM"] = first_line
+    if latest_fan_text is not None:
+        context["FAN_LATEST_VERBATIM"] = str(latest_fan_text)
+    else:
+        first_line = raw_turns.splitlines()[0] if raw_turns else ""
+        context["FAN_LATEST_VERBATIM"] = first_line
 
     context["ANALYST_ANALYSIS_JSON"] = latest_kairos_json(thread_id, client=sb)
 
@@ -368,17 +360,25 @@ def build_prompt(
     template_name: str,
     thread_id: int,
     raw_turns: str,
+    latest_fan_text: str | None = None,
     *,
     client=None,
 ) -> str:
     """Load a template and replace all macro tags in one pass."""
-    return _render_template(template_name, thread_id, raw_turns, client=client)
+    return _render_template(
+        template_name,
+        thread_id,
+        raw_turns,
+        latest_fan_text=latest_fan_text,
+        client=client,
+    )
 
 
 def build_prompt_sections(
     template_name: str,
     thread_id: int,
     raw_turns: str,
+    latest_fan_text: str | None = None,
     *,
     client=None,
 ) -> tuple[str, str]:
@@ -386,7 +386,13 @@ def build_prompt_sections(
     Render a template and split into (system_prompt, user_message) for chat models.
     Expects the template to contain <ANALYST_INPUT> ... </ANALYST_INPUT> markers.
     """
-    rendered = _render_template(template_name, thread_id, raw_turns, client=client)
+    rendered = _render_template(
+        template_name,
+        thread_id,
+        raw_turns,
+        latest_fan_text=latest_fan_text,
+        client=client,
+    )
 
     # Use the last <ANALYST_INPUT> block to avoid matching instructional mentions near the top.
     start = rendered.rfind("<ANALYST_INPUT>")
