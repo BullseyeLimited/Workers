@@ -55,15 +55,15 @@ KAIROS_TRANSLATOR_SCHEMA = """
 Return a JSON object with exactly these keys:
 - STRATEGIC_NARRATIVE: string
 - ALIGNMENT_STATUS: object with keys:
-    - SHORT_TERM_PLAN: one of ["aligned", "partial", "drift", "conflict"]
-    - LONG_TERM_PLANS: object with keys LIFETIME_PLAN, YEAR_PLAN, SEASON_PLAN, CHAPTER_PLAN, EPISODE_PLAN. Each value must be one of ["aligned", "partial", "drift", "conflict"].
-- CONVERSATION_CRITICALITY: integer 1-5 expressing urgency (5 = highest urgency). If the text is qualitative, map it to an integer 1 (low) through 5 (highest).
+    - SHORT_TERM_PLAN: string (accept any text; do not rewrite)
+    - LONG_TERM_PLANS: object with keys LIFETIME_PLAN, YEAR_PLAN, SEASON_PLAN, CHAPTER_PLAN, EPISODE_PLAN. Each value can be any text; do not rewrite.
+- CONVERSATION_CRITICALITY: string (accept any text; do not rewrite)
 - TACTICAL_SIGNALS: string
 - PSYCHOLOGICAL_LEVERS: string
 - RISKS: string
 - TURN_MICRO_NOTE: object with key SUMMARY (string).
 Output ONLY valid JSON matching this shape. Do not include markdown or prose.
-Do not paraphrase or inject new content; preserve the original wording in each field.
+Do not paraphrase, summarize, or inject new content; preserve the original wording in each field.
 """
 
 
@@ -123,9 +123,11 @@ def translate_kairos_output(raw_text: str) -> Tuple[dict | None, str | None]:
                     "role": "system",
                     "content": (
                         "You convert Kairos analysis text into STRICT JSON. "
-                        "DO NOT paraphrase, summarize, or omit any content. "
+                        "DO NOT paraphrase, summarize, invent, or omit any content. "
                         "Copy every header/value exactly as given into the JSON fields. "
-                        "If a field is missing, use an empty string. Output ONLY valid JSON."
+                        "If a field is missing, use an empty string. "
+                        "Alignment/status fields are free text; do not enforce enums. "
+                        "Output ONLY valid JSON."
                     ),
                 },
                 {
@@ -170,30 +172,22 @@ def _validated_analysis(fragments: dict) -> dict:
     alignment = fragments.get("ALIGNMENT_STATUS")
     if not isinstance(alignment, dict):
         raise ValueError("ALIGNMENT_STATUS must be an object")
-
-    def _normalize_status(value: Any) -> str:
-        v = str(value or "").strip().lower()
-        allowed = {"aligned", "partial", "drift", "conflict"}
-        if v not in allowed:
-            raise ValueError(f"invalid alignment status: {v}")
-        return v
-
-    st_plan = _normalize_status(alignment.get("SHORT_TERM_PLAN"))
+    st_plan = str(alignment.get("SHORT_TERM_PLAN") or "").strip()
     long_plans = alignment.get("LONG_TERM_PLANS") or {}
     if not isinstance(long_plans, dict):
         raise ValueError("LONG_TERM_PLANS must be an object")
-    lt = {k: _normalize_status(long_plans.get(k)) for k in (
-        "LIFETIME_PLAN",
-        "YEAR_PLAN",
-        "SEASON_PLAN",
-        "CHAPTER_PLAN",
-        "EPISODE_PLAN",
-    )}
+    lt = {
+        k: str(long_plans.get(k) or "").strip()
+        for k in (
+            "LIFETIME_PLAN",
+            "YEAR_PLAN",
+            "SEASON_PLAN",
+            "CHAPTER_PLAN",
+            "EPISODE_PLAN",
+        )
+    }
 
-    try:
-        conv_crit = int(fragments.get("CONVERSATION_CRITICALITY"))
-    except Exception as exc:  # noqa: BLE001
-        raise ValueError(f"invalid CONVERSATION_CRITICALITY: {exc}") from exc
+    conv_crit = str(fragments.get("CONVERSATION_CRITICALITY") or "").strip()
 
     tactical = _require_text("TACTICAL_SIGNALS")
     levers = _require_text("PSYCHOLOGICAL_LEVERS")
@@ -279,7 +273,7 @@ def upsert_kairos_details(
         "translator_error": None,
         "strategic_narrative": analysis["STRATEGIC_NARRATIVE"],
         "alignment_status": analysis["ALIGNMENT_STATUS"],
-        "conversation_criticality": int(analysis["CONVERSATION_CRITICALITY"]),
+        "conversation_criticality": analysis["CONVERSATION_CRITICALITY"],
         "tactical_signals": analysis["TACTICAL_SIGNALS"],
         "psychological_levers": analysis["PSYCHOLOGICAL_LEVERS"],
         "risks": analysis["RISKS"],
