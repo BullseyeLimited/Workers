@@ -107,14 +107,16 @@ def runpod_call(system_prompt: str, user_message: str) -> tuple[str, dict]:
         "Authorization": f"Bearer {os.getenv('RUNPOD_API_KEY', '')}",
     }
     payload = {
-        "model": os.getenv("RUNPOD_MODEL_NAME", "qwq-32b-ablit"),
+        "model": os.getenv("RUNPOD_MODEL_NAME", "gpt-oss-20b-uncensored"),
         "messages": [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_message},
         ],
-        "max_tokens": 2048,
-        "temperature": 0.0,
-        "top_p": 1,
+        # CRITICAL CHANGE 1: Increase tokens so it can finish thinking
+        "max_tokens": 8192,
+        # CRITICAL CHANGE 2: Raise temp to break the reasoning loop
+        "temperature": 0.6,
+        "top_p": 0.95,
         "stop": ["### END"],
     }
 
@@ -122,16 +124,26 @@ def runpod_call(system_prompt: str, user_message: str) -> tuple[str, dict]:
     resp.raise_for_status()
     data = resp.json()
 
-    # Try standard extraction
     raw_text = ""
     try:
         if "choices" in data and len(data["choices"]) > 0:
             choice = data["choices"][0]
-            raw_text = (
-                choice.get("text")
-                or (choice.get("message") or {}).get("content")
-                or ""
-            )
+            message = choice.get("message") or {}
+
+            # 1. Try standard content first
+            content = message.get("content")
+
+            # 2. Get reasoning (this model uses it heavily)
+            reasoning = message.get("reasoning") or message.get("reasoning_content")
+
+            if content:
+                raw_text = content
+            elif reasoning:
+                # Fallback: if content is null, use the reasoning as the output
+                # (This happens often with this specific model)
+                raw_text = reasoning
+            else:
+                raw_text = choice.get("text") or ""
     except Exception:
         pass
 
