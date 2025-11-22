@@ -117,7 +117,6 @@ def runpod_call(system_prompt: str, user_message: str) -> tuple[str, dict]:
         # CRITICAL CHANGE 2: Raise temp to break the reasoning loop
         "temperature": 0.6,
         "top_p": 0.95,
-        "stop": ["### END"],
     }
 
     resp = requests.post(url, headers=headers, json=payload, timeout=120)
