@@ -121,12 +121,25 @@ def runpod_call(system_prompt: str, user_message: str) -> tuple[str, dict]:
     resp = requests.post(url, headers=headers, json=payload, timeout=120)
     resp.raise_for_status()
     data = resp.json()
-    choice = data["choices"][0]
-    raw_text = (
-        choice.get("text")
-        or (choice.get("message") or {}).get("content")
-        or ""
-    )
+
+    # Try standard extraction
+    raw_text = ""
+    try:
+        if "choices" in data and len(data["choices"]) > 0:
+            choice = data["choices"][0]
+            raw_text = (
+                choice.get("text")
+                or (choice.get("message") or {}).get("content")
+                or ""
+            )
+    except Exception:
+        pass
+
+    # DEBUG FALLBACK: If we extracted nothing, dump the whole JSON object
+    # so it appears in the database logs for debugging.
+    if not raw_text:
+        raw_text = f"__DEBUG_FULL_RESPONSE__: {json.dumps(data)}"
+
     return raw_text, payload
 
 
