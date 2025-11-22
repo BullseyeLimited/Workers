@@ -112,9 +112,8 @@ def runpod_call(system_prompt: str, user_message: str) -> tuple[str, dict]:
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_message},
         ],
-        # CRITICAL CHANGE 1: Increase tokens so it can finish thinking
-        "max_tokens": 8192,
-        # CRITICAL CHANGE 2: Raise temp to break the reasoning loop
+        # REDUCED to fit inside RunPod's 100s proxy timeout
+        "max_tokens": 3500,
         "temperature": 0.6,
         "top_p": 0.95,
     }
