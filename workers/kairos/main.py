@@ -119,7 +119,7 @@ def runpod_call(system_prompt: str, user_message: str) -> tuple[str, dict]:
         "top_p": 0.95,
     }
 
-    resp = requests.post(url, headers=headers, json=payload, timeout=120)
+    resp = requests.post(url, headers=headers, json=payload, timeout=600)
     resp.raise_for_status()
     data = resp.json()
 
