@@ -384,7 +384,7 @@ def build_prompt_sections(
 ) -> tuple[str, str]:
     """
     Render a template and split into (system_prompt, user_message) for chat models.
-    Expects the template to contain <ANALYST_INPUT> ... </ANALYST_INPUT> markers.
+    Expects the template to contain a marked user block (e.g., <ANALYST_INPUT> or <NAPOLEON_INPUT>).
     """
     rendered = _render_template(
         template_name,
@@ -394,17 +394,22 @@ def build_prompt_sections(
         client=client,
     )
 
-    # Use the last <ANALYST_INPUT> block to avoid matching instructional mentions near the top.
-    start = rendered.rfind("<ANALYST_INPUT>")
-    end = rendered.rfind("</ANALYST_INPUT>")
+    # Prefer <NAPOLEON_INPUT> when present; otherwise fall back to analyst markers.
+    marker = "NAPOLEON_INPUT" if "<NAPOLEON_INPUT>" in rendered else "ANALYST_INPUT"
+    start_tag = f"<{marker}>"
+    end_tag = f"</{marker}>"
+
+    # Use the last block to avoid matching instructional mentions near the top.
+    start = rendered.rfind(start_tag)
+    end = rendered.rfind(end_tag)
 
     if start == -1 or end == -1 or end <= start:
         # Fallback: treat entire prompt as user content
         return rendered.strip(), ""
 
     system_prompt = rendered[: start].strip()
-    user_body = rendered[start + len("<ANALYST_INPUT>") : end].strip()
-    user_message = f"<ANALYST_INPUT>\n{user_body}\n</ANALYST_INPUT>"
+    user_body = rendered[start + len(start_tag) : end].strip()
+    user_message = f"{start_tag}\n{user_body}\n{end_tag}"
     return system_prompt, user_message
 
 
