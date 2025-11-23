@@ -1,7 +1,6 @@
-import os, json, time, traceback, requests
+import os, json, time, traceback, requests, re
 from supabase import create_client, ClientOptions
 from workers.lib.simple_queue import receive, ack
-from workers.lib.json_utils import safe_parse_model_json
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
@@ -18,7 +17,7 @@ QUEUE = "plans.archive"
 TPL = open("/app/prompts/historian.txt").read()
 
 
-def call_llm(prompt: str) -> dict:
+def call_llm(prompt: str) -> str:
     base = (os.getenv("RUNPOD_URL") or "").rstrip("/")
     if not base:
         raise RuntimeError("RUNPOD_URL is not set")
@@ -29,7 +28,7 @@ def call_llm(prompt: str) -> dict:
         "Content-Type": "application/json",
     }
     payload = {
-        "model": os.getenv("RUNPOD_MODEL_NAME", "gpt-4o-mini"),
+        "model": os.getenv("RUNPOD_MODEL_NAME", "gpt-oss-20b-uncensored"),
         "messages": [{"role": "user", "content": prompt}],
         "max_tokens": 350,
         "temperature": 0,
@@ -53,15 +52,49 @@ def call_llm(prompt: str) -> dict:
     if not raw_text:
         raw_text = f"__DEBUG_FULL_RESPONSE__: {json.dumps(data)}"
 
-    parsed, error = safe_parse_model_json(raw_text)
-    if error or parsed is None:
-        raise ValueError(f"Historian parse error: {error}")
-    return parsed
+    return raw_text
+
+
+HEADER_PATTERN = re.compile(
+    r"^\s*(HORIZON|STATUS|PLAN_SUMMARY|CHANGE_REASON)\s*:\s*(.*)$",
+    re.IGNORECASE | re.MULTILINE,
+)
+
+
+def parse_historian_headers(raw_text: str) -> dict:
+    """
+    Parse header-based historian output into a structured dict.
+    Expected headers: HORIZON, STATUS, PLAN_SUMMARY, CHANGE_REASON.
+    """
+    fields = {
+        "HORIZON": "",
+        "STATUS": "",
+        "PLAN_SUMMARY": "",
+        "CHANGE_REASON": "",
+    }
+
+    for match in HEADER_PATTERN.finditer(raw_text or ""):
+        key = match.group(1).upper()
+        value = (match.group(2) or "").strip()
+        if key in fields:
+            fields[key] = value
+
+    missing = [k for k, v in fields.items() if not v]
+    if missing:
+        raise ValueError(f"Historian missing fields: {', '.join(missing)}")
+
+    return {
+        "horizon": fields["HORIZON"],
+        "plan_status": fields["STATUS"],
+        "previous_plan_summary": fields["PLAN_SUMMARY"],
+        "reason_for_change": fields["CHANGE_REASON"],
+    }
 
 
 def process_job(payload):
     prompt = TPL.format(**payload)
-    summary = call_llm(prompt)
+    raw_text = call_llm(prompt)
+    parsed = parse_historian_headers(raw_text)
 
     SB.table("plan_history").insert(
         {
@@ -70,7 +103,7 @@ def process_job(payload):
             "plan_status": payload["plan_status"],
             "previous_plan": payload["previous_plan"],
             "reason_for_change": payload["reason_for_change"],
-            "summary_json": json.dumps(summary, ensure_ascii=False),
+            "summary_json": json.dumps(parsed, ensure_ascii=False),
         }
     ).execute()
 
