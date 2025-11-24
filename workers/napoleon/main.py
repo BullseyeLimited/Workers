@@ -104,6 +104,13 @@ def upsert_napoleon_details(
     Persist Napoleon planning fields for the fan turn.
     The creator reply message already got inserted separately.
     """
+    rethink = analysis.get("RETHINK_HORIZONS") or {}
+    rethink_status = (
+        rethink.get("STATUS")
+        or rethink.get("status")
+        or ""
+    )
+
     row = {
         "message_id": fan_message_id,
         "thread_id": thread_id,
@@ -120,13 +127,14 @@ def upsert_napoleon_details(
         "plan_season": analysis["MULTI_HORIZON_PLAN"]["SEASON"],
         "plan_year": analysis["MULTI_HORIZON_PLAN"]["YEAR"],
         "plan_lifetime": analysis["MULTI_HORIZON_PLAN"]["LIFETIME"],
-        "rethink_horizons": analysis["RETHINK_HORIZONS"],
+        "rethink_horizons": rethink_status,
         "napoleon_final_message": analysis["FINAL_MESSAGE"],
         "napoleon_voice_engine": analysis["VOICE_ENGINEERING_LOGIC"],
         "extras": {
             "napoleon_raw_json": analysis,
             "napoleon_raw_text_preview": (raw_text or "")[:2000],
             "napoleon_prompt_preview": (prompt or "")[:2000],
+            "napoleon_rethink_horizons": rethink,
             "creator_reply_message_id": creator_message_id,
         },
         "historian_entry": analysis.get("HISTORIAN_ENTRY", {}),
