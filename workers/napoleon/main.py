@@ -99,15 +99,20 @@ def upsert_napoleon_details(
     """
     rethink = analysis.get("RETHINK_HORIZONS") or {}
 
-    # Check if Kairos already populated the row to avoid constraint issues
-    existing = (
+    # Fetch existing row so we can preserve Kairos fields and satisfy constraints
+    existing_row = (
         SB.table("message_ai_details")
-        .select("strategic_narrative")
+        .select("*")
         .eq("message_id", fan_message_id)
         .execute()
         .data
     )
-    has_kairos = bool(existing and existing[0].get("strategic_narrative"))
+    current = existing_row[0] if existing_row else {}
+
+    existing_narrative = current.get("strategic_narrative")
+    existing_summary = current.get("kairos_summary")
+
+    has_kairos = bool(existing_narrative)
     safe_status = "ok" if has_kairos else "pending"
 
     row = {
@@ -121,6 +126,9 @@ def upsert_napoleon_details(
         "raw_hash": raw_hash,
         "napoleon_prompt_raw": prompt,
         "napoleon_output_raw": raw_text,
+        # Preserve Kairos fields so DB constraints are satisfied on upsert
+        "strategic_narrative": existing_narrative,
+        "kairos_summary": existing_summary,
         "tactical_plan_3turn": analysis["TACTICAL_PLAN_3TURNS"],
         "plan_episode": analysis["MULTI_HORIZON_PLAN"]["EPISODE"],
         "plan_chapter": analysis["MULTI_HORIZON_PLAN"]["CHAPTER"],
@@ -137,8 +145,9 @@ def upsert_napoleon_details(
             "napoleon_rethink_horizons": rethink,
             "creator_reply_message_id": creator_message_id,
             "napoleon_save_note": (
-                "Merged with Kairos" if has_kairos else "Saved without Kairos"
+                "Merged with Kairos" if has_kairos else "Saved Napoleon Only (Pending)"
             ),
+            "kairos_check": "found" if has_kairos else "missing",
         },
         "historian_entry": analysis.get("HISTORIAN_ENTRY", {}),
     }
