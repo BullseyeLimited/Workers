@@ -133,6 +133,7 @@ def upsert_napoleon_details(
         "extras": {
             "napoleon_raw_json": analysis,
             "napoleon_raw_text_preview": (raw_text or "")[:2000],
+            "napoleon_prompt_preview": (prompt or "")[:2000],
             "napoleon_rethink_horizons": rethink,
             "creator_reply_message_id": creator_message_id,
             "napoleon_save_note": (
