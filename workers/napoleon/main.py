@@ -45,13 +45,7 @@ FIELD_PATTERN = re.compile(
     re.IGNORECASE,
 )
 TACTICAL_LINE_PATTERN = re.compile(
-    r"^[\s>*-]*\s*(?P<label>"
-    r"TURN\s*1(?:_CREATOR_MESSAGE)?|"
-    r"TURN\s*2A(?:_FAN_PATH)?|"
-    r"TURN\s*2B(?:_FAN_PATH)?|"
-    r"TURN\s*3A(?:_CREATOR_REPLY)?|"
-    r"TURN\s*3B(?:_CREATOR_REPLY)?"
-    r")\s*:\s*(?P<value>.+)$",
+    r"^[\s>*-]*\s*(?P<label>TURN\s*\d+[AB]?(?:_[A-Z]+)?)\s*:\s*(?P<value>.+)$",
     re.IGNORECASE,
 )
 
@@ -80,7 +74,6 @@ def record_napoleon_failure(
         "napoleon_output_raw": raw_text,
         "extras": {
             "napoleon_raw_text_preview": (raw_text or "")[:2000],
-            "napoleon_prompt_preview": (prompt or "")[:2000],
         },
     }
 
@@ -105,11 +98,6 @@ def upsert_napoleon_details(
     The creator reply message already got inserted separately.
     """
     rethink = analysis.get("RETHINK_HORIZONS") or {}
-    rethink_status = (
-        rethink.get("STATUS")
-        or rethink.get("status")
-        or ""
-    )
 
     row = {
         "message_id": fan_message_id,
@@ -127,13 +115,12 @@ def upsert_napoleon_details(
         "plan_season": analysis["MULTI_HORIZON_PLAN"]["SEASON"],
         "plan_year": analysis["MULTI_HORIZON_PLAN"]["YEAR"],
         "plan_lifetime": analysis["MULTI_HORIZON_PLAN"]["LIFETIME"],
-        "rethink_horizons": rethink_status,
+        "rethink_horizons": rethink,
         "napoleon_final_message": analysis["FINAL_MESSAGE"],
         "napoleon_voice_engine": analysis["VOICE_ENGINEERING_LOGIC"],
         "extras": {
             "napoleon_raw_json": analysis,
             "napoleon_raw_text_preview": (raw_text or "")[:2000],
-            "napoleon_prompt_preview": (prompt or "")[:2000],
             "napoleon_rethink_horizons": rethink,
             "creator_reply_message_id": creator_message_id,
         },
@@ -193,7 +180,7 @@ def runpod_call(system_prompt: str, user_message: str) -> tuple[str, dict]:
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_message},
         ],
-        "max_tokens": 6000,
+        "max_tokens": 4096,
         "temperature": 0.6,
         "top_p": 0.95,
     }
@@ -204,17 +191,16 @@ def runpod_call(system_prompt: str, user_message: str) -> tuple[str, dict]:
 
     raw_text = ""
     try:
-        if "choices" in data and data["choices"]:
-            choice = data["choices"][0]
-            message = choice.get("message") or {}
-            content = message.get("content")
-            reasoning = message.get("reasoning") or message.get("reasoning_content")
-            if content:
-                raw_text = content
-            elif reasoning:
-                raw_text = reasoning
-            else:
-                raw_text = choice.get("text") or ""
+        if data.get("choices"):
+            msg = data["choices"][0].get("message") or {}
+            raw_text = (
+                msg.get("content")
+                or msg.get("reasoning")
+                or msg.get("reasoning_content")
+                or ""
+            )
+            if not raw_text:
+                raw_text = data["choices"][0].get("text") or ""
     except Exception:
         pass
 
@@ -225,7 +211,8 @@ def runpod_call(system_prompt: str, user_message: str) -> tuple[str, dict]:
 
 
 def _normalize_header(header: str) -> str:
-    cleaned = re.sub(r"[^A-Z0-9]+", "_", header.upper()).strip("_")
+    cleaned = re.sub(r"[^A-Z0-9_]+", "_", header.upper()).strip("_")
+    cleaned = cleaned.replace("PLAN_3_TURNS", "PLAN_3TURNS")
     return cleaned
 
 
@@ -234,10 +221,6 @@ def _strip_quotes(text: str) -> str:
     if len(s) >= 2 and ((s[0] == s[-1] == '"') or (s[0] == s[-1] == "'")):
         return s[1:-1].strip()
     return s
-
-
-def _collapse_ws(text: str) -> str:
-    return " ".join((text or "").split())
 
 
 def _parse_notes_field(raw: str) -> list[str]:
@@ -256,26 +239,31 @@ def _parse_notes_field(raw: str) -> list[str]:
 
 
 TACTICAL_KEY_MAP = {
-    "TURN1": "TURN1_CREATOR_MESSAGE",
-    "TURN1CREATORMESSAGE": "TURN1_CREATOR_MESSAGE",
+    "TURN1": "TURN1_DIRECTIVE",
+    "TURN1DIRECTIVE": "TURN1_DIRECTIVE",
+    "TURN1_DIRECTIVE": "TURN1_DIRECTIVE",
     "TURN2A": "TURN2A_FAN_PATH",
     "TURN2AFANPATH": "TURN2A_FAN_PATH",
+    "TURN2A_FAN_PATH": "TURN2A_FAN_PATH",
     "TURN2B": "TURN2B_FAN_PATH",
     "TURN2BFANPATH": "TURN2B_FAN_PATH",
-    "TURN3A": "TURN3A_CREATOR_REPLY",
-    "TURN3ACREATORREPLY": "TURN3A_CREATOR_REPLY",
-    "TURN3B": "TURN3B_CREATOR_REPLY",
-    "TURN3BCREATORREPLY": "TURN3B_CREATOR_REPLY",
+    "TURN2B_FAN_PATH": "TURN2B_FAN_PATH",
+    "TURN3A": "TURN3A_DIRECTIVE",
+    "TURN3ADIRECTIVE": "TURN3A_DIRECTIVE",
+    "TURN3A_DIRECTIVE": "TURN3A_DIRECTIVE",
+    "TURN3B": "TURN3B_DIRECTIVE",
+    "TURN3BDIRECTIVE": "TURN3B_DIRECTIVE",
+    "TURN3B_DIRECTIVE": "TURN3B_DIRECTIVE",
 }
 
 
 def _parse_tactical_section(section_text: str) -> dict:
     result = {
-        "TURN1_CREATOR_MESSAGE": "",
+        "TURN1_DIRECTIVE": "",
         "TURN2A_FAN_PATH": "",
         "TURN2B_FAN_PATH": "",
-        "TURN3A_CREATOR_REPLY": "",
-        "TURN3B_CREATOR_REPLY": "",
+        "TURN3A_DIRECTIVE": "",
+        "TURN3B_DIRECTIVE": "",
     }
     if not section_text:
         return result
@@ -285,11 +273,10 @@ def _parse_tactical_section(section_text: str) -> dict:
         if not match:
             continue
         label = match.group("label") or ""
-        normalized = re.sub(r"[^A-Z0-9]", "", label.upper())
+        normalized = re.sub(r"[^A-Z0-9_]", "", label.upper())
         key = TACTICAL_KEY_MAP.get(normalized)
-        if not key:
-            continue
-        result[key] = match.group("value").strip()
+        if key:
+            result[key] = match.group("value").strip()
     return result
 
 
@@ -332,19 +319,15 @@ def _parse_multi_horizon_section(section_text: str) -> dict:
 
 
 def _parse_rethink_section(section_text: str) -> dict:
-    text = _collapse_ws(section_text)
+    text = " ".join((section_text or "").split())
     if not text:
         return {"STATUS": "", "REASON": ""}
 
-    match = re.match(r"^(yes|no)\b[:\-–—]?\s*(.*)$", text, re.IGNORECASE)
-    if match:
-        status = match.group(1).lower()
-        reason = match.group(2).strip()
-        return {"STATUS": status, "REASON": reason}
+    s_match = re.search(r"STATUS\s*:\s*(yes|no)", text, re.IGNORECASE)
+    r_match = re.search(r"REASON\s*:\s*(.*)", text, re.IGNORECASE)
 
-    parts = text.split(" ", 1)
-    status = parts[0].lower()
-    reason = parts[1].strip() if len(parts) > 1 else ""
+    status = s_match.group(1).lower() if s_match else "no"
+    reason = r_match.group(1).strip() if r_match else ""
     return {"STATUS": status, "REASON": reason}
 
 
@@ -440,25 +423,6 @@ def process_job(payload):
 
     thread_id = msg["thread_id"]
     latest_fan_text = msg.get("message_text") or ""
-
-    kairos_analysis = (
-        SB.table("message_ai_details")
-        .select(
-            "strategic_narrative,"
-            "alignment_status,"
-            "conversation_criticality,"
-            "tactical_signals,"
-            "psychological_levers,"
-            "risks,"
-            "kairos_summary"
-        )
-        .eq("message_id", fan_message_id)
-        .single()
-        .execute()
-        .data
-    )
-    if not kairos_analysis:
-        raise ValueError(f"Kairos analysis missing for message {fan_message_id}")
 
     raw_turns = live_turn_window(thread_id, client=SB)
     system_prompt, user_prompt = build_prompt_sections(
