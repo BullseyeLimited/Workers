@@ -198,6 +198,9 @@ def runpod_call(system_prompt: str, user_message: str) -> tuple[str, dict]:
         "max_tokens": 4096,
         "temperature": 0.6,
         "top_p": 0.95,
+        "repetition_penalty": 1.1,
+        "presence_penalty": 0.1,
+        "frequency_penalty": 0.1,
     }
 
     resp = requests.post(url, headers=headers, json=payload, timeout=600)
