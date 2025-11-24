@@ -1,3 +1,4 @@
+import hashlib
 import json
 import os
 import re
@@ -60,6 +61,7 @@ def record_napoleon_failure(
     thread_id: int,
     prompt: str,
     raw_text: str,
+    raw_hash: str,
     error_message: str,
 ) -> None:
     """
@@ -73,6 +75,7 @@ def record_napoleon_failure(
         "extract_status": "failed",
         "extract_error": error_message,
         "extracted_at": datetime.now(timezone.utc).isoformat(),
+        "raw_hash": raw_hash,
         "napoleon_prompt_raw": prompt,
         "napoleon_output_raw": raw_text,
         "extras": {
@@ -93,6 +96,7 @@ def upsert_napoleon_details(
     thread_id: int,
     prompt: str,
     raw_text: str,
+    raw_hash: str,
     analysis: dict,
     creator_message_id: int,
 ) -> None:
@@ -107,6 +111,7 @@ def upsert_napoleon_details(
         "extract_status": "ok",
         "extract_error": None,
         "extracted_at": datetime.now(timezone.utc).isoformat(),
+        "raw_hash": raw_hash,
         "napoleon_prompt_raw": prompt,
         "napoleon_output_raw": raw_text,
         "tactical_plan_3turn": analysis["TACTICAL_PLAN_3TURNS"],
@@ -459,6 +464,7 @@ def process_job(payload):
         {"system": system_prompt, "user": user_prompt},
         ensure_ascii=False,
     )
+    raw_hash = hashlib.sha256(prompt_log.encode("utf-8")).hexdigest()
 
     try:
         raw_text, _request_payload = runpod_call(system_prompt, user_prompt)
@@ -468,6 +474,7 @@ def process_job(payload):
             thread_id=thread_id,
             prompt=prompt_log,
             raw_text="",
+            raw_hash=raw_hash,
             error_message=f"RunPod error: {exc}",
         )
         print(f"[Napoleon] RunPod error for fan message {fan_message_id}: {exc}")
@@ -481,6 +488,7 @@ def process_job(payload):
             thread_id=thread_id,
             prompt=prompt_log,
             raw_text=raw_text,
+            raw_hash=raw_hash,
             error_message=f"Parse error: {parse_error}",
         )
         print(
@@ -539,6 +547,7 @@ def process_job(payload):
         thread_id=thread_id,
         prompt=prompt_log,
         raw_text=raw_text,
+        raw_hash=raw_hash,
         analysis=analysis,
         creator_message_id=creator_msg_id,
     )
