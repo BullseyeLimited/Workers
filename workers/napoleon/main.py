@@ -27,7 +27,7 @@ SB = create_client(
 QUEUE = "napoleon.reply"
 HORIZONS = ["EPISODE", "CHAPTER", "SEASON", "YEAR", "LIFETIME"]
 HEADER_PATTERN = re.compile(
-    r"^[\s>*#-]*\**\s*(?P<header>"
+    r"^[\s>*#-]*\**\s*(?:SECTION\s*\d+\s*[:\-–—]?\s*)?(?P<header>"
     r"TACTICAL[\s_-]?PLAN[\s_-]?3[\s_-]?TURNS|"
     r"MULTI[\s_-]?HORIZON[\s_-]?PLAN|"
     r"RETHINK[\s_-]?HORIZONS|"
