@@ -414,7 +414,8 @@ def upsert_kairos_details(
         "thread_id": thread_id,
         "sender": "fan",
         "raw_hash": hashlib.sha256(prompt.encode("utf-8")).hexdigest(),
-        "extract_status": "ok",
+        # Mark pending; Napoleon will flip to ok when the pipeline completes.
+        "extract_status": "pending",
         "extract_error": None,
         "extracted_at": datetime.now(timezone.utc).isoformat(),
         "kairos_prompt_raw": prompt,
