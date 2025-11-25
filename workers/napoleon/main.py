@@ -436,8 +436,73 @@ def parse_napoleon_headers(raw_text: str) -> tuple[dict | None, str | None]:
     return analysis, None
 
 
+def _missing_required_fields(analysis: dict | None) -> list[str]:
+    """
+    Check for empty critical fields that would make the row or reply unusable.
+    This is a lightweight guardrail to avoid saving obviously incomplete outputs.
+    """
+    if analysis is None:
+        return ["analysis_none"]
+
+    missing: list[str] = []
+
+    tactical = analysis.get("TACTICAL_PLAN_3TURNS") or {}
+    for key in ("TURN1_DIRECTIVE", "TURN2A_FAN_PATH", "TURN2B_FAN_PATH", "TURN3A_DIRECTIVE", "TURN3B_DIRECTIVE"):
+        if not (tactical.get(key) or "").strip():
+            missing.append(key)
+
+    multi = analysis.get("MULTI_HORIZON_PLAN") or {}
+    for hz in HORIZONS:
+        plan_text = (multi.get(hz, {}) or {}).get("PLAN") or ""
+        if not str(plan_text).strip():
+            missing.append(f"{hz}_PLAN")
+
+    final_message = (analysis.get("FINAL_MESSAGE") or "").strip()
+    if not final_message:
+        missing.append("FINAL_MESSAGE")
+
+    voice_logic = analysis.get("VOICE_ENGINEERING_LOGIC") or {}
+    if not (voice_logic.get("INTENT") or "").strip():
+        missing.append("VOICE_INTENT")
+    if not (voice_logic.get("DRAFTING") or "").strip():
+        missing.append("VOICE_DRAFTING")
+
+    return missing
+
+
+def run_repair_call(original_output: str, missing_fields: list[str]) -> tuple[str, dict]:
+    """
+    Ask the model to repair an incomplete Napoleon output by filling only missing sections.
+    Returns (raw_text, request_payload).
+    """
+    system_prompt = (
+        "You are the Napoleon Repair Assistant. You fix incomplete Napoleon outputs.\n"
+        "Always return the full Napoleon response with all required sections:\n"
+        "TACTICAL_PLAN_3TURNS\n"
+        "MULTI_HORIZON_PLAN\n"
+        "RETHINK_HORIZONS\n"
+        "VOICE_ENGINEERING_LOGIC\n"
+        "FINAL_MESSAGE\n"
+        "Keep the same style and intent. Do NOT omit any section. If a section was fine before, keep it.\n"
+        "If something was missing, add it. Do not invent new headers."
+    )
+
+    user_message = (
+        "The previous Napoleon output was missing or incomplete in these fields:\n"
+        f"- {', '.join(missing_fields) if missing_fields else '(unspecified)'}\n\n"
+        "Here is the previous output to repair:\n"
+        f"{original_output}"
+    )
+
+    return runpod_call(system_prompt, user_message)
+
+
 def process_job(payload):
     fan_message_id = payload["message_id"]
+    attempt = int(payload.get("napoleon_retry", 0))
+    is_repair = bool(payload.get("repair_mode"))
+    previous_raw_text = payload.get("orig_raw_text") or ""
+    previous_missing = payload.get("missing_fields") or []
 
     msg = (
         SB.table("messages")
@@ -468,7 +533,13 @@ def process_job(payload):
     raw_hash = hashlib.sha256(prompt_log.encode("utf-8")).hexdigest()
 
     try:
-        raw_text, _request_payload = runpod_call(system_prompt, user_prompt)
+        if is_repair:
+            raw_text, _request_payload = run_repair_call(
+                previous_raw_text or "",
+                previous_missing,
+            )
+        else:
+            raw_text, _request_payload = runpod_call(system_prompt, user_prompt)
     except Exception as exc:  # noqa: BLE001
         record_napoleon_failure(
             fan_message_id=fan_message_id,
@@ -483,17 +554,38 @@ def process_job(payload):
 
     analysis, parse_error = parse_napoleon_headers(raw_text)
 
-    if parse_error is not None or analysis is None:
+    # Basic validation for missing required fields
+    missing_fields = _missing_required_fields(analysis)
+
+    # If parsing failed or critical fields are missing, try repair up to 2 attempts.
+    if (parse_error is not None or analysis is None or missing_fields) and attempt < 2:
+        retry_payload = {
+            "message_id": fan_message_id,
+            "napoleon_retry": attempt + 1,
+            "repair_mode": True,
+            "orig_raw_text": raw_text,
+            "missing_fields": missing_fields,
+        }
+        send(QUEUE, retry_payload)
+        print(
+            f"[Napoleon] Enqueued repair attempt {attempt + 1} for fan message {fan_message_id} "
+            f"(parse_error={parse_error}, missing={missing_fields})"
+        )
+        return True
+
+    if parse_error is not None or analysis is None or missing_fields:
+        # Final failure after retries
         record_napoleon_failure(
             fan_message_id=fan_message_id,
             thread_id=thread_id,
             prompt=prompt_log,
             raw_text=raw_text,
             raw_hash=raw_hash,
-            error_message=f"Parse error: {parse_error}",
+            error_message=f"Parse/validation error after retries: {parse_error or missing_fields}",
         )
         print(
-            f"[Napoleon] Parse error for fan message {fan_message_id}: {parse_error}"
+            f"[Napoleon] Parse/validation error after retries for fan message {fan_message_id}: "
+            f"{parse_error or missing_fields}"
         )
         return True
 

@@ -205,6 +205,71 @@ def translate_kairos_output(raw_text: str) -> Tuple[dict | None, str | None]:
     return parsed, None
 
 
+def _missing_required_fields(analysis: dict | None) -> list[str]:
+    """
+    Check for empty critical fields in Kairos output.
+    """
+    if analysis is None:
+        return ["analysis_none"]
+
+    missing: list[str] = []
+
+    if not (analysis.get("STRATEGIC_NARRATIVE") or "").strip():
+        missing.append("STRATEGIC_NARRATIVE")
+
+    align = analysis.get("ALIGNMENT_STATUS") or {}
+    if not (align.get("SHORT_TERM_PLAN") or "").strip():
+        missing.append("SHORT_TERM_PLAN")
+    lt = align.get("LONG_TERM_PLANS") or {}
+    # Only flag if all long-term entries are empty
+    if not any((lt.get(k) or "").strip() for k in ("LIFETIME_PLAN", "YEAR_PLAN", "SEASON_PLAN", "CHAPTER_PLAN", "EPISODE_PLAN")):
+        missing.append("LONG_TERM_PLANS")
+
+    if not (analysis.get("CONVERSATION_CRITICALITY") or "").strip():
+        missing.append("CONVERSATION_CRITICALITY")
+    if not (analysis.get("TACTICAL_SIGNALS") or "").strip():
+        missing.append("TACTICAL_SIGNALS")
+    if not (analysis.get("PSYCHOLOGICAL_LEVERS") or "").strip():
+        missing.append("PSYCHOLOGICAL_LEVERS")
+    if not (analysis.get("RISKS") or "").strip():
+        missing.append("RISKS")
+
+    micro = analysis.get("TURN_MICRO_NOTE") or {}
+    if not (micro.get("SUMMARY") or "").strip():
+        missing.append("TURN_MICRO_NOTE.SUMMARY")
+
+    return missing
+
+
+def run_repair_call(original_output: str, missing_fields: list[str]) -> tuple[str, dict]:
+    """
+    Ask the model to repair an incomplete Kairos output by filling only missing sections.
+    Returns (raw_text, request_payload).
+    """
+    system_prompt = (
+        "You are the Kairos Repair Assistant. You fix incomplete Kairos outputs.\n"
+        "Always return the full Kairos response with all required sections:\n"
+        "STRATEGIC_NARRATIVE\n"
+        "ALIGNMENT_STATUS\n"
+        "CONVERSATION_CRITICALITY\n"
+        "TACTICAL_SIGNALS\n"
+        "PSYCHOLOGICAL_LEVERS\n"
+        "RISKS\n"
+        "TURN_MICRO_NOTE (with SUMMARY)\n"
+        "Keep the same style and intent. Do NOT omit any section. If a section was fine before, keep it.\n"
+        "If something was missing, add it. Do not invent new headers."
+    )
+
+    user_message = (
+        "The previous Kairos output was missing or incomplete in these fields:\n"
+        f"- {', '.join(missing_fields) if missing_fields else '(unspecified)'}\n\n"
+        "Here is the previous output to repair:\n"
+        f"{original_output}"
+    )
+
+    return runpod_call(system_prompt, user_message)
+
+
 def _parse_alignment_block(block: str) -> dict:
     """
     Try to extract alignment fields from a freeform block.
@@ -452,6 +517,10 @@ def process_job(payload: Dict[str, Any], row_id: int) -> bool:
         raise ValueError(f"Malformed job payload: {payload}")
 
     fan_msg_id = payload["message_id"]
+    attempt = int(payload.get("kairos_retry", 0))
+    is_repair = bool(payload.get("repair_mode"))
+    previous_raw_text = payload.get("orig_raw_text") or ""
+    previous_missing = payload.get("missing_fields") or []
     message_row = (
         SB.table("messages")
         .select("id,thread_id,sender,turn_index,message_text")
@@ -481,7 +550,13 @@ def process_job(payload: Dict[str, Any], row_id: int) -> bool:
     )
 
     try:
-        raw_text, _request_payload = runpod_call(system_prompt, user_prompt)
+        if is_repair:
+            raw_text, _request_payload = run_repair_call(
+                previous_raw_text or "",
+                previous_missing,
+            )
+        else:
+            raw_text, _request_payload = runpod_call(system_prompt, user_prompt)
     except Exception as exc:  # noqa: BLE001
         record_kairos_failure(
             message_id=fan_msg_id,
@@ -550,6 +625,48 @@ def process_job(payload: Dict[str, Any], row_id: int) -> bool:
             )
             print(f"[Kairos] Validation error for message {fan_msg_id}: {exc}")
             return True
+
+    # Basic validation for missing required fields
+    missing_fields = _missing_required_fields(analysis)
+
+    # If parsing failed or critical fields are missing, try repair up to 2 attempts.
+    if (parse_error is not None or analysis is None or missing_fields) and attempt < 2:
+        retry_payload = {
+            "message_id": fan_msg_id,
+            "kairos_retry": attempt + 1,
+            "repair_mode": True,
+            "orig_raw_text": raw_text,
+            "missing_fields": missing_fields,
+        }
+        send(QUEUE, retry_payload)
+        print(
+            f"[Kairos] Enqueued repair attempt {attempt + 1} for message {fan_msg_id} "
+            f"(parse_error={parse_error}, missing={missing_fields})"
+        )
+        return True
+
+    if parse_error is not None or analysis is None or missing_fields:
+        # Final failure after retries
+        record_kairos_failure(
+            message_id=fan_msg_id,
+            thread_id=thread_id,
+            prompt=json.dumps(
+                {
+                    "system": system_prompt,
+                    "user": user_prompt,
+                },
+                ensure_ascii=False,
+            ),
+            raw_text=raw_text,
+            error_message=f"Parse/validation error after retries: {parse_error or missing_fields}",
+        )
+        print(
+            f"[Kairos] Parse/validation error after retries for message {fan_msg_id}: "
+            f"{parse_error or missing_fields}"
+        )
+        # Even if Kairos failed, hand off to Napoleon so the pipeline can continue.
+        enqueue_napoleon_job(fan_msg_id)
+        return True
 
     upsert_kairos_details(
         message_id=fan_msg_id,
