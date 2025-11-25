@@ -48,6 +48,10 @@ TACTICAL_LINE_PATTERN = re.compile(
     r"^[\s>*-]*\s*(?P<label>TURN\s*\d+[AB]?(?:_[A-Z]+)?)\s*:\s*(?P<value>.+)$",
     re.IGNORECASE,
 )
+ANALYST_BLOCK_PATTERN = re.compile(
+    r"<ANALYST_ANALYSIS_JSON>.*?</ANALYST_ANALYSIS_JSON>",
+    re.IGNORECASE | re.DOTALL,
+)
 
 
 def record_napoleon_failure(
@@ -263,6 +267,34 @@ def runpod_call(system_prompt: str, user_message: str) -> tuple[str, dict]:
         raw_text = f"__DEBUG_FULL_RESPONSE__: {json.dumps(data)}"
 
     return raw_text, payload
+
+
+def _redact_analyst_block(text: str) -> str:
+    """
+    Remove the verbose Kairos JSON block from logged prompts.
+    """
+    if not text:
+        return text
+    return ANALYST_BLOCK_PATTERN.sub(
+        "<ANALYST_ANALYSIS_JSON>[redacted]</ANALYST_ANALYSIS_JSON>",
+        text,
+    )
+
+
+def redact_prompt_log(prompt_log: str) -> str:
+    """
+    Strip the Kairos blob from logged Napoleon prompts while keeping structure.
+    """
+    if not prompt_log:
+        return prompt_log
+    try:
+        data = json.loads(prompt_log)
+        for key in ("system", "user"):
+            if isinstance(data.get(key), str):
+                data[key] = _redact_analyst_block(data[key])
+        return json.dumps(data, ensure_ascii=False)
+    except Exception:
+        return _redact_analyst_block(prompt_log)
 
 
 def _normalize_header(header: str) -> str:
@@ -694,11 +726,12 @@ def process_job(payload):
         latest_fan_text=latest_fan_text,
         client=SB,
     )
-    prompt_log = json.dumps(
+    full_prompt_log = json.dumps(
         {"system": system_prompt, "user": user_prompt},
         ensure_ascii=False,
     )
-    raw_hash = hashlib.sha256(prompt_log.encode("utf-8")).hexdigest()
+    prompt_log = redact_prompt_log(full_prompt_log)
+    raw_hash = hashlib.sha256(full_prompt_log.encode("utf-8")).hexdigest()
 
     try:
         if is_repair:
