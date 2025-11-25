@@ -106,19 +106,29 @@ def runpod_call(system_prompt: str, user_message: str) -> tuple[str, dict]:
         "Content-Type": "application/json",
         "Authorization": f"Bearer {os.getenv('RUNPOD_API_KEY', '')}",
     }
+    # INJECT REASONING INSTRUCTION
+    # This forces the model to get its "crazy" thoughts out in a safe block first.
+    reasoning_instruction = (
+        "\n\nStep-by-Step Reasoning Protocol:\n"
+        "1. First, output a <thinking> block. Inside it, analyze the user's psychology deeply. "
+        "Reason about the situation, but DO NOT discuss the output format or the stop token inside this block.\n"
+        "2. After closing </thinking>, immediately output the required headers.\n"
+    )
+
+    final_system = system_prompt + reasoning_instruction
+
     payload = {
         "model": os.getenv("RUNPOD_MODEL_NAME", "gpt-oss-20b-uncensored"),
         "messages": [
-            {"role": "system", "content": system_prompt},
+            {"role": "system", "content": final_system},
             {"role": "user", "content": user_message},
         ],
         # REDUCED to fit inside RunPod's 100s proxy timeout
-        "max_tokens": 4500,
-        "temperature": 0.6,
-        "top_p": 0.95,
-        "repetition_penalty": 1.1,
-        "presence_penalty": 0.1,
-        "frequency_penalty": 0.1,
+        "max_tokens": 2000,
+        "temperature": 0.75,        # Slight bump to keep it dynamic
+        "repetition_penalty": 1.0,  # DISABLED (1.0) so it can write headers correctly
+        "frequency_penalty": 0.2,   # ENABLED (0.2) to gently stop infinite loops
+        "stop": ["### END"],        # Hard brake to stop generation
     }
 
     resp = requests.post(url, headers=headers, json=payload, timeout=600)

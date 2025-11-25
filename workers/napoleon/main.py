@@ -226,18 +226,28 @@ def runpod_call(system_prompt: str, user_message: str) -> tuple[str, dict]:
         "Content-Type": "application/json",
         "Authorization": f"Bearer {os.getenv('RUNPOD_API_KEY', '')}",
     }
+    # INJECT REASONING INSTRUCTION
+    # Napoleon needs this to plan without polluting the final output.
+    reasoning_instruction = (
+        "\n\nStep-by-Step Reasoning Protocol:\n"
+        "1. First, output a <thinking> block. Analyze the plan, the history, and the strategy. "
+        "Focus only on the narrative. DO NOT talk about the headers or the '### END' token here.\n"
+        "2. After closing </thinking>, immediately output the SECTION 1 header.\n"
+    )
+
+    final_system = system_prompt + reasoning_instruction
+
     payload = {
         "model": os.getenv("RUNPOD_MODEL_NAME", "gpt-oss-20b-uncensored"),
         "messages": [
-            {"role": "system", "content": system_prompt},
+            {"role": "system", "content": final_system},
             {"role": "user", "content": user_message},
         ],
-        "max_tokens": 4096,
-        "temperature": 0.6,
-        "top_p": 0.95,
-        "repetition_penalty": 1.1,
-        "presence_penalty": 0.1,
-        "frequency_penalty": 0.1,
+        "max_tokens": 2000,
+        "temperature": 0.75,
+        "repetition_penalty": 1.0,  # DISABLED to allow structured planning
+        "frequency_penalty": 0.2,   # ENABLED to prevent repetitive loops
+        "stop": ["### END"],        # Hard brake
     }
 
     resp = requests.post(url, headers=headers, json=payload, timeout=600)
