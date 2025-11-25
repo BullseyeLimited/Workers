@@ -617,12 +617,13 @@ def process_job(payload: Dict[str, Any], row_id: int) -> bool:
         SB.table("messages")
         .select("id,thread_id,sender,turn_index,message_text")
         .eq("id", fan_msg_id)
-        .single()
+        .limit(1)
         .execute()
         .data
     )
     if not message_row:
         raise ValueError(f"Message {fan_msg_id} missing")
+    message_row = message_row[0]
 
     thread_id = message_row["thread_id"]
     turn_index = message_row.get("turn_index")
