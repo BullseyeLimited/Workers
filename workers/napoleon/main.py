@@ -99,46 +99,25 @@ def upsert_napoleon_details(
     """
     rethink = analysis.get("RETHINK_HORIZONS") or {}
 
-    # Fetch existing row so we can preserve Kairos fields and satisfy constraints
+    # Fetch existing row so we can preserve all Kairos fields and satisfy constraints.
     existing_row = (
         SB.table("message_ai_details")
         .select("*")
         .eq("message_id", fan_message_id)
+        .single()
         .execute()
         .data
     )
-    current = existing_row[0] if existing_row else {}
 
-    existing_narrative = current.get("strategic_narrative")
-    existing_summary = current.get("kairos_summary")
+    if not existing_row:
+        # Without Kairos we cannot set status ok; surface loudly.
+        raise ValueError(f"message_ai_details missing for fan message {fan_message_id}")
 
-    has_kairos = bool(existing_narrative)
-    safe_status = "ok" if has_kairos else "pending"
+    has_kairos = bool(existing_row.get("strategic_narrative"))
 
-    row = {
-        "message_id": fan_message_id,
-        "thread_id": thread_id,
-        "sender": "fan",
-        # Only mark ok if the Kairos row exists; otherwise leave pending
-        "extract_status": safe_status,
-        "extract_error": None,
-        "extracted_at": datetime.now(timezone.utc).isoformat(),
-        "raw_hash": raw_hash,
-        "napoleon_prompt_raw": prompt,
-        "napoleon_output_raw": raw_text,
-        # Preserve Kairos fields so DB constraints are satisfied on upsert
-        "strategic_narrative": existing_narrative,
-        "kairos_summary": existing_summary,
-        "tactical_plan_3turn": analysis["TACTICAL_PLAN_3TURNS"],
-        "plan_episode": analysis["MULTI_HORIZON_PLAN"]["EPISODE"],
-        "plan_chapter": analysis["MULTI_HORIZON_PLAN"]["CHAPTER"],
-        "plan_season": analysis["MULTI_HORIZON_PLAN"]["SEASON"],
-        "plan_year": analysis["MULTI_HORIZON_PLAN"]["YEAR"],
-        "plan_lifetime": analysis["MULTI_HORIZON_PLAN"]["LIFETIME"],
-        "rethink_horizons": rethink,
-        "napoleon_final_message": analysis["FINAL_MESSAGE"],
-        "napoleon_voice_engine": analysis["VOICE_ENGINEERING_LOGIC"],
-        "extras": {
+    merged_extras = existing_row.get("extras") or {}
+    merged_extras.update(
+        {
             "napoleon_raw_json": analysis,
             "napoleon_raw_text_preview": (raw_text or "")[:2000],
             "napoleon_prompt_preview": (prompt or "")[:2000],
@@ -148,12 +127,34 @@ def upsert_napoleon_details(
                 "Merged with Kairos" if has_kairos else "Saved Napoleon Only (Pending)"
             ),
             "kairos_check": "found" if has_kairos else "missing",
-        },
+        }
+    )
+
+    update_fields = {
+        # Do not overwrite Kairos columns; only add Napoleon fields + status flip.
+        "extract_status": "ok" if has_kairos else "pending",
+        "extract_error": None,
+        "extracted_at": datetime.now(timezone.utc).isoformat(),
+        "raw_hash": raw_hash,
+        "napoleon_prompt_raw": prompt,
+        "napoleon_output_raw": raw_text,
+        "tactical_plan_3turn": analysis["TACTICAL_PLAN_3TURNS"],
+        "plan_episode": analysis["MULTI_HORIZON_PLAN"]["EPISODE"],
+        "plan_chapter": analysis["MULTI_HORIZON_PLAN"]["CHAPTER"],
+        "plan_season": analysis["MULTI_HORIZON_PLAN"]["SEASON"],
+        "plan_year": analysis["MULTI_HORIZON_PLAN"]["YEAR"],
+        "plan_lifetime": analysis["MULTI_HORIZON_PLAN"]["LIFETIME"],
+        "rethink_horizons": rethink,
+        "napoleon_final_message": analysis["FINAL_MESSAGE"],
+        "napoleon_voice_engine": analysis["VOICE_ENGINEERING_LOGIC"],
+        "extras": merged_extras,
         "historian_entry": analysis.get("HISTORIAN_ENTRY", {}),
     }
+
     (
         SB.table("message_ai_details")
-        .upsert(row, on_conflict="message_id")
+        .update(update_fields)
+        .eq("message_id", fan_message_id)
         .execute()
     )
 
