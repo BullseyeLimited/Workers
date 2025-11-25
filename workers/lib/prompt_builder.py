@@ -236,7 +236,11 @@ def latest_kairos_json(thread_id: int, *, client=None) -> str:
     sb = _resolve_client(client)
     rows = (
         sb.table("message_ai_details")
-        .select("*")
+        .select(
+            "message_id,strategic_narrative,alignment_status,"
+            "conversation_criticality,tactical_signals,psychological_levers,"
+            "risks,turn_micro_note,kairos_summary"
+        )
         .eq("thread_id", thread_id)
         .eq("sender", "fan")
         .eq("kairos_status", "ok")
@@ -250,7 +254,20 @@ def latest_kairos_json(thread_id: int, *, client=None) -> str:
     if not rows:
         return ""
 
-    return json.dumps(rows[0], ensure_ascii=False)
+    row = rows[0]
+    safe_keys = [
+        "message_id",
+        "strategic_narrative",
+        "alignment_status",
+        "conversation_criticality",
+        "tactical_signals",
+        "psychological_levers",
+        "risks",
+        "turn_micro_note",
+        "kairos_summary",
+    ]
+    clean = {k: row.get(k) for k in safe_keys if row.get(k) is not None}
+    return json.dumps(clean, ensure_ascii=False)
 
 
 def latest_plan_fields(thread_id: int, *, client=None) -> dict:
