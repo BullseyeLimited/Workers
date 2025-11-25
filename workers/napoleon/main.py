@@ -776,12 +776,13 @@ if __name__ == "__main__":
         row_id = job["row_id"]
         try:
             payload = job["payload"]
-            process_job(payload)
+            if process_job(payload):
+                ack(row_id)
         except Exception as exc:  # noqa: BLE001
             print("Napoleon error:", exc)
             traceback.print_exc()
-        finally:
-            ack(row_id)
+            # Do not ack on unhandled errors; let the job retry.
+            time.sleep(2)
 def merge_napoleon_analysis(base: dict, patch: dict) -> dict:
     """
     Merge partial Napoleon analysis into a base analysis.
