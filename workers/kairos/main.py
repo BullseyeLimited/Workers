@@ -451,38 +451,49 @@ def parse_kairos_headers(raw_text: str) -> Tuple[dict | None, str | None]:
 
 def _validated_analysis(fragments: dict) -> dict:
     """
-    Ensure all required fields exist and have the right shapes before persisting.
-    Raises ValueError on missing or invalid data.
+    Ensure required keys exist and are NOT empty strings.
     """
     if not isinstance(fragments, dict):
         raise ValueError("analysis is not an object")
 
+    # Helper: fail if missing OR empty
     def _require_text(key: str) -> str:
-        if key not in fragments:
+        val = fragments.get(key)
+        if val is None:
             raise ValueError(f"missing field: {key}")
-        return str(fragments[key] or "").strip()
+        s_val = str(val).strip()
+        if not s_val:
+            raise ValueError(f"field empty: {key}")
+        return s_val
 
     strategic_narrative = _require_text("STRATEGIC_NARRATIVE")
 
     alignment = fragments.get("ALIGNMENT_STATUS")
     if not isinstance(alignment, dict):
         raise ValueError("ALIGNMENT_STATUS must be an object")
+
     st_plan = str(alignment.get("SHORT_TERM_PLAN") or "").strip()
-    long_plans = alignment.get("LONG_TERM_PLANS") or {}
+    if not st_plan:
+        raise ValueError("ALIGNMENT_STATUS.SHORT_TERM_PLAN is empty")
+
+    long_plans = alignment.get("LONG_TERM_PLANS")
     if not isinstance(long_plans, dict):
         raise ValueError("LONG_TERM_PLANS must be an object")
-    lt = {
-        k: str(long_plans.get(k) or "").strip()
-        for k in (
-            "LIFETIME_PLAN",
-            "YEAR_PLAN",
-            "SEASON_PLAN",
-            "CHAPTER_PLAN",
-            "EPISODE_PLAN",
-        )
-    }
+
+    lt = {}
+    for k in (
+        "LIFETIME_PLAN",
+        "YEAR_PLAN",
+        "SEASON_PLAN",
+        "CHAPTER_PLAN",
+        "EPISODE_PLAN",
+    ):
+        val = str(long_plans.get(k) or "").strip()
+        lt[k] = val
 
     conv_crit = str(fragments.get("CONVERSATION_CRITICALITY") or "").strip()
+    if not conv_crit:
+        raise ValueError("CONVERSATION_CRITICALITY is empty")
 
     tactical = _require_text("TACTICAL_SIGNALS")
     levers = _require_text("PSYCHOLOGICAL_LEVERS")
@@ -493,7 +504,7 @@ def _validated_analysis(fragments: dict) -> dict:
         raise ValueError("TURN_MICRO_NOTE must be an object")
     micro_summary = str(micro.get("SUMMARY") or "").strip()
     if not micro_summary:
-        raise ValueError("TURN_MICRO_NOTE.SUMMARY missing or empty")
+        raise ValueError("TURN_MICRO_NOTE.SUMMARY is empty")
 
     return {
         "STRATEGIC_NARRATIVE": strategic_narrative,
