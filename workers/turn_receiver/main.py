@@ -82,7 +82,19 @@ async def receive(request: Request):
         )
 
     thread_id = thread["id"]
-    turn_index = (thread.get("turn_count") or 0) + 1
+
+    # Derive next turn index from messages to avoid stale turn_count
+    latest = (
+        SB.table("messages")
+        .select("turn_index")
+        .eq("thread_id", thread_id)
+        .order("turn_index", desc=True)
+        .limit(1)
+        .execute()
+        .data
+    )
+    latest_turn = latest[0]["turn_index"] if latest else 0
+    turn_index = (latest_turn or 0) + 1
 
     res = (
         SB.table("messages")

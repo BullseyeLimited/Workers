@@ -351,7 +351,7 @@ def _render_template(
     )
 
     for key, value in context.items():
-        template = template.replace(f"{{{key}}}", value)
+        template = template.replace(f"{{{key}}}", str(value))
 
     return template
 
