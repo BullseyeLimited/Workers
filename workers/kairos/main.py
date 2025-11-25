@@ -438,6 +438,7 @@ def record_kairos_failure(
     raw_text: str,
     error_message: str,
     translator_error: str | None = None,
+    partial: dict | None = None,
 ) -> None:
     """
     Upsert a message_ai_details row that marks this analysis as failed,
@@ -458,6 +459,24 @@ def record_kairos_failure(
             "kairos_raw_text_preview": (raw_text or "")[:2000],
         },
     }
+
+    # If we have partial analysis, keep what we have (without marking ok)
+    if partial:
+        row.update(
+            {
+                "strategic_narrative": partial.get("STRATEGIC_NARRATIVE"),
+                "alignment_status": partial.get("ALIGNMENT_STATUS"),
+                "conversation_criticality": partial.get("CONVERSATION_CRITICALITY"),
+                "tactical_signals": partial.get("TACTICAL_SIGNALS"),
+                "psychological_levers": partial.get("PSYCHOLOGICAL_LEVERS"),
+                "risks": partial.get("RISKS"),
+                "kairos_summary": (partial.get("TURN_MICRO_NOTE") or {}).get("SUMMARY"),
+                "extras": {
+                    "kairos_raw_json": partial,
+                    "kairos_raw_text_preview": (raw_text or "")[:2000],
+                },
+            }
+        )
 
     (
         SB.table("message_ai_details")
@@ -482,8 +501,8 @@ def upsert_kairos_details(
         "thread_id": thread_id,
         "sender": "fan",
         "raw_hash": hashlib.sha256(prompt.encode("utf-8")).hexdigest(),
-        # Mark pending; Napoleon will flip to ok when the pipeline completes.
-        "extract_status": "pending",
+        # Kairos is now authoritative for its own status.
+        "extract_status": "ok",
         "extract_error": None,
         "extracted_at": datetime.now(timezone.utc).isoformat(),
         "kairos_prompt_raw": prompt,
@@ -646,7 +665,7 @@ def process_job(payload: Dict[str, Any], row_id: int) -> bool:
         return True
 
     if parse_error is not None or analysis is None or missing_fields:
-        # Final failure after retries
+        # Final failure after retries; save partial if present
         record_kairos_failure(
             message_id=fan_msg_id,
             thread_id=thread_id,
@@ -659,6 +678,7 @@ def process_job(payload: Dict[str, Any], row_id: int) -> bool:
             ),
             raw_text=raw_text,
             error_message=f"Parse/validation error after retries: {parse_error or missing_fields}",
+            partial=analysis,
         )
         print(
             f"[Kairos] Parse/validation error after retries for message {fan_msg_id}: "

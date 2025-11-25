@@ -60,28 +60,56 @@ def record_napoleon_failure(
 ) -> None:
     """
     Mark a Napoleon job as failed on the message_ai_details row
-    attached to the *fan* message.
+    attached to the *fan* message, without clobbering Kairos fields.
     """
-    row = {
-        "message_id": fan_message_id,
-        "thread_id": thread_id,
-        "sender": "fan",
-        "extract_status": "failed",
+    existing_row = (
+        SB.table("message_ai_details")
+        .select("*")
+        .eq("message_id", fan_message_id)
+        .single()
+        .execute()
+        .data
+    ) or {}
+
+    merged_extras = existing_row.get("extras") or {}
+    merged_extras.update(
+        {
+            "napoleon_raw_text_preview": (raw_text or "")[:2000],
+        }
+    )
+
+    update_fields = {
+        "napoleon_status": "failed",
         "extract_error": error_message,
         "extracted_at": datetime.now(timezone.utc).isoformat(),
         "raw_hash": raw_hash,
         "napoleon_prompt_raw": prompt,
         "napoleon_output_raw": raw_text,
-        "extras": {
-            "napoleon_raw_text_preview": (raw_text or "")[:2000],
-        },
+        "extras": merged_extras,
     }
 
-    (
-        SB.table("message_ai_details")
-        .upsert(row, on_conflict="message_id")
-        .execute()
-    )
+    if existing_row:
+        (
+            SB.table("message_ai_details")
+            .update(update_fields)
+            .eq("message_id", fan_message_id)
+            .execute()
+        )
+    else:
+        # Fallback: create minimal row
+        update_fields.update(
+            {
+                "message_id": fan_message_id,
+                "thread_id": thread_id,
+                "sender": "fan",
+                "extract_status": "pending",
+            }
+        )
+        (
+            SB.table("message_ai_details")
+            .upsert(update_fields, on_conflict="message_id")
+            .execute()
+        )
 
 
 def upsert_napoleon_details(
@@ -113,8 +141,6 @@ def upsert_napoleon_details(
         # Without Kairos we cannot set status ok; surface loudly.
         raise ValueError(f"message_ai_details missing for fan message {fan_message_id}")
 
-    has_kairos = bool(existing_row.get("strategic_narrative"))
-
     merged_extras = existing_row.get("extras") or {}
     merged_extras.update(
         {
@@ -123,16 +149,14 @@ def upsert_napoleon_details(
             "napoleon_prompt_preview": (prompt or "")[:2000],
             "napoleon_rethink_horizons": rethink,
             "creator_reply_message_id": creator_message_id,
-            "napoleon_save_note": (
-                "Merged with Kairos" if has_kairos else "Saved Napoleon Only (Pending)"
-            ),
-            "kairos_check": "found" if has_kairos else "missing",
+            "napoleon_save_note": "Merged with Kairos",
+            "kairos_check": "found" if existing_row.get("strategic_narrative") else "missing",
         }
     )
 
     update_fields = {
         # Do not overwrite Kairos columns; only add Napoleon fields + status flip.
-        "extract_status": "ok" if has_kairos else "pending",
+        "napoleon_status": "ok",
         "extract_error": None,
         "extracted_at": datetime.now(timezone.utc).isoformat(),
         "raw_hash": raw_hash,
