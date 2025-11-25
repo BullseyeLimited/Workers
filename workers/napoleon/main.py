@@ -437,8 +437,8 @@ def parse_napoleon_headers(raw_text: str) -> tuple[dict | None, str | None]:
     sections: dict[str, str] = {}
     for i, (idx, header) in enumerate(matches):
         start = idx + 1
-        end = matches[i + 1][0] if i + 1 < len(matches) else len(lines)
-        sections[header] = "\n".join(lines[start:end]).strip()
+        next_idx = matches[i + 1][0] if i + 1 < len(matches) else len(lines)
+        sections[header] = "\n".join(lines[start:next_idx]).strip()
 
     required = [
         "TACTICAL_PLAN_3TURNS",
