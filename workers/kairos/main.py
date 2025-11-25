@@ -106,29 +106,28 @@ def runpod_call(system_prompt: str, user_message: str) -> tuple[str, dict]:
         "Content-Type": "application/json",
         "Authorization": f"Bearer {os.getenv('RUNPOD_API_KEY', '')}",
     }
-    # INJECT REASONING INSTRUCTION
-    # This forces the model to get its "crazy" thoughts out in a safe block first.
+    # INSTRUCTION: Force "Thinking" process
+    # We append this to the USER message because models follow user instructions more strictly than system prompts.
     reasoning_instruction = (
         "\n\nStep-by-Step Reasoning Protocol:\n"
-        "1. First, output a <thinking> block. Inside it, analyze the user's psychology deeply. "
-        "Reason about the situation, but DO NOT discuss the output format or the stop token inside this block.\n"
-        "2. After closing </thinking>, immediately output the required headers.\n"
+        "1. First, output a <thinking> block. Analyze the situation deeply. "
+        "Write out your internal monologue, pros/cons, and strategy here. "
+        "Do NOT worry about the JSON format inside this block.\n"
+        "2. After closing </thinking>, immediately output the required headers/JSON.\n"
+        "\nStart your response immediately with: <thinking>"
     )
-
-    final_system = system_prompt + reasoning_instruction
 
     payload = {
         "model": os.getenv("RUNPOD_MODEL_NAME", "gpt-oss-20b-uncensored"),
         "messages": [
-            {"role": "system", "content": final_system},
-            {"role": "user", "content": user_message},
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_message + reasoning_instruction},
         ],
-        # REDUCED to fit inside RunPod's 100s proxy timeout
-        "max_tokens": 2000,
-        "temperature": 0.75,        # Slight bump to keep it dynamic
-        "repetition_penalty": 1.0,  # DISABLED (1.0) so it can write headers correctly
-        "frequency_penalty": 0.2,   # ENABLED (0.2) to gently stop infinite loops
-        "stop": ["### END"],        # Hard brake to stop generation
+        "max_tokens": 4000,         # INCREASED to 4000 (Server is 16K)
+        "temperature": 0.75,
+        "repetition_penalty": 1.0,  # DISABLED (1.0) to prevent broken headers
+        "frequency_penalty": 0.2,   # ENABLED (0.2) to stop infinite loops
+        "stop": ["### END"],
     }
 
     resp = requests.post(url, headers=headers, json=payload, timeout=600)
@@ -692,44 +691,16 @@ def process_job(payload: Dict[str, Any], row_id: int) -> bool:
     if analysis is None:
         translated, translator_error = translate_kairos_output(raw_text)
         if translator_error is not None or translated is None:
-            record_kairos_failure(
-                message_id=fan_msg_id,
-                thread_id=thread_id,
-                prompt=json.dumps(
-                    {
-                        "system": system_prompt,
-                        "user": user_prompt,
-                    },
-                    ensure_ascii=False,
-                ),
-                raw_text=raw_text,
-                error_message="Translator failure",
-                translator_error=translator_error,
-            )
-            print(
-                f"[Kairos] Translator failure for message {fan_msg_id}: {translator_error}"
-            )
-            return True
-
-        try:
-            analysis = _validated_analysis(translated)
-        except ValueError as exc:  # noqa: BLE001
-            record_kairos_failure(
-                message_id=fan_msg_id,
-                thread_id=thread_id,
-                prompt=json.dumps(
-                    {
-                        "system": system_prompt,
-                        "user": user_prompt,
-                    },
-                    ensure_ascii=False,
-                ),
-                raw_text=raw_text,
-                error_message=f"Validation error: {exc}",
-                translator_error=None,
-            )
-            print(f"[Kairos] Validation error for message {fan_msg_id}: {exc}")
-            return True
+            # LOG ONLY: Do not return True. Let it fall through to retry.
+            print(f"[Kairos] Translator failure: {translator_error}")
+            analysis = None
+        else:
+            try:
+                analysis = _validated_analysis(translated)
+            except ValueError as exc:  # noqa: BLE001
+                # LOG ONLY: Do not return True. Let it fall through to retry.
+                print(f"[Kairos] Validation error after translation: {exc}")
+                analysis = None
 
     # Basic validation for missing required fields
     missing_fields = _missing_required_fields(analysis)

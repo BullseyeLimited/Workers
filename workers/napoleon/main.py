@@ -226,28 +226,28 @@ def runpod_call(system_prompt: str, user_message: str) -> tuple[str, dict]:
         "Content-Type": "application/json",
         "Authorization": f"Bearer {os.getenv('RUNPOD_API_KEY', '')}",
     }
-    # INJECT REASONING INSTRUCTION
-    # Napoleon needs this to plan without polluting the final output.
+    # INSTRUCTION: Force "Thinking" process
+    # We append this to the USER message because models follow user instructions more strictly than system prompts.
     reasoning_instruction = (
         "\n\nStep-by-Step Reasoning Protocol:\n"
-        "1. First, output a <thinking> block. Analyze the plan, the history, and the strategy. "
-        "Focus only on the narrative. DO NOT talk about the headers or the '### END' token here.\n"
-        "2. After closing </thinking>, immediately output the SECTION 1 header.\n"
+        "1. First, output a <thinking> block. Analyze the situation deeply. "
+        "Write out your internal monologue, pros/cons, and strategy here. "
+        "Do NOT worry about the JSON format inside this block.\n"
+        "2. After closing </thinking>, immediately output the required headers/JSON.\n"
+        "\nStart your response immediately with: <thinking>"
     )
-
-    final_system = system_prompt + reasoning_instruction
 
     payload = {
         "model": os.getenv("RUNPOD_MODEL_NAME", "gpt-oss-20b-uncensored"),
         "messages": [
-            {"role": "system", "content": final_system},
-            {"role": "user", "content": user_message},
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_message + reasoning_instruction},
         ],
-        "max_tokens": 2000,
+        "max_tokens": 4000,         # INCREASED to 4000 (Server is 16K)
         "temperature": 0.75,
-        "repetition_penalty": 1.0,  # DISABLED to allow structured planning
-        "frequency_penalty": 0.2,   # ENABLED to prevent repetitive loops
-        "stop": ["### END"],        # Hard brake
+        "repetition_penalty": 1.0,  # DISABLED (1.0) to prevent broken headers
+        "frequency_penalty": 0.2,   # ENABLED (0.2) to stop infinite loops
+        "stop": ["### END"],
     }
 
     resp = requests.post(url, headers=headers, json=payload, timeout=600)
