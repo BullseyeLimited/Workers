@@ -106,28 +106,18 @@ def runpod_call(system_prompt: str, user_message: str) -> tuple[str, dict]:
         "Content-Type": "application/json",
         "Authorization": f"Bearer {os.getenv('RUNPOD_API_KEY', '')}",
     }
-    # INSTRUCTION: Force "Thinking" process
-    # We append this to the USER message because models follow user instructions more strictly than system prompts.
-    reasoning_instruction = (
-        "\n\nStep-by-Step Reasoning Protocol:\n"
-        "1. First, output a <thinking> block. Analyze the situation deeply. "
-        "Write out your internal monologue, pros/cons, and strategy here. "
-        "Do NOT worry about the JSON format inside this block.\n"
-        "2. After closing </thinking>, immediately output the required headers/JSON.\n"
-        "\nStart your response immediately with: <thinking>"
-    )
-
     payload = {
         "model": os.getenv("RUNPOD_MODEL_NAME", "gpt-oss-20b-uncensored"),
         "messages": [
             {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_message + reasoning_instruction},
+            {"role": "user", "content": user_message},
         ],
-        "max_tokens": 4000,         # INCREASED to 4000 (Server is 16K)
-        "temperature": 0.75,
-        "repetition_penalty": 1.0,  # DISABLED (1.0) to prevent broken headers
-        "frequency_penalty": 0.2,   # ENABLED (0.2) to stop infinite loops
-        "stop": ["### END"],
+        "max_tokens": 4000,
+        "temperature": 0.6,
+        "top_p": 0.95,
+        "repetition_penalty": 1.0,  # effectively off to allow headers to repeat
+        "presence_penalty": 0.0,
+        "frequency_penalty": 0.1,   # gentle nudge against excessive repetition
     }
 
     resp = requests.post(url, headers=headers, json=payload, timeout=600)

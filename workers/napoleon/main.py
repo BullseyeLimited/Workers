@@ -226,28 +226,18 @@ def runpod_call(system_prompt: str, user_message: str) -> tuple[str, dict]:
         "Content-Type": "application/json",
         "Authorization": f"Bearer {os.getenv('RUNPOD_API_KEY', '')}",
     }
-    # INSTRUCTION: Force "Thinking" process
-    # We append this to the USER message because models follow user instructions more strictly than system prompts.
-    reasoning_instruction = (
-        "\n\nStep-by-Step Reasoning Protocol:\n"
-        "1. First, output a <thinking> block. Analyze the situation deeply. "
-        "Write out your internal monologue, pros/cons, and strategy here. "
-        "Do NOT worry about the JSON format inside this block.\n"
-        "2. After closing </thinking>, immediately output the required headers/JSON.\n"
-        "\nStart your response immediately with: <thinking>"
-    )
-
     payload = {
         "model": os.getenv("RUNPOD_MODEL_NAME", "gpt-oss-20b-uncensored"),
         "messages": [
             {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_message + reasoning_instruction},
+            {"role": "user", "content": user_message},
         ],
-        "max_tokens": 4000,         # INCREASED to 4000 (Server is 16K)
-        "temperature": 0.75,
-        "repetition_penalty": 1.0,  # DISABLED (1.0) to prevent broken headers
-        "frequency_penalty": 0.2,   # ENABLED (0.2) to stop infinite loops
-        "stop": ["### END"],
+        "max_tokens": 4000,
+        "temperature": 0.6,
+        "top_p": 0.95,
+        "repetition_penalty": 1.0,  # effectively off to allow headers to repeat
+        "presence_penalty": 0.0,
+        "frequency_penalty": 0.1,   # gentle nudge against excessive repetition
     }
 
     resp = requests.post(url, headers=headers, json=payload, timeout=600)
@@ -605,34 +595,33 @@ def merge_napoleon_analysis(base: dict, patch: dict) -> dict:
 
 def _missing_required_fields(analysis: dict | None) -> list[str]:
     """
-    Flag a field if the KEY is absent OR the value is empty/whitespace.
+    Flag a field only if the KEY is absent (empty strings are allowed).
     """
     if analysis is None:
         return ["analysis_none"]
 
     missing: list[str] = []
 
-    def check_non_empty(container, key, path_name):
-        val = container.get(key) if isinstance(container, dict) else None
-        if not val or not str(val).strip():
+    def check_present(container, key, path_name):
+        if not isinstance(container, dict) or key not in container:
             missing.append(path_name)
 
     # Check Root Fields
     tactical = analysis.get("TACTICAL_PLAN_3TURNS") or {}
     for k in ["TURN1_DIRECTIVE", "TURN2A_FAN_PATH", "TURN2B_FAN_PATH", "TURN3A_DIRECTIVE", "TURN3B_DIRECTIVE"]:
-        check_non_empty(tactical, k, f"TACTICAL_PLAN_3TURNS.{k}")
+        check_present(tactical, k, f"TACTICAL_PLAN_3TURNS.{k}")
 
     multi = analysis.get("MULTI_HORIZON_PLAN") or {}
     for hz in ["EPISODE", "CHAPTER", "SEASON", "YEAR", "LIFETIME"]:
         hz_data = multi.get(hz) or {}
-        check_non_empty(hz_data, "PLAN", f"MULTI_HORIZON_PLAN.{hz}.PLAN")
+        check_present(hz_data, "PLAN", f"MULTI_HORIZON_PLAN.{hz}.PLAN")
 
-    check_non_empty(analysis, "FINAL_MESSAGE", "FINAL_MESSAGE")
+    check_present(analysis, "FINAL_MESSAGE", "FINAL_MESSAGE")
 
     # Voice Logic
     voice = analysis.get("VOICE_ENGINEERING_LOGIC") or {}
-    check_non_empty(voice, "INTENT", "VOICE_ENGINEERING_LOGIC.INTENT")
-    check_non_empty(voice, "DRAFTING", "VOICE_ENGINEERING_LOGIC.DRAFTING")
+    check_present(voice, "INTENT", "VOICE_ENGINEERING_LOGIC.INTENT")
+    check_present(voice, "DRAFTING", "VOICE_ENGINEERING_LOGIC.DRAFTING")
 
     return missing
 
