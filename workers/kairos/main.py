@@ -241,33 +241,102 @@ def _missing_required_fields(analysis: dict | None) -> list[str]:
     return missing
 
 
-def run_repair_call(original_output: str, missing_fields: list[str]) -> tuple[str, dict]:
+def run_repair_call(
+    original_output: str,
+    missing_fields: list[str],
+    original_system_prompt: str,
+    original_user_prompt: str,
+) -> tuple[str, dict]:
     """
     Ask the model to repair an incomplete Kairos output by filling only missing sections.
     Returns (raw_text, request_payload).
     """
     system_prompt = (
         "You are the Kairos Repair Assistant. You fix incomplete Kairos outputs.\n"
-        "Always return the full Kairos response with all required sections:\n"
-        "STRATEGIC_NARRATIVE\n"
-        "ALIGNMENT_STATUS\n"
-        "CONVERSATION_CRITICALITY\n"
-        "TACTICAL_SIGNALS\n"
-        "PSYCHOLOGICAL_LEVERS\n"
-        "RISKS\n"
-        "TURN_MICRO_NOTE (with SUMMARY)\n"
-        "Keep the same style and intent. Do NOT omit any section. If a section was fine before, keep it.\n"
-        "If something was missing, add it. Do not invent new headers."
+        "Output ONLY the missing headers/sections listed. Use the same header format.\n"
+        "Do NOT rewrite sections that were already present. Keep style and intent."
     )
 
     user_message = (
-        "The previous Kairos output was missing or incomplete in these fields:\n"
+        "You are fixing an incomplete Kairos output.\n\n"
+        "Missing or incomplete fields:\n"
         f"- {', '.join(missing_fields) if missing_fields else '(unspecified)'}\n\n"
-        "Here is the previous output to repair:\n"
-        f"{original_output}"
+        "Original input (system + user):\n"
+        f"{original_system_prompt}\n\n{original_user_prompt}\n\n"
+        "Previous output to repair (incomplete):\n"
+        f"{original_output}\n\n"
+        "Instructions:\n"
+        "- Read the input briefly to recall context.\n"
+        "- Read the previous output and continue/repair it.\n"
+        "- Output ONLY the missing headers/sections listed above. Use the same header format.\n"
+        "- Do NOT rewrite sections that were already present.\n"
+        "- Keep the same style and intent; do not invent new headers."
     )
 
     return runpod_call(system_prompt, user_message)
+
+
+def parse_kairos_partial(raw_text: str) -> dict:
+    """
+    Best-effort partial parser: returns whatever headers are present.
+    """
+    parsed, _err = parse_kairos_headers(raw_text)
+    return parsed or {}
+
+
+def merge_kairos_analysis(base: dict, patch: dict) -> dict:
+    """
+    Merge partial Kairos analysis into a base analysis.
+    Only overwrite fields if patch provides a non-empty value.
+    """
+    merged = {
+        "STRATEGIC_NARRATIVE": base.get("STRATEGIC_NARRATIVE") or "",
+        "ALIGNMENT_STATUS": base.get("ALIGNMENT_STATUS")
+        or {
+            "SHORT_TERM_PLAN": "",
+            "LONG_TERM_PLANS": {
+                "LIFETIME_PLAN": "",
+                "YEAR_PLAN": "",
+                "SEASON_PLAN": "",
+                "CHAPTER_PLAN": "",
+                "EPISODE_PLAN": "",
+            },
+        },
+        "CONVERSATION_CRITICALITY": base.get("CONVERSATION_CRITICALITY") or "",
+        "TACTICAL_SIGNALS": base.get("TACTICAL_SIGNALS") or "",
+        "PSYCHOLOGICAL_LEVERS": base.get("PSYCHOLOGICAL_LEVERS") or "",
+        "RISKS": base.get("RISKS") or "",
+        "TURN_MICRO_NOTE": base.get("TURN_MICRO_NOTE") or {"SUMMARY": ""},
+    }
+
+    if patch.get("STRATEGIC_NARRATIVE") and str(patch["STRATEGIC_NARRATIVE"]).strip():
+        merged["STRATEGIC_NARRATIVE"] = patch["STRATEGIC_NARRATIVE"]
+
+    if "ALIGNMENT_STATUS" in patch and isinstance(patch["ALIGNMENT_STATUS"], dict):
+        align = merged["ALIGNMENT_STATUS"]
+        p_align = patch["ALIGNMENT_STATUS"]
+        if p_align.get("SHORT_TERM_PLAN") and str(p_align["SHORT_TERM_PLAN"]).strip():
+            align["SHORT_TERM_PLAN"] = p_align["SHORT_TERM_PLAN"]
+        lt_base = align.get("LONG_TERM_PLANS") or {}
+        lt_patch = p_align.get("LONG_TERM_PLANS") or {}
+        if isinstance(lt_patch, dict):
+            for key, val in lt_patch.items():
+                if val and str(val).strip():
+                    lt_base[key] = val
+            align["LONG_TERM_PLANS"] = lt_base
+        merged["ALIGNMENT_STATUS"] = align
+
+    for key in ("CONVERSATION_CRITICALITY", "TACTICAL_SIGNALS", "PSYCHOLOGICAL_LEVERS", "RISKS"):
+        val = patch.get(key)
+        if val and str(val).strip():
+            merged[key] = val
+
+    if patch.get("TURN_MICRO_NOTE") and isinstance(patch["TURN_MICRO_NOTE"], dict):
+        summary = patch["TURN_MICRO_NOTE"].get("SUMMARY")
+        if summary and str(summary).strip():
+            merged["TURN_MICRO_NOTE"]["SUMMARY"] = summary
+
+    return merged
 
 
 def _parse_alignment_block(block: str) -> dict:
@@ -539,7 +608,11 @@ def process_job(payload: Dict[str, Any], row_id: int) -> bool:
     attempt = int(payload.get("kairos_retry", 0))
     is_repair = bool(payload.get("repair_mode"))
     previous_raw_text = payload.get("orig_raw_text") or ""
+    root_raw_text = payload.get("root_raw_text") or previous_raw_text or ""
     previous_missing = payload.get("missing_fields") or []
+    orig_system_prompt = payload.get("orig_system_prompt") or ""
+    orig_user_prompt = payload.get("orig_user_prompt") or ""
+    root_analysis = payload.get("root_analysis") or {}
     message_row = (
         SB.table("messages")
         .select("id,thread_id,sender,turn_index,message_text")
@@ -571,8 +644,10 @@ def process_job(payload: Dict[str, Any], row_id: int) -> bool:
     try:
         if is_repair:
             raw_text, _request_payload = run_repair_call(
-                previous_raw_text or "",
+                root_raw_text or previous_raw_text or "",
                 previous_missing,
+                orig_system_prompt or system_prompt,
+                orig_user_prompt or user_prompt,
             )
         else:
             raw_text, _request_payload = runpod_call(system_prompt, user_prompt)
@@ -648,6 +723,10 @@ def process_job(payload: Dict[str, Any], row_id: int) -> bool:
     # Basic validation for missing required fields
     missing_fields = _missing_required_fields(analysis)
 
+    # Establish root analysis from the first attempt (best-effort partial)
+    if not root_analysis:
+        root_analysis = parse_kairos_partial(raw_text)
+
     # If parsing failed or critical fields are missing, try repair up to 2 attempts.
     if (parse_error is not None or analysis is None or missing_fields) and attempt < 2:
         retry_payload = {
@@ -655,7 +734,11 @@ def process_job(payload: Dict[str, Any], row_id: int) -> bool:
             "kairos_retry": attempt + 1,
             "repair_mode": True,
             "orig_raw_text": raw_text,
+            "root_raw_text": root_raw_text or raw_text,
             "missing_fields": missing_fields,
+            "orig_system_prompt": orig_system_prompt or system_prompt,
+            "orig_user_prompt": orig_user_prompt or user_prompt,
+            "root_analysis": root_analysis,
         }
         send(QUEUE, retry_payload)
         print(
@@ -663,6 +746,13 @@ def process_job(payload: Dict[str, Any], row_id: int) -> bool:
             f"(parse_error={parse_error}, missing={missing_fields})"
         )
         return True
+
+    if is_repair:
+        patch = parse_kairos_partial(raw_text)
+        merged = merge_kairos_analysis(root_analysis, patch)
+        analysis = merged
+        parse_error = None
+        missing_fields = _missing_required_fields(analysis)
 
     if parse_error is not None or analysis is None or missing_fields:
         # Final failure after retries; save partial if present

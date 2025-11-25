@@ -460,6 +460,73 @@ def parse_napoleon_headers(raw_text: str) -> tuple[dict | None, str | None]:
     return analysis, None
 
 
+def parse_napoleon_partial(raw_text: str) -> dict:
+    """
+    Best-effort parser that returns only the sections present, without requiring all headers.
+    """
+    if not raw_text or not raw_text.strip():
+        return {}
+
+    lines = raw_text.splitlines()
+    matches: list[tuple[int, str]] = []
+    for idx, line in enumerate(lines):
+        match = HEADER_PATTERN.match(line)
+        if not match:
+            continue
+        header = _normalize_header(match.group("header") or "")
+        matches.append((idx, header))
+
+    if not matches:
+        return {}
+
+    sections: dict[str, str] = {}
+    for i, (idx, header) in enumerate(matches):
+        start = idx + 1
+        end = matches[i + 1][0] if i + 1 < len(lines) else len(lines)
+        sections[header] = "\n".join(lines[start:end]).strip()
+
+    result: dict = {}
+
+    if "TACTICAL_PLAN_3TURNS" in sections:
+        try:
+            result["TACTICAL_PLAN_3TURNS"] = _parse_tactical_section(
+                sections["TACTICAL_PLAN_3TURNS"]
+            )
+        except Exception:
+            pass
+
+    if "MULTI_HORIZON_PLAN" in sections:
+        try:
+            result["MULTI_HORIZON_PLAN"] = _parse_multi_horizon_section(
+                sections["MULTI_HORIZON_PLAN"]
+            )
+        except Exception:
+            pass
+
+    if "RETHINK_HORIZONS" in sections:
+        try:
+            result["RETHINK_HORIZONS"] = _parse_rethink_section(
+                sections["RETHINK_HORIZONS"]
+            )
+        except Exception:
+            pass
+
+    if "VOICE_ENGINEERING_LOGIC" in sections:
+        try:
+            result["VOICE_ENGINEERING_LOGIC"] = _parse_voice_section(
+                sections["VOICE_ENGINEERING_LOGIC"]
+            )
+        except Exception:
+            pass
+
+    if "FINAL_MESSAGE" in sections:
+        msg = sections["FINAL_MESSAGE"].strip()
+        if msg:
+            result["FINAL_MESSAGE"] = msg
+
+    return result
+
+
 def _missing_required_fields(analysis: dict | None) -> list[str]:
     """
     Check for empty critical fields that would make the row or reply unusable.
@@ -494,28 +561,36 @@ def _missing_required_fields(analysis: dict | None) -> list[str]:
     return missing
 
 
-def run_repair_call(original_output: str, missing_fields: list[str]) -> tuple[str, dict]:
+def run_repair_call(
+    original_output: str,
+    missing_fields: list[str],
+    original_system_prompt: str,
+    original_user_prompt: str,
+) -> tuple[str, dict]:
     """
     Ask the model to repair an incomplete Napoleon output by filling only missing sections.
     Returns (raw_text, request_payload).
     """
     system_prompt = (
         "You are the Napoleon Repair Assistant. You fix incomplete Napoleon outputs.\n"
-        "Always return the full Napoleon response with all required sections:\n"
-        "TACTICAL_PLAN_3TURNS\n"
-        "MULTI_HORIZON_PLAN\n"
-        "RETHINK_HORIZONS\n"
-        "VOICE_ENGINEERING_LOGIC\n"
-        "FINAL_MESSAGE\n"
-        "Keep the same style and intent. Do NOT omit any section. If a section was fine before, keep it.\n"
-        "If something was missing, add it. Do not invent new headers."
+        "Output ONLY the missing headers/sections listed. Use the same header format.\n"
+        "Do NOT rewrite sections that were already present. Keep style and intent."
     )
 
     user_message = (
-        "The previous Napoleon output was missing or incomplete in these fields:\n"
+        "You are fixing an incomplete Napoleon output.\n\n"
+        "Missing or incomplete fields:\n"
         f"- {', '.join(missing_fields) if missing_fields else '(unspecified)'}\n\n"
-        "Here is the previous output to repair:\n"
-        f"{original_output}"
+        "Original input (system + user):\n"
+        f"{original_system_prompt}\n\n{original_user_prompt}\n\n"
+        "Previous output to repair (incomplete):\n"
+        f"{original_output}\n\n"
+        "Instructions:\n"
+        "- Read the input briefly to recall context.\n"
+        "- Read the previous output and continue/repair it.\n"
+        "- Output ONLY the missing headers/sections listed above. Use the same header format.\n"
+        "- Do NOT rewrite sections that were already present.\n"
+        "- Keep the same style and intent; do not invent new headers."
     )
 
     return runpod_call(system_prompt, user_message)
@@ -526,7 +601,11 @@ def process_job(payload):
     attempt = int(payload.get("napoleon_retry", 0))
     is_repair = bool(payload.get("repair_mode"))
     previous_raw_text = payload.get("orig_raw_text") or ""
+    root_raw_text = payload.get("root_raw_text") or previous_raw_text or ""
     previous_missing = payload.get("missing_fields") or []
+    orig_system_prompt = payload.get("orig_system_prompt") or ""
+    orig_user_prompt = payload.get("orig_user_prompt") or ""
+    root_analysis = payload.get("root_analysis") or {}
 
     msg = (
         SB.table("messages")
@@ -559,8 +638,10 @@ def process_job(payload):
     try:
         if is_repair:
             raw_text, _request_payload = run_repair_call(
-                previous_raw_text or "",
+                root_raw_text or previous_raw_text or "",
                 previous_missing,
+                orig_system_prompt or system_prompt,
+                orig_user_prompt or user_prompt,
             )
         else:
             raw_text, _request_payload = runpod_call(system_prompt, user_prompt)
@@ -581,6 +662,10 @@ def process_job(payload):
     # Basic validation for missing required fields
     missing_fields = _missing_required_fields(analysis)
 
+    # Establish root analysis from the first attempt (best-effort partial)
+    if not root_analysis:
+        root_analysis = parse_napoleon_partial(raw_text)
+
     # If parsing failed or critical fields are missing, try repair up to 2 attempts.
     if (parse_error is not None or analysis is None or missing_fields) and attempt < 2:
         retry_payload = {
@@ -588,7 +673,11 @@ def process_job(payload):
             "napoleon_retry": attempt + 1,
             "repair_mode": True,
             "orig_raw_text": raw_text,
+            "root_raw_text": root_raw_text or raw_text,
             "missing_fields": missing_fields,
+            "orig_system_prompt": orig_system_prompt or system_prompt,
+            "orig_user_prompt": orig_user_prompt or user_prompt,
+            "root_analysis": root_analysis,
         }
         send(QUEUE, retry_payload)
         print(
@@ -596,6 +685,14 @@ def process_job(payload):
             f"(parse_error={parse_error}, missing={missing_fields})"
         )
         return True
+
+    if is_repair:
+        # Parse partial repair output and merge into root analysis
+        patch = parse_napoleon_partial(raw_text)
+        merged = merge_napoleon_analysis(root_analysis, patch)
+        analysis = merged
+        parse_error = None
+        missing_fields = _missing_required_fields(analysis)
 
     if parse_error is not None or analysis is None or missing_fields:
         # Final failure after retries
@@ -685,3 +782,65 @@ if __name__ == "__main__":
             traceback.print_exc()
         finally:
             ack(row_id)
+def merge_napoleon_analysis(base: dict, patch: dict) -> dict:
+    """
+    Merge partial Napoleon analysis into a base analysis.
+    Only overwrite fields if patch provides a non-empty value.
+    """
+    merged = {
+        "TACTICAL_PLAN_3TURNS": base.get("TACTICAL_PLAN_3TURNS") or {
+            "TURN1_DIRECTIVE": "",
+            "TURN2A_FAN_PATH": "",
+            "TURN2B_FAN_PATH": "",
+            "TURN3A_DIRECTIVE": "",
+            "TURN3B_DIRECTIVE": "",
+        },
+        "MULTI_HORIZON_PLAN": base.get("MULTI_HORIZON_PLAN")
+        or {hz: {"PLAN": "", "PROGRESS": "", "STATE": "", "NOTES": []} for hz in HORIZONS},
+        "RETHINK_HORIZONS": base.get("RETHINK_HORIZONS") or {"STATUS": "", "REASON": ""},
+        "VOICE_ENGINEERING_LOGIC": base.get("VOICE_ENGINEERING_LOGIC") or {"INTENT": "", "MECHANISM": "", "DRAFTING": ""},
+        "FINAL_MESSAGE": base.get("FINAL_MESSAGE") or "",
+    }
+
+    # Merge tactical
+    if "TACTICAL_PLAN_3TURNS" in patch:
+        for k, v in patch["TACTICAL_PLAN_3TURNS"].items():
+            if v and str(v).strip():
+                merged["TACTICAL_PLAN_3TURNS"][k] = v
+
+    # Merge multi-horizon
+    if "MULTI_HORIZON_PLAN" in patch:
+        for hz, hz_data in patch["MULTI_HORIZON_PLAN"].items():
+            target = merged["MULTI_HORIZON_PLAN"].setdefault(
+                hz, {"PLAN": "", "PROGRESS": "", "STATE": "", "NOTES": []}
+            )
+            if not isinstance(hz_data, dict):
+                continue
+            for field in ("PLAN", "PROGRESS", "STATE", "NOTES"):
+                val = hz_data.get(field)
+                if field == "NOTES":
+                    if val:
+                        target["NOTES"] = val
+                else:
+                    if val and str(val).strip():
+                        target[field] = val
+
+    # Merge rethink
+    if "RETHINK_HORIZONS" in patch and isinstance(patch["RETHINK_HORIZONS"], dict):
+        for k in ("STATUS", "REASON"):
+            val = patch["RETHINK_HORIZONS"].get(k)
+            if val and str(val).strip():
+                merged["RETHINK_HORIZONS"][k] = val
+
+    # Merge voice
+    if "VOICE_ENGINEERING_LOGIC" in patch and isinstance(patch["VOICE_ENGINEERING_LOGIC"], dict):
+        for k in ("INTENT", "MECHANISM", "DRAFTING"):
+            val = patch["VOICE_ENGINEERING_LOGIC"].get(k)
+            if val and str(val).strip():
+                merged["VOICE_ENGINEERING_LOGIC"][k] = val
+
+    # Merge final message
+    if patch.get("FINAL_MESSAGE") and str(patch["FINAL_MESSAGE"]).strip():
+        merged["FINAL_MESSAGE"] = patch["FINAL_MESSAGE"]
+
+    return merged
