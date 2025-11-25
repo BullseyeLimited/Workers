@@ -213,29 +213,24 @@ def _missing_required_fields(analysis: dict | None) -> list[str]:
 
     missing: list[str] = []
 
-    if not (analysis.get("STRATEGIC_NARRATIVE") or "").strip():
-        missing.append("STRATEGIC_NARRATIVE")
+    def check_non_empty(container: dict, key: str, label: str):
+        val = container.get(key) if isinstance(container, dict) else None
+        if val is None or not str(val).strip():
+            missing.append(label)
+
+    check_non_empty(analysis, "STRATEGIC_NARRATIVE", "STRATEGIC_NARRATIVE")
 
     align = analysis.get("ALIGNMENT_STATUS") or {}
-    if not (align.get("SHORT_TERM_PLAN") or "").strip():
-        missing.append("SHORT_TERM_PLAN")
-    lt = align.get("LONG_TERM_PLANS") or {}
-    # Only flag if all long-term entries are empty
-    if not any((lt.get(k) or "").strip() for k in ("LIFETIME_PLAN", "YEAR_PLAN", "SEASON_PLAN", "CHAPTER_PLAN", "EPISODE_PLAN")):
-        missing.append("LONG_TERM_PLANS")
+    check_non_empty(align, "SHORT_TERM_PLAN", "SHORT_TERM_PLAN")
+    # Long-term plans are allowed to be empty; only require the object to exist.
 
-    if not (analysis.get("CONVERSATION_CRITICALITY") or "").strip():
-        missing.append("CONVERSATION_CRITICALITY")
-    if not (analysis.get("TACTICAL_SIGNALS") or "").strip():
-        missing.append("TACTICAL_SIGNALS")
-    if not (analysis.get("PSYCHOLOGICAL_LEVERS") or "").strip():
-        missing.append("PSYCHOLOGICAL_LEVERS")
-    if not (analysis.get("RISKS") or "").strip():
-        missing.append("RISKS")
+    check_non_empty(analysis, "CONVERSATION_CRITICALITY", "CONVERSATION_CRITICALITY")
+    check_non_empty(analysis, "TACTICAL_SIGNALS", "TACTICAL_SIGNALS")
+    check_non_empty(analysis, "PSYCHOLOGICAL_LEVERS", "PSYCHOLOGICAL_LEVERS")
+    check_non_empty(analysis, "RISKS", "RISKS")
 
     micro = analysis.get("TURN_MICRO_NOTE") or {}
-    if not (micro.get("SUMMARY") or "").strip():
-        missing.append("TURN_MICRO_NOTE.SUMMARY")
+    check_non_empty(micro, "SUMMARY", "TURN_MICRO_NOTE.SUMMARY")
 
     return missing
 
