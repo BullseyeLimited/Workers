@@ -767,12 +767,12 @@ def process_job(payload: Dict[str, Any], row_id: int) -> bool:
                 ensure_ascii=False,
             ),
             raw_text=raw_text,
-            error_message=f"Parse/validation error after retries: {parse_error or missing_fields}",
+            error_message=f"Parse/validation error after retries (missing={missing_fields}, parse_error={parse_error})",
             partial=analysis,
         )
         print(
             f"[Kairos] Parse/validation error after retries for message {fan_msg_id}: "
-            f"{parse_error or missing_fields}"
+            f"missing={missing_fields}, parse_error={parse_error}"
         )
         # Even if Kairos failed, hand off to Napoleon so the pipeline can continue.
         enqueue_napoleon_job(fan_msg_id)

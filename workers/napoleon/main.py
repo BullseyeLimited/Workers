@@ -188,16 +188,18 @@ def upsert_napoleon_details(
 
 
 def insert_creator_reply(thread_id: int, final_text: str) -> int:
-    # fetch next turn index
-    thr = (
-        SB.table("threads")
-        .select("turn_count")
-        .eq("id", thread_id)
-        .single()
+    # Fetch next turn index based on existing messages to avoid drift
+    latest = (
+        SB.table("messages")
+        .select("turn_index")
+        .eq("thread_id", thread_id)
+        .order("turn_index", desc=True)
+        .limit(1)
         .execute()
         .data
     )
-    next_turn = (thr["turn_count"] or 0) + 1
+    latest_turn = latest[0]["turn_index"] if latest else 0
+    next_turn = (latest_turn or 0) + 1
     row = {
         "thread_id": thread_id,
         "turn_index": next_turn,
@@ -702,11 +704,11 @@ def process_job(payload):
             prompt=prompt_log,
             raw_text=raw_text,
             raw_hash=raw_hash,
-            error_message=f"Parse/validation error after retries: {parse_error or missing_fields}",
+            error_message=f"Parse/validation error after retries (missing={missing_fields}, parse_error={parse_error})",
         )
         print(
             f"[Napoleon] Parse/validation error after retries for fan message {fan_message_id}: "
-            f"{parse_error or missing_fields}"
+            f"missing={missing_fields}, parse_error={parse_error}"
         )
         return True
 
