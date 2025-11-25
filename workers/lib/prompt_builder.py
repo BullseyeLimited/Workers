@@ -239,7 +239,7 @@ def latest_kairos_json(thread_id: int, *, client=None) -> str:
         .select("*")
         .eq("thread_id", thread_id)
         .eq("sender", "fan")
-        .eq("extract_status", "ok")
+        .eq("kairos_status", "ok")
         .order("message_id", desc=True)
         .limit(1)
         .execute()

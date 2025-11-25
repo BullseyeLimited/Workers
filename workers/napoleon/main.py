@@ -102,7 +102,7 @@ def record_napoleon_failure(
                 "message_id": fan_message_id,
                 "thread_id": thread_id,
                 "sender": "fan",
-                "extract_status": "pending",
+                "kairos_status": "pending",
             }
         )
         (

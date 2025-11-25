@@ -449,7 +449,7 @@ def record_kairos_failure(
         "thread_id": thread_id,
         "sender": "fan",
         "raw_hash": hashlib.sha256(prompt.encode("utf-8")).hexdigest(),
-        "extract_status": "failed",
+        "kairos_status": "failed",
         "extract_error": error_message,
         "extracted_at": datetime.now(timezone.utc).isoformat(),
         "kairos_prompt_raw": prompt,
@@ -502,7 +502,7 @@ def upsert_kairos_details(
         "sender": "fan",
         "raw_hash": hashlib.sha256(prompt.encode("utf-8")).hexdigest(),
         # Kairos is now authoritative for its own status.
-        "extract_status": "ok",
+        "kairos_status": "ok",
         "extract_error": None,
         "extracted_at": datetime.now(timezone.utc).isoformat(),
         "kairos_prompt_raw": prompt,
