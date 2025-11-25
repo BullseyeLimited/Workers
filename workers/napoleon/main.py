@@ -232,7 +232,7 @@ def runpod_call(system_prompt: str, user_message: str) -> tuple[str, dict]:
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_message},
         ],
-        "max_tokens": 2000,
+        "max_tokens": 4096,
         "temperature": 0.6,
         "top_p": 0.95,
         "repetition_penalty": 1.1,

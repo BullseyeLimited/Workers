@@ -113,7 +113,7 @@ def runpod_call(system_prompt: str, user_message: str) -> tuple[str, dict]:
             {"role": "user", "content": user_message},
         ],
         # REDUCED to fit inside RunPod's 100s proxy timeout
-        "max_tokens": 2000,
+        "max_tokens": 4500,
         "temperature": 0.6,
         "top_p": 0.95,
         "repetition_penalty": 1.1,
