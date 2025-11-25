@@ -539,6 +539,70 @@ def parse_napoleon_partial(raw_text: str) -> dict:
     return result
 
 
+def merge_napoleon_analysis(base: dict, patch: dict) -> dict:
+    """
+    Merge partial Napoleon analysis into a base analysis.
+    Only overwrite fields if patch provides a non-empty value.
+    """
+    merged = {
+        "TACTICAL_PLAN_3TURNS": base.get("TACTICAL_PLAN_3TURNS") or {
+            "TURN1_DIRECTIVE": "",
+            "TURN2A_FAN_PATH": "",
+            "TURN2B_FAN_PATH": "",
+            "TURN3A_DIRECTIVE": "",
+            "TURN3B_DIRECTIVE": "",
+        },
+        "MULTI_HORIZON_PLAN": base.get("MULTI_HORIZON_PLAN")
+        or {hz: {"PLAN": "", "PROGRESS": "", "STATE": "", "NOTES": []} for hz in HORIZONS},
+        "RETHINK_HORIZONS": base.get("RETHINK_HORIZONS") or {"STATUS": "", "REASON": ""},
+        "VOICE_ENGINEERING_LOGIC": base.get("VOICE_ENGINEERING_LOGIC") or {"INTENT": "", "MECHANISM": "", "DRAFTING": ""},
+        "FINAL_MESSAGE": base.get("FINAL_MESSAGE") or "",
+    }
+
+    # Merge tactical
+    if "TACTICAL_PLAN_3TURNS" in patch:
+        for k, v in patch["TACTICAL_PLAN_3TURNS"].items():
+            if v and str(v).strip():
+                merged["TACTICAL_PLAN_3TURNS"][k] = v
+
+    # Merge multi-horizon
+    if "MULTI_HORIZON_PLAN" in patch:
+        for hz, hz_data in patch["MULTI_HORIZON_PLAN"].items():
+            target = merged["MULTI_HORIZON_PLAN"].setdefault(
+                hz, {"PLAN": "", "PROGRESS": "", "STATE": "", "NOTES": []}
+            )
+            if not isinstance(hz_data, dict):
+                continue
+            for field in ("PLAN", "PROGRESS", "STATE", "NOTES"):
+                val = hz_data.get(field)
+                if field == "NOTES":
+                    if val:
+                        target["NOTES"] = val
+                else:
+                    if val and str(val).strip():
+                        target[field] = val
+
+    # Merge rethink
+    if "RETHINK_HORIZONS" in patch and isinstance(patch["RETHINK_HORIZONS"], dict):
+        for k in ("STATUS", "REASON"):
+            val = patch["RETHINK_HORIZONS"].get(k)
+            if val and str(val).strip():
+                merged["RETHINK_HORIZONS"][k] = val
+
+    # Merge voice
+    if "VOICE_ENGINEERING_LOGIC" in patch and isinstance(patch["VOICE_ENGINEERING_LOGIC"], dict):
+        for k in ("INTENT", "MECHANISM", "DRAFTING"):
+            val = patch["VOICE_ENGINEERING_LOGIC"].get(k)
+            if val and str(val).strip():
+                merged["VOICE_ENGINEERING_LOGIC"][k] = val
+
+    # Merge final message
+    if patch.get("FINAL_MESSAGE") and str(patch["FINAL_MESSAGE"]).strip():
+        merged["FINAL_MESSAGE"] = patch["FINAL_MESSAGE"]
+
+    return merged
+
+
 def _missing_required_fields(analysis: dict | None) -> list[str]:
     """
     Flag a field if the KEY is absent OR the value is empty/whitespace.
