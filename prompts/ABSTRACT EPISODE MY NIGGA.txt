@@ -218,3 +218,25 @@ To summarize: Be thorough, be precise, and adhere strictly to the format. You ar
 Now you have your mission. Proceed with confidence, logic, and empathy, and produce the output as specified.
 
 BEGIN EPISODE_INPUT
+
+<INPUT>
+
+<ROLLING_HISTORY>
+[EPISODE N-2]: {Abstract_N-2}
+[EPISODE N-1]: {Abstract_N-1}
+</ROLLING_HISTORY>
+
+<REFERENCE_PROFILES>
+<IDENTITY_CARD>
+{FAN_IDENTITY_CARD}
+</IDENTITY_CARD>
+<PSYCHIC_CARD_BASELINE>
+{FAN_PSYCHIC_CARD}
+</PSYCHIC_CARD_BASELINE>
+</REFERENCE_PROFILES>
+
+<RAW_TURNS>
+{RAW_TURNS}
+</RAW_TURNS>
+
+<INPUT>
