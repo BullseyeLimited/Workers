@@ -1,0 +1,12 @@
+app = "narrative-writer-worker"
+primary_region = "fra"
+
+[build]
+  dockerfile = "../../base/Dockerfile"
+  context    = "../.."
+
+[processes]
+  app = "python -m workers.narrative_writer.main"
+
+[deploy]
+  min_machines_running = 1

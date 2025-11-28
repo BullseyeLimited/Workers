@@ -1,0 +1,5 @@
+supabase
+psycopg[binary]
+pgmq
+requests
+

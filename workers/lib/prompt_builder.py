@@ -120,9 +120,9 @@ def make_block(thread_id: int, tier: str, limit: int = 4, *, client=None) -> str
         narrative = row.get("narrative_summary")
         abstract = row.get("abstract_summary")
         if narrative:
-            blocks.append(f"{label} – Narrative:\n{narrative.strip()}")
+            blocks.append(f"{label} - Narrative:\n{narrative.strip()}")
         if abstract:
-            blocks.append(f"{label} – Abstract:\n{abstract.strip()}")
+            blocks.append(f"{label} - Abstract:\n{abstract.strip()}")
     return "\n\n".join(blocks)
 
 
@@ -185,7 +185,20 @@ def live_turn_window(
     client=None,
 ) -> str:
     sb = _resolve_client(client)
-    query = (
+    if boundary_turn is None:
+        latest = (
+            sb.table("messages")
+            .select("turn_index")
+            .eq("thread_id", thread_id)
+            .order("turn_index", desc=True)
+            .limit(1)
+            .execute()
+            .data
+            or []
+        )
+        boundary_turn = latest[0]["turn_index"] if latest else 0
+
+    rows = (
         sb.table("messages")
         .select(
             "id,turn_index,sender,message_text,"
@@ -193,14 +206,13 @@ def live_turn_window(
             "message_ai_details_message_id_fkey(kairos_summary)"
         )
         .eq("thread_id", thread_id)
+        .gt("turn_index", boundary_turn)
         .order("turn_index", desc=True)
         .limit(limit)
+        .execute()
+        .data
+        or []
     )
-    if boundary_turn is not None:
-        # Exclude the current turn; only include earlier turns in the context window.
-        query = query.lt("turn_index", boundary_turn)
-
-    rows = query.execute().data or []
 
     if not rows:
         return ""
@@ -208,7 +220,7 @@ def live_turn_window(
     half = len(rows) // 2 or 1
     lines: list[str] = []
     for idx, row in enumerate(rows):
-        sender_key = (row.get("sender") or "").strip()[:1].upper() or "?"
+        sender_key = (row.get("sender") or "").strip()[:1].upper() or "-"
         text = row.get("message_text") or ""
         details = row.get("message_ai_details") or {}
         if isinstance(details, list):
@@ -258,14 +270,10 @@ def latest_kairos_json(thread_id: int, *, client=None) -> str:
     sb = _resolve_client(client)
     rows = (
         sb.table("message_ai_details")
-        .select(
-            "message_id,strategic_narrative,alignment_status,"
-            "conversation_criticality,tactical_signals,psychological_levers,"
-            "risks,turn_micro_note,kairos_summary"
-        )
+        .select("*")
         .eq("thread_id", thread_id)
         .eq("sender", "fan")
-        .eq("kairos_status", "ok")
+        .eq("extract_status", "ok")
         .order("message_id", desc=True)
         .limit(1)
         .execute()
@@ -276,20 +284,7 @@ def latest_kairos_json(thread_id: int, *, client=None) -> str:
     if not rows:
         return ""
 
-    row = rows[0]
-    safe_keys = [
-        "message_id",
-        "strategic_narrative",
-        "alignment_status",
-        "conversation_criticality",
-        "tactical_signals",
-        "psychological_levers",
-        "risks",
-        "turn_micro_note",
-        "kairos_summary",
-    ]
-    clean = {k: row.get(k) for k in safe_keys if row.get(k) is not None}
-    return json.dumps(clean, ensure_ascii=False)
+    return json.dumps(rows[0], ensure_ascii=False)
 
 
 def latest_plan_fields(thread_id: int, *, client=None) -> dict:
@@ -337,15 +332,14 @@ def recent_plan_summaries(
     )
 
 
-def _render_template(
+def build_prompt(
     template_name: str,
     thread_id: int,
     raw_turns: str,
-    latest_fan_text: str | None = None,
     *,
     client=None,
 ) -> str:
-    """Shared renderer that replaces macros in a prompt template."""
+    """Load a template and replace all macro tags in one pass."""
 
     sb = _resolve_client(client)
     template = _load_template(template_name)
@@ -358,75 +352,15 @@ def _render_template(
     context.update(_load_cards(thread_id, client=sb))
     context.update(_recent_episode_abstracts(thread_id, client=sb))
 
-    if latest_fan_text is not None:
-        context["FAN_LATEST_VERBATIM"] = str(latest_fan_text)
-    else:
-        first_line = raw_turns.splitlines()[0] if raw_turns else ""
-        context["FAN_LATEST_VERBATIM"] = first_line
+    first_line = raw_turns.splitlines()[0] if raw_turns else ""
+    context["FAN_LATEST_VERBATIM"] = first_line
 
     # Drop planner/Kairos/history context for this narrow prompt
 
     for key, value in context.items():
-        template = template.replace(f"{{{key}}}", str(value))
+        template = template.replace(f"{{{key}}}", value)
 
     return template
 
 
-def build_prompt(
-    template_name: str,
-    thread_id: int,
-    raw_turns: str,
-    latest_fan_text: str | None = None,
-    *,
-    client=None,
-) -> str:
-    """Load a template and replace all macro tags in one pass."""
-    return _render_template(
-        template_name,
-        thread_id,
-        raw_turns,
-        latest_fan_text=latest_fan_text,
-        client=client,
-    )
-
-
-def build_prompt_sections(
-    template_name: str,
-    thread_id: int,
-    raw_turns: str,
-    latest_fan_text: str | None = None,
-    *,
-    client=None,
-) -> tuple[str, str]:
-    """
-    Render a template and split into (system_prompt, user_message) for chat models.
-    Expects the template to contain a marked user block (e.g., <ANALYST_INPUT> or <NAPOLEON_INPUT>).
-    """
-    rendered = _render_template(
-        template_name,
-        thread_id,
-        raw_turns,
-        latest_fan_text=latest_fan_text,
-        client=client,
-    )
-
-    # Prefer <NAPOLEON_INPUT> when present; otherwise fall back to analyst markers.
-    marker = "NAPOLEON_INPUT" if "<NAPOLEON_INPUT>" in rendered else "ANALYST_INPUT"
-    start_tag = f"<{marker}>"
-    end_tag = f"</{marker}>"
-
-    # Use the last block to avoid matching instructional mentions near the top.
-    start = rendered.rfind(start_tag)
-    end = rendered.rfind(end_tag)
-
-    if start == -1 or end == -1 or end <= start:
-        # Fallback: treat entire prompt as user content
-        return rendered.strip(), ""
-
-    system_prompt = rendered[: start].strip()
-    user_body = rendered[start + len(start_tag) : end].strip()
-    user_message = f"{start_tag}\n{user_body}\n{end_tag}"
-    return system_prompt, user_message
-
-
-__all__ = ["build_prompt", "build_prompt_sections", "live_turn_window", "make_block"]
+__all__ = ["build_prompt", "live_turn_window", "make_block"]
