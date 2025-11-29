@@ -17,7 +17,20 @@ from supabase import create_client
 _SB = None  # Lazily created Supabase client
 
 PROMPTS_DIR = Path(__file__).resolve().parents[2] / "prompts"
-SUMMARY_BLOCK_SPEC = {}
+SUMMARY_BLOCK_SPEC = {
+    "LIFETIME_BLOCK": ("lifetime", 6),
+    "YEAR_BLOCK": ("year", 6),
+    "SEASON_BLOCK": ("season", 6),
+    "CHAPTER_BLOCK": ("chapter", 6),
+    "EPISODE_BLOCK": ("episode", 6),
+}
+ROLLUP_SPEC = {
+    # lower tier -> (upper tier, chunk size)
+    "episode": ("chapter", 3),
+    "chapter": ("season", 3),
+    "season": ("year", 3),
+    "year": ("lifetime", 3),
+}
 CARD_TAGS = {
     "fan_psychic": "FAN_PSYCHIC_CARD",
     "fan_identity": "FAN_IDENTITY_CARD",
@@ -89,11 +102,62 @@ def _extract_first(row: Dict[str, Any], keys: Iterable[str]) -> str:
     return ""
 
 
+def _latest_summary_end(thread_id: int, tier: str, *, client=None) -> int:
+    """Return the end_turn of the most recent summary for a tier."""
+
+    sb = _resolve_client(client)
+    row = (
+        sb.table("summaries")
+        .select("end_turn")
+        .eq("thread_id", thread_id)
+        .eq("tier", tier)
+        .order("tier_index", desc=True)
+        .limit(1)
+        .execute()
+        .data
+    )
+    if not row:
+        return 0
+    return int(row[0].get("end_turn") or 0)
+
+
+def _consumed_threshold(thread_id: int, tier: str, *, client=None) -> int:
+    """
+    Return the tier_index threshold of lower-tier summaries that have been rolled up.
+
+    If 2 Chapter summaries exist and each consumes 3 Episodes, the Episode tier_index
+    threshold would be 6 (skip tiers <= 6 when building blocks).
+    """
+
+    spec = ROLLUP_SPEC.get(tier)
+    if not spec:
+        return 0
+
+    upper_tier, chunk_size = spec
+    sb = _resolve_client(client)
+    upper_row = (
+        sb.table("summaries")
+        .select("tier_index")
+        .eq("thread_id", thread_id)
+        .eq("tier", upper_tier)
+        .order("tier_index", desc=True)
+        .limit(1)
+        .execute()
+        .data
+    )
+    if not upper_row:
+        return 0
+
+    upper_count = int(upper_row[0].get("tier_index") or 0)
+    return upper_count * chunk_size
+
+
 def make_block(thread_id: int, tier: str, limit: int = 4, *, client=None) -> str:
     """Return a zebra block of summaries for a given tier."""
 
     sb = _resolve_client(client)
-    response = (
+    threshold = _consumed_threshold(thread_id, tier, client=sb)
+    query = (
         sb.table("summaries")
         .select(
             "id,thread_id,tier,tier_index,"
@@ -103,10 +167,11 @@ def make_block(thread_id: int, tier: str, limit: int = 4, *, client=None) -> str
         .eq("thread_id", thread_id)
         .eq("tier", tier)
         .order("tier_index", desc=True)
-        .limit(limit)
-        .execute()
     )
-    rows = response.data or []
+    if threshold:
+        query = query.gt("tier_index", threshold)
+
+    rows = (query.limit(limit).execute().data) or []
     if not rows:
         return f"[No {tier.title()} summaries yet]"
 
@@ -120,9 +185,9 @@ def make_block(thread_id: int, tier: str, limit: int = 4, *, client=None) -> str
         narrative = row.get("narrative_summary")
         abstract = row.get("abstract_summary")
         if narrative:
-            blocks.append(f"{label} - Narrative:\n{narrative.strip()}")
+            blocks.append(f"{label} – Narrative:\n{narrative.strip()}")
         if abstract:
-            blocks.append(f"{label} - Abstract:\n{abstract.strip()}")
+            blocks.append(f"{label} – Abstract:\n{abstract.strip()}")
     return "\n\n".join(blocks)
 
 
@@ -163,17 +228,39 @@ def _recent_episode_abstracts(thread_id: int, *, client=None, count: int = 2) ->
         .data
         or []
     )
-    # Fill from newest to oldest, but slots are N-2 (older) then N-1 (newer)
     values = {
         "Abstract_N-2": "[No Episode N-2]",
         "Abstract_N-1": "[No Episode N-1]",
     }
     if rows:
-        newest = rows[0]
-        values["Abstract_N-1"] = newest.get("abstract_summary") or values["Abstract_N-1"]
+        values["Abstract_N-1"] = rows[0].get("abstract_summary") or values["Abstract_N-1"]
     if len(rows) > 1:
-        second = rows[1]
-        values["Abstract_N-2"] = second.get("abstract_summary") or values["Abstract_N-2"]
+        values["Abstract_N-2"] = rows[1].get("abstract_summary") or values["Abstract_N-2"]
+    return values
+
+
+def _recent_tier_abstracts(thread_id: int, tier: str, *, client=None, count: int = 2) -> Dict[str, str]:
+    """Fetch freshest abstracts for an arbitrary tier."""
+    sb = _resolve_client(client)
+    rows = (
+        sb.table("summaries")
+        .select("tier,tier_index,abstract_summary")
+        .eq("thread_id", thread_id)
+        .eq("tier", tier)
+        .order("tier_index", desc=True)
+        .limit(count)
+        .execute()
+        .data
+        or []
+    )
+    values = {
+        "Abstract_N-2": f"[No {tier.title()} N-2]",
+        "Abstract_N-1": f"[No {tier.title()} N-1]",
+    }
+    if rows:
+        values["Abstract_N-1"] = rows[0].get("abstract_summary") or values["Abstract_N-1"]
+    if len(rows) > 1:
+        values["Abstract_N-2"] = rows[1].get("abstract_summary") or values["Abstract_N-2"]
     return values
 
 
@@ -185,20 +272,9 @@ def live_turn_window(
     client=None,
 ) -> str:
     sb = _resolve_client(client)
-    if boundary_turn is None:
-        latest = (
-            sb.table("messages")
-            .select("turn_index")
-            .eq("thread_id", thread_id)
-            .order("turn_index", desc=True)
-            .limit(1)
-            .execute()
-            .data
-            or []
-        )
-        boundary_turn = latest[0]["turn_index"] if latest else 0
+    cutoff_turn = _latest_summary_end(thread_id, "episode", client=sb)
 
-    rows = (
+    query = (
         sb.table("messages")
         .select(
             "id,turn_index,sender,message_text,"
@@ -206,13 +282,15 @@ def live_turn_window(
             "message_ai_details_message_id_fkey(kairos_summary)"
         )
         .eq("thread_id", thread_id)
-        .gt("turn_index", boundary_turn)
+        .gt("turn_index", cutoff_turn)
         .order("turn_index", desc=True)
         .limit(limit)
-        .execute()
-        .data
-        or []
     )
+    if boundary_turn is not None:
+        # Exclude the current turn; only include earlier turns in the context window.
+        query = query.lt("turn_index", boundary_turn)
+
+    rows = query.execute().data or []
 
     if not rows:
         return ""
@@ -220,7 +298,7 @@ def live_turn_window(
     half = len(rows) // 2 or 1
     lines: list[str] = []
     for idx, row in enumerate(rows):
-        sender_key = (row.get("sender") or "").strip()[:1].upper() or "-"
+        sender_key = (row.get("sender") or "").strip()[:1].upper() or "?"
         text = row.get("message_text") or ""
         details = row.get("message_ai_details") or {}
         if isinstance(details, list):
@@ -270,10 +348,14 @@ def latest_kairos_json(thread_id: int, *, client=None) -> str:
     sb = _resolve_client(client)
     rows = (
         sb.table("message_ai_details")
-        .select("*")
+        .select(
+            "message_id,strategic_narrative,alignment_status,"
+            "conversation_criticality,tactical_signals,psychological_levers,"
+            "risks,turn_micro_note,kairos_summary"
+        )
         .eq("thread_id", thread_id)
         .eq("sender", "fan")
-        .eq("extract_status", "ok")
+        .eq("kairos_status", "ok")
         .order("message_id", desc=True)
         .limit(1)
         .execute()
@@ -284,7 +366,20 @@ def latest_kairos_json(thread_id: int, *, client=None) -> str:
     if not rows:
         return ""
 
-    return json.dumps(rows[0], ensure_ascii=False)
+    row = rows[0]
+    safe_keys = [
+        "message_id",
+        "strategic_narrative",
+        "alignment_status",
+        "conversation_criticality",
+        "tactical_signals",
+        "psychological_levers",
+        "risks",
+        "turn_micro_note",
+        "kairos_summary",
+    ]
+    clean = {k: row.get(k) for k in safe_keys if row.get(k) is not None}
+    return json.dumps(clean, ensure_ascii=False)
 
 
 def latest_plan_fields(thread_id: int, *, client=None) -> dict:
@@ -332,14 +427,20 @@ def recent_plan_summaries(
     )
 
 
-def build_prompt(
+def _render_template(
     template_name: str,
     thread_id: int,
     raw_turns: str,
+    latest_fan_text: str | None = None,
     *,
     client=None,
+    extra_context: Dict[str, str] | None = None,
+    include_blocks: bool = True,
+    include_plans: bool = True,
+    include_analyst: bool = True,
+    include_episode_rolling: bool = False,
 ) -> str:
-    """Load a template and replace all macro tags in one pass."""
+    """Shared renderer that replaces macros in a prompt template."""
 
     sb = _resolve_client(client)
     template = _load_template(template_name)
@@ -348,19 +449,136 @@ def build_prompt(
         "RAW_TURNS": raw_turns.strip() if raw_turns else "[No raw turns provided]",
     }
 
-    # Only rolling episode abstracts + cards for this template
+    if include_blocks:
+        for macro, (tier, limit) in SUMMARY_BLOCK_SPEC.items():
+            context[macro] = make_block(thread_id, tier, limit, client=sb)
+
     context.update(_load_cards(thread_id, client=sb))
-    context.update(_recent_episode_abstracts(thread_id, client=sb))
 
-    first_line = raw_turns.splitlines()[0] if raw_turns else ""
-    context["FAN_LATEST_VERBATIM"] = first_line
+    if include_episode_rolling:
+        context.update(_recent_episode_abstracts(thread_id, client=sb))
 
-    # Drop planner/Kairos/history context for this narrow prompt
+    if extra_context:
+        context.update(extra_context)
+
+    if latest_fan_text is not None:
+        context["FAN_LATEST_VERBATIM"] = str(latest_fan_text)
+    else:
+        first_line = raw_turns.splitlines()[0] if raw_turns else ""
+        context["FAN_LATEST_VERBATIM"] = first_line
+
+    if include_analyst:
+        context["ANALYST_ANALYSIS_JSON"] = latest_kairos_json(thread_id, client=sb)
+
+    if include_plans:
+        context.update(latest_plan_fields(thread_id, client=sb))
+        context.update(
+            {
+                "EPISODE_PLAN_HISTORY": recent_plan_summaries(
+                    thread_id, "episode", 5, client=sb
+                ),
+                "CHAPTER_PLAN_HISTORY": recent_plan_summaries(
+                    thread_id, "chapter", 5, client=sb
+                ),
+                "SEASON_PLAN_HISTORY": recent_plan_summaries(
+                    thread_id, "season", 3, client=sb
+                ),
+                "YEAR_PLAN_HISTORY": recent_plan_summaries(
+                    thread_id, "year", 3, client=sb
+                ),
+                "LIFETIME_PLAN_HISTORY": recent_plan_summaries(
+                    thread_id, "lifetime", 2, client=sb
+                ),
+            }
+        )
 
     for key, value in context.items():
-        template = template.replace(f"{{{key}}}", value)
+        template = template.replace(f"{{{key}}}", str(value))
 
     return template
 
 
-__all__ = ["build_prompt", "live_turn_window", "make_block"]
+def build_prompt(
+    template_name: str,
+    thread_id: int,
+    raw_turns: str,
+    latest_fan_text: str | None = None,
+    *,
+    client=None,
+    extra_context: Dict[str, str] | None = None,
+    include_blocks: bool = True,
+    include_plans: bool = True,
+    include_analyst: bool = True,
+    include_episode_rolling: bool = False,
+) -> str:
+    """Load a template and replace all macro tags in one pass."""
+    return _render_template(
+        template_name,
+        thread_id,
+        raw_turns,
+        latest_fan_text=latest_fan_text,
+        client=client,
+        extra_context=extra_context,
+        include_blocks=include_blocks,
+        include_plans=include_plans,
+        include_analyst=include_analyst,
+        include_episode_rolling=include_episode_rolling,
+    )
+
+
+def build_prompt_sections(
+    template_name: str,
+    thread_id: int,
+    raw_turns: str,
+    latest_fan_text: str | None = None,
+    *,
+    client=None,
+    extra_context: Dict[str, str] | None = None,
+    include_blocks: bool = True,
+    include_plans: bool = True,
+    include_analyst: bool = True,
+    include_episode_rolling: bool = False,
+) -> tuple[str, str]:
+    """
+    Render a template and split into (system_prompt, user_message) for chat models.
+    Expects the template to contain a marked user block (e.g., <ANALYST_INPUT> or <NAPOLEON_INPUT>).
+    """
+    rendered = _render_template(
+        template_name,
+        thread_id,
+        raw_turns,
+        latest_fan_text=latest_fan_text,
+        client=client,
+        extra_context=extra_context,
+        include_blocks=include_blocks,
+        include_plans=include_plans,
+        include_analyst=include_analyst,
+        include_episode_rolling=include_episode_rolling,
+    )
+
+    # Prefer <NAPOLEON_INPUT> when present; otherwise fall back to analyst markers.
+    marker = "NAPOLEON_INPUT" if "<NAPOLEON_INPUT>" in rendered else "ANALYST_INPUT"
+    start_tag = f"<{marker}>"
+    end_tag = f"</{marker}>"
+
+    # Use the last block to avoid matching instructional mentions near the top.
+    start = rendered.rfind(start_tag)
+    end = rendered.rfind(end_tag)
+
+    if start == -1 or end == -1 or end <= start:
+        # Fallback: treat entire prompt as user content
+        return rendered.strip(), ""
+
+    system_prompt = rendered[: start].strip()
+    user_body = rendered[start + len(start_tag) : end].strip()
+    user_message = f"{start_tag}\n{user_body}\n{end_tag}"
+    return system_prompt, user_message
+
+
+__all__ = [
+    "build_prompt",
+    "build_prompt_sections",
+    "live_turn_window",
+    "make_block",
+    "_recent_tier_abstracts",
+]

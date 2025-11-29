@@ -31,6 +31,36 @@ SB = create_client(
 )
 
 QUEUE = "card.patch"
+TIER_PIPELINE = {
+    "episode": {
+        "next": "chapter",
+        "lower": "episode",
+        "chunk_size": 3,
+        "trigger_backlog": 6,
+        "queue": "chapter.abstract",
+    },
+    "chapter": {
+        "next": "season",
+        "lower": "chapter",
+        "chunk_size": 3,
+        "trigger_backlog": 6,
+        "queue": "season.abstract",
+    },
+    "season": {
+        "next": "year",
+        "lower": "season",
+        "chunk_size": 3,
+        "trigger_backlog": 6,
+        "queue": "year.abstract",
+    },
+    "year": {
+        "next": "lifetime",
+        "lower": "year",
+        "chunk_size": 3,
+        "trigger_backlog": 6,
+        "queue": "lifetime.abstract",
+    },
+}
 
 HEADER_RE = re.compile(r"^(ADD|REINFORCE|REVISE)\s+SEGMENT_(\d+)\s*$", re.IGNORECASE)
 CONF_RE = re.compile(r"^\s*CONFIDENCE:\s*(\w+)\s*$", re.IGNORECASE)
@@ -278,6 +308,70 @@ def _insert_summary_row(
     return res[0]["id"]
 
 
+def _fetch_summaries(thread_id: int, tier: str) -> List[dict]:
+    return (
+        SB.table("summaries")
+        .select("id,tier_index,start_turn,end_turn,abstract_summary")
+        .eq("thread_id", thread_id)
+        .eq("tier", tier)
+        .order("tier_index")
+        .execute()
+        .data
+        or []
+    )
+
+
+def _maybe_enqueue_next(thread_id: int, tier: str):
+    cfg = TIER_PIPELINE.get(tier)
+    if not cfg:
+        return
+
+    lower_tier = cfg["lower"]
+    upper_tier = cfg["next"]
+    chunk_size = cfg["chunk_size"]
+    trigger = cfg["trigger_backlog"]
+    queue_name = cfg["queue"]
+
+    lower_rows = _fetch_summaries(thread_id, lower_tier)
+    upper_rows = _fetch_summaries(thread_id, upper_tier)
+
+    lower_count = len(lower_rows)
+    upper_count = len(upper_rows)
+    consumed = upper_count * chunk_size
+    backlog = lower_count - consumed
+
+    if backlog < trigger:
+        return
+
+    chunk = lower_rows[consumed : consumed + chunk_size]
+    if len(chunk) < chunk_size:
+        return
+
+    lines = []
+    for row in chunk:
+        idx = row.get("tier_index")
+        abstract = row.get("abstract_summary") or ""
+        lines.append(f"{lower_tier.title()} {idx}: {abstract}")
+    raw_block = "\n\n".join(lines)
+
+    start_turn = min(row.get("start_turn") or 0 for row in chunk) or None
+    end_turn = max(row.get("end_turn") or 0 for row in chunk) or None
+    next_tier_index = upper_count + 1
+
+    payload = {
+        "thread_id": thread_id,
+        "tier": upper_tier,
+        "start_turn": start_turn,
+        "end_turn": end_turn,
+        "tier_index": next_tier_index,
+        "raw_block": raw_block,
+    }
+
+    SB.table("job_queue").insert(
+        {"queue": queue_name, "payload": json.dumps(payload, ensure_ascii=False)}
+    ).execute()
+
+
 def process_job(payload: Dict) -> bool:
     thread_id = payload["thread_id"]
     tier = payload.get("tier") or "episode"
@@ -312,6 +406,9 @@ def process_job(payload: Dict) -> bool:
 
     if extract_status == "ok" and patches:
         _apply_patches(thread_id, summary_id, tier, patches)
+
+    if extract_status == "ok":
+        _maybe_enqueue_next(thread_id, tier)
 
     return True
 

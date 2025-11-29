@@ -37,6 +37,86 @@ def enqueue_kairos(mid:int):
     # put the message id on the queue so kairos-worker processes it
     send("kairos.analyse", {"message_id": mid})
 
+
+def _latest_summary_end(thread_id: int, tier: str) -> int:
+    row = (
+        SB.table("summaries")
+        .select("end_turn")
+        .eq("thread_id", thread_id)
+        .eq("tier", tier)
+        .order("tier_index", desc=True)
+        .limit(1)
+        .execute()
+        .data
+    )
+    if not row:
+        return 0
+    return int(row[0].get("end_turn") or 0)
+
+
+def _summary_exists(thread_id: int, tier: str, start_turn: int, end_turn: int) -> bool:
+    existing = (
+        SB.table("summaries")
+        .select("id")
+        .eq("thread_id", thread_id)
+        .eq("tier", tier)
+        .eq("start_turn", start_turn)
+        .eq("end_turn", end_turn)
+        .limit(1)
+        .execute()
+        .data
+    )
+    return bool(existing)
+
+
+def _pending_summary_job(
+    queue: str, thread_id: int, start_turn: int, end_turn: int
+) -> bool:
+    """
+    Check if a matching job is already in-flight to avoid duplicate episode summaries.
+    """
+    jobs = (
+        SB.table("job_queue")
+        .select("id")
+        .eq("queue", queue)
+        .filter("payload->>thread_id", "eq", str(thread_id))
+        .filter("payload->>start_turn", "eq", str(start_turn))
+        .filter("payload->>end_turn", "eq", str(end_turn))
+        .limit(1)
+        .execute()
+        .data
+    )
+    return bool(jobs)
+
+
+def _maybe_enqueue_episode_summary(thread_id: int, latest_turn_index: int):
+    """
+    Maintain the rolling 20-40 turn window by summarizing the oldest 20
+    once 40 unsummarized turns accumulate.
+    """
+    last_episode_end = _latest_summary_end(thread_id, "episode")
+    unsummarized = latest_turn_index - last_episode_end
+    if unsummarized < 40:
+        return
+
+    start_turn = last_episode_end + 1
+    end_turn = start_turn + 19
+
+    if _summary_exists(thread_id, "episode", start_turn, end_turn):
+        return
+
+    if _pending_summary_job("episode.abstract", thread_id, start_turn, end_turn):
+        return
+
+    send(
+        "episode.abstract",
+        {
+            "thread_id": thread_id,
+            "start_turn": start_turn,
+            "end_turn": end_turn,
+        },
+    )
+
 # -------------- HTTP endpoint --------------
 @app.post("/turn")
 async def receive(request: Request):
@@ -122,14 +202,7 @@ async def receive(request: Request):
     SB.table("threads").update({"turn_count": turn_index}).eq("id", thread_id).execute()
     enqueue_kairos(msg_id)
 
-    if turn_index % 20 == 0:
-        send(
-            "episode.abstract",
-            {
-                "thread_id": thread_id,
-                "end_turn": turn_index,
-            },
-        )
+    _maybe_enqueue_episode_summary(thread_id, turn_index)
 
     return {"message_id": msg_id, "thread_id": thread_id}
 
