@@ -90,10 +90,29 @@ def render_raw_turns(rows: List[dict]) -> str:
     return "\n".join(lines)
 
 
+def _summary_exists(thread_id: int, start_turn: int, end_turn: int) -> bool:
+    existing = (
+        SB.table("summaries")
+        .select("id")
+        .eq("thread_id", thread_id)
+        .eq("tier", "episode")
+        .eq("start_turn", start_turn)
+        .eq("end_turn", end_turn)
+        .limit(1)
+        .execute()
+        .data
+    )
+    return bool(existing)
+
+
 def process_job(payload: dict) -> bool:
     thread_id = payload["thread_id"]
     end_turn = int(payload.get("end_turn") or 0)
-    start_turn = max(1, end_turn - 19)
+    start_turn = int(payload.get("start_turn") or 0) or max(1, end_turn - 19)
+
+    if _summary_exists(thread_id, start_turn, end_turn):
+        # Already summarized; acknowledge quietly.
+        return True
 
     rows = fetch_turns(thread_id, start_turn, end_turn)
     if len(rows) < 1:

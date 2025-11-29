@@ -18,11 +18,18 @@ _SB = None  # Lazily created Supabase client
 
 PROMPTS_DIR = Path(__file__).resolve().parents[2] / "prompts"
 SUMMARY_BLOCK_SPEC = {
-    "LIFETIME_BLOCK": ("lifetime", 2),
-    "YEAR_BLOCK": ("year", 3),
-    "SEASON_BLOCK": ("season", 4),
+    "LIFETIME_BLOCK": ("lifetime", 6),
+    "YEAR_BLOCK": ("year", 6),
+    "SEASON_BLOCK": ("season", 6),
     "CHAPTER_BLOCK": ("chapter", 6),
     "EPISODE_BLOCK": ("episode", 6),
+}
+ROLLUP_SPEC = {
+    # lower tier -> (upper tier, chunk size)
+    "episode": ("chapter", 3),
+    "chapter": ("season", 3),
+    "season": ("year", 3),
+    "year": ("lifetime", 3),
 }
 CARD_TAGS = {
     "fan_psychic": "FAN_PSYCHIC_CARD",
@@ -95,11 +102,62 @@ def _extract_first(row: Dict[str, Any], keys: Iterable[str]) -> str:
     return ""
 
 
+def _latest_summary_end(thread_id: int, tier: str, *, client=None) -> int:
+    """Return the end_turn of the most recent summary for a tier."""
+
+    sb = _resolve_client(client)
+    row = (
+        sb.table("summaries")
+        .select("end_turn")
+        .eq("thread_id", thread_id)
+        .eq("tier", tier)
+        .order("tier_index", desc=True)
+        .limit(1)
+        .execute()
+        .data
+    )
+    if not row:
+        return 0
+    return int(row[0].get("end_turn") or 0)
+
+
+def _consumed_threshold(thread_id: int, tier: str, *, client=None) -> int:
+    """
+    Return the tier_index threshold of lower-tier summaries that have been rolled up.
+
+    If 2 Chapter summaries exist and each consumes 3 Episodes, the Episode tier_index
+    threshold would be 6 (skip tiers <= 6 when building blocks).
+    """
+
+    spec = ROLLUP_SPEC.get(tier)
+    if not spec:
+        return 0
+
+    upper_tier, chunk_size = spec
+    sb = _resolve_client(client)
+    upper_row = (
+        sb.table("summaries")
+        .select("tier_index")
+        .eq("thread_id", thread_id)
+        .eq("tier", upper_tier)
+        .order("tier_index", desc=True)
+        .limit(1)
+        .execute()
+        .data
+    )
+    if not upper_row:
+        return 0
+
+    upper_count = int(upper_row[0].get("tier_index") or 0)
+    return upper_count * chunk_size
+
+
 def make_block(thread_id: int, tier: str, limit: int = 4, *, client=None) -> str:
     """Return a zebra block of summaries for a given tier."""
 
     sb = _resolve_client(client)
-    response = (
+    threshold = _consumed_threshold(thread_id, tier, client=sb)
+    query = (
         sb.table("summaries")
         .select(
             "id,thread_id,tier,tier_index,"
@@ -109,10 +167,11 @@ def make_block(thread_id: int, tier: str, limit: int = 4, *, client=None) -> str
         .eq("thread_id", thread_id)
         .eq("tier", tier)
         .order("tier_index", desc=True)
-        .limit(limit)
-        .execute()
     )
-    rows = response.data or []
+    if threshold:
+        query = query.gt("tier_index", threshold)
+
+    rows = (query.limit(limit).execute().data) or []
     if not rows:
         return f"[No {tier.title()} summaries yet]"
 
@@ -213,6 +272,8 @@ def live_turn_window(
     client=None,
 ) -> str:
     sb = _resolve_client(client)
+    cutoff_turn = _latest_summary_end(thread_id, "episode", client=sb)
+
     query = (
         sb.table("messages")
         .select(
@@ -221,6 +282,7 @@ def live_turn_window(
             "message_ai_details_message_id_fkey(kairos_summary)"
         )
         .eq("thread_id", thread_id)
+        .gt("turn_index", cutoff_turn)
         .order("turn_index", desc=True)
         .limit(limit)
     )
