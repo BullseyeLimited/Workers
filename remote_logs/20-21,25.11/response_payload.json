@@ -1,0 +1,33 @@
+{
+  "choices": [
+    {
+      "finish_reason": "stop",
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "ZONE: LONG_TERM\nCATEGORY: profile.identity\nPATH: self\nNOTES: fan named alex from toronto\n\nZONE: LONG_TERM\nCATEGORY: profile.age_band\nPATH: self\nNOTES: 29 years old\n\nZONE: LONG_TERM\nCATEGORY: family.siblings\nPATH: sister_julia\nNOTES: older sister julia lives in toronto\n\nZONE: LONG_TERM\nCATEGORY: family.parents\nPATH: mom\nNOTES: mom lives in ottawa\n\nZONE: LONG_TERM\nCATEGORY: pets.records\nPATH: buster\nNOTES: golden retriever named buster\n\nZONE: LONG_TERM\nCATEGORY: health.allergies\nPATH: self.pollen\nNOTES: mild pollen allergies\n\nZONE: LONG_TERM\nCATEGORY: devices.phones\nPATH: phone_iphone_15\nNOTES: owns iphone 15\n\nZONE: LONG_TERM\nCATEGORY: devices.computers\nPATH: laptop_macbook_pro_2021\nNOTES: uses 2021 macbook pro\n\nZONE: LONG_TERM\nCATEGORY: favorites.sports\nPATH: self.teams\nNOTES: diehard toronto raptors fan\n\nZONE: LONG_TERM\nCATEGORY: favorites.cuisine\nPATH: self.cuisines\nNOTES: loves sushi\n\nZONE: SHORT_TERM\nCATEGORY: travel.current_trip\nPATH: trip_napa_weekend\nNOTES: planning a weekend trip to napa\n\nZONE: SHORT_TERM\nCATEGORY: location.current\nPATH: self.city\nNOTES: currently in san francisco\n\nZONE: SHORT_TERM\nCATEGORY: location.accommodation\nPATH: airbnb_howard_st\nNOTES: staying in an airbnb on howard st in soma\n\nZONE: SHORT_TERM\nCATEGORY: schedule.current_event\nPATH: meetings_9_to_1\nNOTES: has meetings from 9 to 1 tomorrow\n\nZONE: SHORT_TERM\nCATEGORY: schedule.current_task\nPATH: gym_6pm\nNOTES: gym at 6pm tomorrow\n\nZONE: SHORT_TERM\nCATEGORY: transport.mode\nPATH: self\nNOTES: using bart and riding a scooter"
+      }
+    }
+  ],
+  "created": 1764102095,
+  "model": "/workspace/models/qwen3-235b-instruct-q4km/Q4_K_M.gguf",
+  "system_fingerprint": "b7157-583cb8341",
+  "object": "chat.completion",
+  "usage": {
+    "completion_tokens": 442,
+    "prompt_tokens": 5416,
+    "total_tokens": 5858
+  },
+  "id": "chatcmpl-YnxLAg9asIT4YejAuDDwgLT6t9ysbYj8",
+  "timings": {
+    "cache_n": 0,
+    "prompt_n": 5416,
+    "prompt_ms": 4716.303,
+    "prompt_per_token_ms": 0.8708092688330872,
+    "prompt_per_second": 1148.3570924090332,
+    "predicted_n": 442,
+    "predicted_ms": 8797.975,
+    "predicted_per_token_ms": 19.904920814479638,
+    "predicted_per_second": 50.23883336790568
+  }
+}

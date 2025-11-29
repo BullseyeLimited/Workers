@@ -1,0 +1,79 @@
+ZONE: LONG_TERM
+CATEGORY: profile.identity
+PATH: self
+NOTES: fan named alex from toronto
+
+ZONE: LONG_TERM
+CATEGORY: profile.age_band
+PATH: self
+NOTES: 29 years old
+
+ZONE: LONG_TERM
+CATEGORY: family.siblings
+PATH: sister_julia
+NOTES: older sister julia lives in toronto
+
+ZONE: LONG_TERM
+CATEGORY: family.parents
+PATH: mom
+NOTES: mom lives in ottawa
+
+ZONE: LONG_TERM
+CATEGORY: pets.records
+PATH: buster
+NOTES: golden retriever named buster
+
+ZONE: LONG_TERM
+CATEGORY: health.allergies
+PATH: self.pollen
+NOTES: mild pollen allergies
+
+ZONE: LONG_TERM
+CATEGORY: devices.phones
+PATH: phone_iphone_15
+NOTES: owns iphone 15
+
+ZONE: LONG_TERM
+CATEGORY: devices.computers
+PATH: laptop_macbook_pro_2021
+NOTES: uses 2021 macbook pro
+
+ZONE: LONG_TERM
+CATEGORY: favorites.sports
+PATH: self.teams
+NOTES: diehard toronto raptors fan
+
+ZONE: LONG_TERM
+CATEGORY: favorites.cuisine
+PATH: self.cuisines
+NOTES: loves sushi
+
+ZONE: SHORT_TERM
+CATEGORY: travel.current_trip
+PATH: trip_napa_weekend
+NOTES: planning a weekend trip to napa
+
+ZONE: SHORT_TERM
+CATEGORY: location.current
+PATH: self.city
+NOTES: currently in san francisco
+
+ZONE: SHORT_TERM
+CATEGORY: location.accommodation
+PATH: airbnb_howard_st
+NOTES: staying in an airbnb on howard st in soma
+
+ZONE: SHORT_TERM
+CATEGORY: schedule.current_event
+PATH: meetings_9_to_1
+NOTES: has meetings from 9 to 1 tomorrow
+
+ZONE: SHORT_TERM
+CATEGORY: schedule.current_task
+PATH: gym_6pm
+NOTES: gym at 6pm tomorrow
+
+ZONE: SHORT_TERM
+CATEGORY: transport.mode
+PATH: self
+NOTES: using bart and riding a scooter
