@@ -4,6 +4,7 @@ import pytz
 from fastapi import FastAPI, HTTPException, Request
 from supabase import create_client, ClientOptions
 from workers.lib.simple_queue import send
+from workers.lib.cards import new_base_card
 
 # connect to Supabase using secrets that Fly will provide
 SERVICE_KEY = os.environ["SUPABASE_SERVICE_ROLE_KEY"]
@@ -75,6 +76,7 @@ async def receive(request: Request):
                     "creator_id": creator_id,
                     "fan_ext_id_hash": fan_hash,
                     "turn_count": 0,
+                    "fan_psychic_card": new_base_card(),
                 }
             )
             .execute()
@@ -117,7 +119,17 @@ async def receive(request: Request):
         raise HTTPException(409, "Duplicate message")
 
     msg_id = res[0]["id"]
+    SB.table("threads").update({"turn_count": turn_index}).eq("id", thread_id).execute()
     enqueue_kairos(msg_id)
+
+    if turn_index % 20 == 0:
+        send(
+            "episode.abstract",
+            {
+                "thread_id": thread_id,
+                "end_turn": turn_index,
+            },
+        )
 
     return {"message_id": msg_id, "thread_id": thread_id}
 

@@ -17,13 +17,7 @@ from supabase import create_client
 _SB = None  # Lazily created Supabase client
 
 PROMPTS_DIR = Path(__file__).resolve().parents[2] / "prompts"
-SUMMARY_BLOCK_SPEC = {
-    "LIFETIME_BLOCK": ("lifetime", 2),
-    "YEAR_BLOCK": ("year", 3),
-    "SEASON_BLOCK": ("season", 4),
-    "CHAPTER_BLOCK": ("chapter", 6),
-    "EPISODE_BLOCK": ("episode", 6),
-}
+SUMMARY_BLOCK_SPEC = {}
 CARD_TAGS = {
     "fan_psychic": "FAN_PSYCHIC_CARD",
     "fan_identity": "FAN_IDENTITY_CARD",
@@ -153,6 +147,34 @@ def _load_cards(thread_id: int, *, client=None) -> Dict[str, str]:
         "CREATOR_IDENTITY_CARD": row.get("creator_identity_card") or "[Creator Identity Card unavailable]",
         "CREATOR_PSYCHIC_CARD": row.get("creator_psychic_card") or "[Creator Psychic Card unavailable]",
     }
+
+
+def _recent_episode_abstracts(thread_id: int, *, client=None, count: int = 2) -> Dict[str, str]:
+    """Fetch the two freshest episode abstracts for rolling history slots."""
+    sb = _resolve_client(client)
+    rows = (
+        sb.table("summaries")
+        .select("tier,tier_index,abstract_summary")
+        .eq("thread_id", thread_id)
+        .eq("tier", "episode")
+        .order("tier_index", desc=True)
+        .limit(count)
+        .execute()
+        .data
+        or []
+    )
+    # Fill from newest to oldest, but slots are N-2 (older) then N-1 (newer)
+    values = {
+        "Abstract_N-2": "[No Episode N-2]",
+        "Abstract_N-1": "[No Episode N-1]",
+    }
+    if rows:
+        newest = rows[0]
+        values["Abstract_N-1"] = newest.get("abstract_summary") or values["Abstract_N-1"]
+    if len(rows) > 1:
+        second = rows[1]
+        values["Abstract_N-2"] = second.get("abstract_summary") or values["Abstract_N-2"]
+    return values
 
 
 def live_turn_window(
@@ -332,12 +354,9 @@ def _render_template(
         "RAW_TURNS": raw_turns.strip() if raw_turns else "[No raw turns provided]",
     }
 
-    for macro, (tier, limit) in SUMMARY_BLOCK_SPEC.items():
-        context[macro] = make_block(thread_id, tier, limit, client=sb)
-
+    # Only rolling episode abstracts + cards for this template
     context.update(_load_cards(thread_id, client=sb))
-
-    context.update(latest_plan_fields(thread_id, client=sb))
+    context.update(_recent_episode_abstracts(thread_id, client=sb))
 
     if latest_fan_text is not None:
         context["FAN_LATEST_VERBATIM"] = str(latest_fan_text)
@@ -345,27 +364,7 @@ def _render_template(
         first_line = raw_turns.splitlines()[0] if raw_turns else ""
         context["FAN_LATEST_VERBATIM"] = first_line
 
-    context["ANALYST_ANALYSIS_JSON"] = latest_kairos_json(thread_id, client=sb)
-
-    context.update(
-        {
-            "EPISODE_PLAN_HISTORY": recent_plan_summaries(
-                thread_id, "episode", 5, client=sb
-            ),
-            "CHAPTER_PLAN_HISTORY": recent_plan_summaries(
-                thread_id, "chapter", 5, client=sb
-            ),
-            "SEASON_PLAN_HISTORY": recent_plan_summaries(
-                thread_id, "season", 3, client=sb
-            ),
-            "YEAR_PLAN_HISTORY": recent_plan_summaries(
-                thread_id, "year", 3, client=sb
-            ),
-            "LIFETIME_PLAN_HISTORY": recent_plan_summaries(
-                thread_id, "lifetime", 2, client=sb
-            ),
-        }
-    )
+    # Drop planner/Kairos/history context for this narrow prompt
 
     for key, value in context.items():
         template = template.replace(f"{{{key}}}", str(value))
