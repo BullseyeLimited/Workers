@@ -101,7 +101,16 @@ def process_job(payload: dict) -> bool:
         return True
 
     raw_turns = render_raw_turns(rows)
-    prompt = build_prompt("episode_abstract", thread_id, raw_turns)
+    prompt = build_prompt(
+        "episode_abstract",
+        thread_id,
+        raw_turns,
+        client=SB,
+        include_blocks=False,
+        include_plans=False,
+        include_analyst=False,
+        include_episode_rolling=True,
+    )
     raw_text = call_llm(prompt)
     raw_hash = hashlib.sha256(raw_text.encode("utf-8")).hexdigest()
 

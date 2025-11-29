@@ -17,7 +17,13 @@ from supabase import create_client
 _SB = None  # Lazily created Supabase client
 
 PROMPTS_DIR = Path(__file__).resolve().parents[2] / "prompts"
-SUMMARY_BLOCK_SPEC = {}
+SUMMARY_BLOCK_SPEC = {
+    "LIFETIME_BLOCK": ("lifetime", 2),
+    "YEAR_BLOCK": ("year", 3),
+    "SEASON_BLOCK": ("season", 4),
+    "CHAPTER_BLOCK": ("chapter", 6),
+    "EPISODE_BLOCK": ("episode", 6),
+}
 CARD_TAGS = {
     "fan_psychic": "FAN_PSYCHIC_CARD",
     "fan_identity": "FAN_IDENTITY_CARD",
@@ -163,17 +169,39 @@ def _recent_episode_abstracts(thread_id: int, *, client=None, count: int = 2) ->
         .data
         or []
     )
-    # Fill from newest to oldest, but slots are N-2 (older) then N-1 (newer)
     values = {
         "Abstract_N-2": "[No Episode N-2]",
         "Abstract_N-1": "[No Episode N-1]",
     }
     if rows:
-        newest = rows[0]
-        values["Abstract_N-1"] = newest.get("abstract_summary") or values["Abstract_N-1"]
+        values["Abstract_N-1"] = rows[0].get("abstract_summary") or values["Abstract_N-1"]
     if len(rows) > 1:
-        second = rows[1]
-        values["Abstract_N-2"] = second.get("abstract_summary") or values["Abstract_N-2"]
+        values["Abstract_N-2"] = rows[1].get("abstract_summary") or values["Abstract_N-2"]
+    return values
+
+
+def _recent_tier_abstracts(thread_id: int, tier: str, *, client=None, count: int = 2) -> Dict[str, str]:
+    """Fetch freshest abstracts for an arbitrary tier."""
+    sb = _resolve_client(client)
+    rows = (
+        sb.table("summaries")
+        .select("tier,tier_index,abstract_summary")
+        .eq("thread_id", thread_id)
+        .eq("tier", tier)
+        .order("tier_index", desc=True)
+        .limit(count)
+        .execute()
+        .data
+        or []
+    )
+    values = {
+        "Abstract_N-2": f"[No {tier.title()} N-2]",
+        "Abstract_N-1": f"[No {tier.title()} N-1]",
+    }
+    if rows:
+        values["Abstract_N-1"] = rows[0].get("abstract_summary") or values["Abstract_N-1"]
+    if len(rows) > 1:
+        values["Abstract_N-2"] = rows[1].get("abstract_summary") or values["Abstract_N-2"]
     return values
 
 
@@ -344,6 +372,11 @@ def _render_template(
     latest_fan_text: str | None = None,
     *,
     client=None,
+    extra_context: Dict[str, str] | None = None,
+    include_blocks: bool = True,
+    include_plans: bool = True,
+    include_analyst: bool = True,
+    include_episode_rolling: bool = False,
 ) -> str:
     """Shared renderer that replaces macros in a prompt template."""
 
@@ -354,9 +387,17 @@ def _render_template(
         "RAW_TURNS": raw_turns.strip() if raw_turns else "[No raw turns provided]",
     }
 
-    # Only rolling episode abstracts + cards for this template
+    if include_blocks:
+        for macro, (tier, limit) in SUMMARY_BLOCK_SPEC.items():
+            context[macro] = make_block(thread_id, tier, limit, client=sb)
+
     context.update(_load_cards(thread_id, client=sb))
-    context.update(_recent_episode_abstracts(thread_id, client=sb))
+
+    if include_episode_rolling:
+        context.update(_recent_episode_abstracts(thread_id, client=sb))
+
+    if extra_context:
+        context.update(extra_context)
 
     if latest_fan_text is not None:
         context["FAN_LATEST_VERBATIM"] = str(latest_fan_text)
@@ -364,7 +405,30 @@ def _render_template(
         first_line = raw_turns.splitlines()[0] if raw_turns else ""
         context["FAN_LATEST_VERBATIM"] = first_line
 
-    # Drop planner/Kairos/history context for this narrow prompt
+    if include_analyst:
+        context["ANALYST_ANALYSIS_JSON"] = latest_kairos_json(thread_id, client=sb)
+
+    if include_plans:
+        context.update(latest_plan_fields(thread_id, client=sb))
+        context.update(
+            {
+                "EPISODE_PLAN_HISTORY": recent_plan_summaries(
+                    thread_id, "episode", 5, client=sb
+                ),
+                "CHAPTER_PLAN_HISTORY": recent_plan_summaries(
+                    thread_id, "chapter", 5, client=sb
+                ),
+                "SEASON_PLAN_HISTORY": recent_plan_summaries(
+                    thread_id, "season", 3, client=sb
+                ),
+                "YEAR_PLAN_HISTORY": recent_plan_summaries(
+                    thread_id, "year", 3, client=sb
+                ),
+                "LIFETIME_PLAN_HISTORY": recent_plan_summaries(
+                    thread_id, "lifetime", 2, client=sb
+                ),
+            }
+        )
 
     for key, value in context.items():
         template = template.replace(f"{{{key}}}", str(value))
@@ -379,6 +443,11 @@ def build_prompt(
     latest_fan_text: str | None = None,
     *,
     client=None,
+    extra_context: Dict[str, str] | None = None,
+    include_blocks: bool = True,
+    include_plans: bool = True,
+    include_analyst: bool = True,
+    include_episode_rolling: bool = False,
 ) -> str:
     """Load a template and replace all macro tags in one pass."""
     return _render_template(
@@ -387,6 +456,11 @@ def build_prompt(
         raw_turns,
         latest_fan_text=latest_fan_text,
         client=client,
+        extra_context=extra_context,
+        include_blocks=include_blocks,
+        include_plans=include_plans,
+        include_analyst=include_analyst,
+        include_episode_rolling=include_episode_rolling,
     )
 
 
@@ -397,6 +471,11 @@ def build_prompt_sections(
     latest_fan_text: str | None = None,
     *,
     client=None,
+    extra_context: Dict[str, str] | None = None,
+    include_blocks: bool = True,
+    include_plans: bool = True,
+    include_analyst: bool = True,
+    include_episode_rolling: bool = False,
 ) -> tuple[str, str]:
     """
     Render a template and split into (system_prompt, user_message) for chat models.
@@ -408,6 +487,11 @@ def build_prompt_sections(
         raw_turns,
         latest_fan_text=latest_fan_text,
         client=client,
+        extra_context=extra_context,
+        include_blocks=include_blocks,
+        include_plans=include_plans,
+        include_analyst=include_analyst,
+        include_episode_rolling=include_episode_rolling,
     )
 
     # Prefer <NAPOLEON_INPUT> when present; otherwise fall back to analyst markers.
@@ -429,4 +513,10 @@ def build_prompt_sections(
     return system_prompt, user_message
 
 
-__all__ = ["build_prompt", "build_prompt_sections", "live_turn_window", "make_block"]
+__all__ = [
+    "build_prompt",
+    "build_prompt_sections",
+    "live_turn_window",
+    "make_block",
+    "_recent_tier_abstracts",
+]
