@@ -75,6 +75,7 @@ def process_job(payload: dict) -> bool:
         raw_block,
         client=SB,
         extra_context=extra_ctx,
+        include_blocks=False,
         include_plans=False,
         include_analyst=False,
     )
