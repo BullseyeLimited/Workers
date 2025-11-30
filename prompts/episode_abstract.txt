@@ -589,12 +589,12 @@ Craft a one-sentence REASON
 • If revising, mention previous card wording briefly (“old entry said he dislikes audio”).
 
 Queue the completed block
-Format exactly:
+Format exactly (without ""):
 
-ADD SEGMENT_22_TONE_REGISTER_LEXICON_MAP  
+"ADD SEGMENT_22_TONE_REGISTER_LEXICON_MAP  
 TEXT: He reacts enthusiastically when addressed with the pet-name “handsome,” indicating positive valence for affectionate nicknames. [possible]  
 CONFIDENCE: possible  
-REASON: in T5 she used “handsome” and fan replied with multiple heart-eye emojis and a tip.  
+REASON: in T5 she used “handsome” and fan replied with multiple heart-eye emojis and a tip."
 
 Repeat until all worthwhile clues are converted to blocks, maintaining blank line separation.
 At the end of Step 4 you have a sequenced list of mutation blocks ready for output; nothing extraneous, no duplicate segments, confidence calibrated, and each justified by explicit evidence.
@@ -857,6 +857,7 @@ BEGIN EPISODE_INPUT
 </RAW_TURNS>
 
 <INPUT>
+
 
 
 
