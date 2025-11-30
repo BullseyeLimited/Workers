@@ -9,13 +9,9 @@ from typing import Dict, List, Tuple
 
 from supabase import create_client, ClientOptions
 
-from workers.lib.cards import (
-    CONFIDENCE_ORDER,
-    ensure_card_shape,
-    make_entry,
-    upgrade_confidence,
-)
+from workers.lib.cards import CONFIDENCE_ORDER, append_origin_tag, ensure_card_shape, make_entry
 from workers.lib.simple_queue import ack, receive
+from workers.lib.time_tier import parse_tier
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
@@ -62,10 +58,16 @@ TIER_PIPELINE = {
     },
 }
 
-HEADER_RE = re.compile(r"^(ADD|REINFORCE|REVISE)\s+SEGMENT_(\d+)\s*$", re.IGNORECASE)
-CONF_RE = re.compile(r"^\s*CONFIDENCE:\s*(\w+)\s*$", re.IGNORECASE)
-TEXT_PREFIX = "TEXT:"
-REASON_PREFIX = "REASON:"
+HEADER_RE = re.compile(
+    r"^(ADD|REINFORCE|REVISE)\s+SEGMENT_(\d+_[A-Z0-9_]+)\s*$",
+    re.IGNORECASE,
+)
+TEXT_RE = re.compile(r"^TEXT:\s*(.+)\[([a-z]+)]\s*$", re.IGNORECASE)
+CONF_RE = re.compile(
+    r"^\s*CONFIDENCE:\s*(tentative|possible|likely|confident|canonical)\s*$",
+    re.IGNORECASE,
+)
+REASON_RE = re.compile(r"^\s*REASON:\s*(.+)\s*$", re.IGNORECASE)
 
 
 def _parse_confidence(value: str) -> str:
@@ -93,90 +95,239 @@ def parse_patch_output(raw_text: str) -> Tuple[List[dict], str]:
     Parse the Episode/Chapter abstract output into patch blocks + summary.
     Returns (patches, summary_text).
     """
-    lines = (raw_text or "").splitlines()
+    lines = (raw_text or "").replace("\r", "").splitlines()
     idx = 0
     patches: List[dict] = []
 
-    def _collect_until(stop_pred):
-        nonlocal idx
-        collected: List[str] = []
-        while idx < len(lines) and not stop_pred(lines[idx]):
-            collected.append(lines[idx])
-            idx += 1
-        return collected
-
     while idx < len(lines):
+        # Skip any blank separators
+        while idx < len(lines) and not lines[idx].strip():
+            idx += 1
+
+        if idx >= len(lines):
+            break
+
         line = lines[idx].strip()
         header = HEADER_RE.match(line)
         if not header:
             break  # Summary starts here
 
         action = header.group(1).lower()
-        segment_id = header.group(2)
+        segment_full = header.group(2)
+        if "_" in segment_full:
+            segment_id, segment_label = segment_full.split("_", 1)
+        else:
+            segment_id, segment_label = segment_full, ""
         idx += 1
-
-        if idx >= len(lines) or not lines[idx].strip().lower().startswith(
-            TEXT_PREFIX.lower()
-        ):
-            raise ValueError(f"missing TEXT for segment {segment_id}")
-
-        text_lines = []
-        # First TEXT line
-        first_text = lines[idx].split(":", 1)[1] if ":" in lines[idx] else ""
-        text_lines.append(first_text.strip())
-        idx += 1
-        # Additional TEXT continuation lines until CONFIDENCE
-        text_lines.extend(
-            [ln.strip() for ln in _collect_until(lambda l: CONF_RE.match(l))]
-        )
 
         if idx >= len(lines):
-            raise ValueError(f"missing CONFIDENCE for segment {segment_id}")
+            raise ValueError(f"missing TEXT for segment {segment_full}")
 
-        conf_match = CONF_RE.match(lines[idx])
-        if not conf_match:
-            raise ValueError(f"malformed CONFIDENCE for segment {segment_id}")
-        confidence = _parse_confidence(conf_match.group(1))
+        text_line = lines[idx].strip()
+        text_match = TEXT_RE.match(text_line)
+        if not text_match:
+            raise ValueError(f"malformed TEXT for segment {segment_full}")
+        text_body = text_match.group(1).strip()
+        text_conf = _parse_confidence(text_match.group(2))
         idx += 1
 
-        reason_parts: List[str] = []
-        if idx < len(lines) and lines[idx].strip().lower().startswith(
-            REASON_PREFIX.lower()
-        ):
-            first_reason = lines[idx].split(":", 1)[1] if ":" in lines[idx] else ""
-            reason_parts.append(first_reason.strip())
-            idx += 1
-            reason_parts.extend(
-                [
-                    ln.strip()
-                    for ln in _collect_until(
-                        lambda l: HEADER_RE.match(l) or not l.strip()
-                    )
-                ]
-            )
+        if idx >= len(lines):
+            raise ValueError(f"missing CONFIDENCE for segment {segment_full}")
 
-        text = " ".join([t for t in text_lines if t]).strip()
-        reason = " ".join([r for r in reason_parts if r]).strip()
-        text = _normalize_text(text, confidence)
+        conf_line = lines[idx].strip()
+        conf_match = CONF_RE.match(conf_line)
+        if not conf_match:
+            raise ValueError(f"malformed CONFIDENCE for segment {segment_full}")
+        confidence = _parse_confidence(conf_match.group(1))
+        if confidence != text_conf:
+            raise ValueError(
+                f"confidence mismatch for segment {segment_full} "
+                f"(text={text_conf}, confidence_line={confidence})"
+            )
+        idx += 1
+
+        if idx >= len(lines):
+            raise ValueError(f"missing REASON for segment {segment_full}")
+
+        reason_line = lines[idx].strip()
+        reason_match = REASON_RE.match(reason_line)
+        if not reason_match:
+            raise ValueError(f"missing REASON for segment {segment_full}")
+        reason = reason_match.group(1).strip()
+        idx += 1
+
+        while idx < len(lines) and not lines[idx].strip():
+            idx += 1
+
+        text = _normalize_text(text_body, confidence)
 
         patches.append(
             {
                 "action": action,
                 "segment_id": segment_id,
+                "segment_label": segment_label,
+                "segment_full_label": segment_full,
                 "text": text,
                 "confidence": confidence,
                 "reason": reason,
             }
         )
 
-        # If the next non-empty line is not another header, treat remaining as summary.
-        while idx < len(lines) and not lines[idx].strip():
-            idx += 1
         if idx < len(lines) and not HEADER_RE.match(lines[idx].strip()):
             break
 
     summary = "\n".join(lines[idx:]).strip()
+    if not summary:
+        raise ValueError("summary section missing")
     return patches, summary
+
+
+def _one_step_confidence(current: str, incoming: str) -> str:
+    """Raise confidence by at most one step, honoring the declared incoming level."""
+
+    cur = _parse_confidence(current)
+    inc = _parse_confidence(incoming)
+    cur_idx = CONFIDENCE_ORDER.index(cur)
+    inc_idx = CONFIDENCE_ORDER.index(inc)
+    if inc_idx <= cur_idx:
+        return cur
+    next_idx = min(cur_idx + 1, inc_idx, len(CONFIDENCE_ORDER) - 1)
+    return CONFIDENCE_ORDER[next_idx]
+
+
+def _active_entry(entries: List[dict]) -> dict | None:
+    """Return the most recent non-superseded entry in a segment bucket."""
+
+    if not entries:
+        return None
+
+    superseded_ids = {
+        entry.get("supersedes")
+        for entry in entries
+        if entry.get("supersedes")
+    }
+    live_entries = [
+        entry
+        for entry in entries
+        if not entry.get("superseded_by") and entry.get("id") not in superseded_ids
+    ]
+    if live_entries:
+        return live_entries[-1]
+    return entries[-1]
+
+
+def _entry_origin(entry: dict, fallback) -> str:
+    """Determine the origin tier string for an entry, defaulting safely."""
+
+    try:
+        return parse_tier(entry.get("origin_tier") or entry.get("tier") or fallback).name
+    except Exception:  # noqa: BLE001
+        return parse_tier(fallback).name
+
+
+def apply_patches_to_card(
+    card: dict, summary_id: int, tier: str, patches: List[dict]
+) -> dict:
+    """Pure helper to apply patches into an in-memory card representation."""
+
+    card = ensure_card_shape(card)
+    segments = card.get("segments") or {}
+    try:
+        worker_tier = parse_tier(tier)
+    except Exception:  # noqa: BLE001
+        worker_tier = parse_tier("episode")
+
+    for patch in patches:
+        seg_id = str(patch["segment_id"])
+        if seg_id not in segments:
+            # Unknown segment; skip quietly but keep history
+            continue
+
+        bucket = segments.get(seg_id) or []
+        segments[seg_id] = bucket
+        current = _active_entry(bucket)
+        patch_conf = _parse_confidence(patch["confidence"])
+        patch_text = _normalize_text(patch["text"], patch_conf)
+        reason = patch.get("reason") or ""
+
+        if patch["action"] == "add":
+            if current:
+                print(
+                    f"[card_patch_applier] duplicate ADD for segment {seg_id}; skipping"
+                )
+                continue
+
+            entry_text = append_origin_tag(patch_text, worker_tier)
+            now_entry = make_entry(
+                text=entry_text,
+                confidence=patch_conf,
+                action="add",
+                summary_id=summary_id,
+                tier=tier,
+                reason=reason,
+                origin_tier=worker_tier.name,
+            )
+            bucket.append(now_entry)
+            continue
+
+        if patch["action"] == "reinforce":
+            if not current:
+                print(
+                    f"[card_patch_applier] REINFORCE but no row for segment {seg_id}"
+                )
+                continue
+
+            origin_name = _entry_origin(current, worker_tier)
+            current_conf = current.get("confidence") or patch_conf
+            try:
+                bumped_conf = _one_step_confidence(current_conf, patch_conf)
+            except Exception:
+                bumped_conf = patch_conf
+
+            current["confidence"] = bumped_conf
+            current["text"] = append_origin_tag(
+                _normalize_text(patch_text, bumped_conf),
+                parse_tier(origin_name),
+            )
+            current["reason"] = reason or current.get("reason")
+            evidence = current.setdefault("evidence", [])
+            evidence.append(
+                {
+                    "summary_id": summary_id,
+                    "reason": reason,
+                    "confidence": patch_conf,
+                    "created_at": datetime.now(timezone.utc).isoformat(),
+                    "action": "reinforce",
+                }
+            )
+            continue
+
+        if patch["action"] == "revise":
+            if not current:
+                print(f"[card_patch_applier] REVISE but no row for segment {seg_id}")
+                continue
+
+            origin_name = _entry_origin(current, worker_tier)
+            current["confidence"] = patch_conf
+            current["text"] = append_origin_tag(
+                _normalize_text(patch_text, patch_conf),
+                parse_tier(origin_name),
+            )
+            current["reason"] = reason or current.get("reason")
+            evidence = current.setdefault("evidence", [])
+            evidence.append(
+                {
+                    "summary_id": summary_id,
+                    "reason": reason,
+                    "confidence": patch_conf,
+                    "created_at": datetime.now(timezone.utc).isoformat(),
+                    "action": "revise",
+                }
+            )
+
+    card["segments"] = segments
+    card["cards_updated_at"] = datetime.now(timezone.utc).isoformat()
+    return card
 
 
 def _next_tier_index(thread_id: int, tier: str) -> int:
@@ -220,60 +371,8 @@ def _save_card(thread_id: int, card: dict):
 
 def _apply_patches(thread_id: int, summary_id: int, tier: str, patches: List[dict]):
     card = _load_card(thread_id)
-    segments = card.get("segments") or {}
-
-    for patch in patches:
-        seg_id = str(patch["segment_id"])
-        if seg_id not in segments:
-            # Unknown segment; skip quietly but keep history
-            continue
-
-        action = patch["action"]
-        text = patch["text"]
-        confidence = patch["confidence"]
-        reason = patch["reason"]
-        now_entry = make_entry(
-            text=text,
-            confidence=confidence,
-            action=action,
-            summary_id=summary_id,
-            tier=tier,
-            reason=reason,
-        )
-
-        bucket = segments[seg_id]
-        if action == "add":
-            bucket.append(now_entry)
-        elif action == "reinforce":
-            if bucket:
-                target = bucket[-1]
-                target_conf = target.get("confidence") or confidence
-                target["confidence"] = upgrade_confidence(
-                    target_conf, confidence
-                )
-                # Optionally refresh text if a new nuance was supplied
-                target["text"] = text or target.get("text")
-                evidence = target.setdefault("evidence", [])
-                evidence.append(
-                    {
-                        "summary_id": summary_id,
-                        "reason": reason,
-                        "confidence": confidence,
-                        "created_at": datetime.now(timezone.utc).isoformat(),
-                    }
-                )
-            else:
-                bucket.append(now_entry)
-        elif action == "revise":
-            supersedes = bucket[-1]["id"] if bucket else None
-            now_entry["supersedes"] = supersedes
-            bucket.append(now_entry)
-        else:
-            # Unknown action; ignore
-            continue
-
-    card["segments"] = segments
-    _save_card(thread_id, card)
+    updated = apply_patches_to_card(card, summary_id, tier, patches)
+    _save_card(thread_id, updated)
 
 
 def _insert_summary_row(

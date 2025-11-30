@@ -10,6 +10,7 @@ from supabase import create_client, ClientOptions
 
 from workers.lib.prompt_builder import build_prompt
 from workers.lib.simple_queue import ack, receive, send
+from workers.lib.time_tier import TimeTier
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
@@ -129,6 +130,7 @@ def process_job(payload: dict) -> bool:
         include_plans=False,
         include_analyst=False,
         include_episode_rolling=True,
+        worker_tier=TimeTier.EPISODE,
     )
     raw_text = call_llm(prompt)
     raw_hash = hashlib.sha256(raw_text.encode("utf-8")).hexdigest()

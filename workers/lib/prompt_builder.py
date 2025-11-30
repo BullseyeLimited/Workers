@@ -13,6 +13,8 @@ from pathlib import Path
 from typing import Any, Dict, Iterable
 
 from supabase import create_client
+from workers.lib.cards import filter_card_by_tier
+from workers.lib.time_tier import parse_tier
 
 _SB = None  # Lazily created Supabase client
 
@@ -191,7 +193,7 @@ def make_block(thread_id: int, tier: str, limit: int = 4, *, client=None) -> str
     return "\n\n".join(blocks)
 
 
-def _load_cards(thread_id: int, *, client=None) -> Dict[str, str]:
+def _load_cards(thread_id: int, *, client=None, worker_tier=None) -> Dict[str, str]:
     sb = _resolve_client(client)
     row = (
         sb.table("threads")
@@ -206,9 +208,18 @@ def _load_cards(thread_id: int, *, client=None) -> Dict[str, str]:
         or {}
     )
 
+    fan_psychic = row.get("fan_psychic_card") or "[Fan Psychic Card unavailable]"
+    if worker_tier is not None and isinstance(fan_psychic, dict):
+        try:
+            tier_enum = parse_tier(worker_tier)
+            fan_psychic = filter_card_by_tier(fan_psychic, tier_enum)
+        except ValueError:
+            # Fall back to the unfiltered card if tier parsing fails
+            pass
+
     return {
         "FAN_IDENTITY_CARD": row.get("fan_identity_card") or "[Fan Identity Card unavailable]",
-        "FAN_PSYCHIC_CARD": row.get("fan_psychic_card") or "[Fan Psychic Card unavailable]",
+        "FAN_PSYCHIC_CARD": fan_psychic,
         "CREATOR_IDENTITY_CARD": row.get("creator_identity_card") or "[Creator Identity Card unavailable]",
         "CREATOR_PSYCHIC_CARD": row.get("creator_psychic_card") or "[Creator Psychic Card unavailable]",
     }
@@ -439,6 +450,7 @@ def _render_template(
     include_plans: bool = True,
     include_analyst: bool = True,
     include_episode_rolling: bool = False,
+    worker_tier=None,
 ) -> str:
     """Shared renderer that replaces macros in a prompt template."""
 
@@ -453,7 +465,7 @@ def _render_template(
         for macro, (tier, limit) in SUMMARY_BLOCK_SPEC.items():
             context[macro] = make_block(thread_id, tier, limit, client=sb)
 
-    context.update(_load_cards(thread_id, client=sb))
+    context.update(_load_cards(thread_id, client=sb, worker_tier=worker_tier))
 
     if include_episode_rolling:
         context.update(_recent_episode_abstracts(thread_id, client=sb))
@@ -510,6 +522,7 @@ def build_prompt(
     include_plans: bool = True,
     include_analyst: bool = True,
     include_episode_rolling: bool = False,
+    worker_tier=None,
 ) -> str:
     """Load a template and replace all macro tags in one pass."""
     return _render_template(
@@ -523,6 +536,7 @@ def build_prompt(
         include_plans=include_plans,
         include_analyst=include_analyst,
         include_episode_rolling=include_episode_rolling,
+        worker_tier=worker_tier,
     )
 
 
@@ -538,6 +552,7 @@ def build_prompt_sections(
     include_plans: bool = True,
     include_analyst: bool = True,
     include_episode_rolling: bool = False,
+    worker_tier=None,
 ) -> tuple[str, str]:
     """
     Render a template and split into (system_prompt, user_message) for chat models.
@@ -554,6 +569,7 @@ def build_prompt_sections(
         include_plans=include_plans,
         include_analyst=include_analyst,
         include_episode_rolling=include_episode_rolling,
+        worker_tier=worker_tier,
     )
 
     # Prefer <NAPOLEON_INPUT> when present; otherwise fall back to analyst markers.
