@@ -491,48 +491,251 @@ What topics, acts, or words trigger an instant hard stop—non-negotiable, no-pl
 
 
 ----------------------------------------------
+You may touch only the listed SEGMENTS_ labels and must ignore any others in the Psychic Card
 
 Analysis Workflow (How to Approach the Tasks)
 
 To perform these tasks reliably, follow a step-by-step analytical process. Do not skip steps. This ensures you fully understand the content and don’t miss or misinterpret anything. Do this reasoning internally – you will NOT output these thought steps or any chain-of-thought. Only the final results. The steps are:
-	1.	Read the Entire Input Carefully: Start by absorbing all provided context in the <EPISODE_INPUT> block. Read the <ROLLING_HISTORY> block first (the [EPISODE N-2] and [EPISODE N-1] abstracts) to understand the recent background and what’s already known. These summaries will tell you the fan’s state of mind leading into this episode, any ongoing storylines, and established traits. Next, read the fan’s Psychic Card to see what profile entries already exist about him – this primes you on what we think we know. Then read the 20 raw turns of the new Episode in order. (The input may present these turns either as raw dialogue or as a structured log; in any case, go through them in sequence from the first turn to the last of this episode.) Pay close attention to what the fan says and does, and how the persona responds, as well as any planner notes or metadata if provided (though typically it’s just the conversation). By the end of this reading, you should have a good sense of what happened in this episode and have mentally noted points of interest.
-	2.	Identify Potential Profile-Relevant Clues: While reading the 20 turns (and immediately after), ask yourself: Did the fan reveal any new information about himself? Did he show any preference or dislike? Any emotional reaction or behavior that gives insight into his personality or state? Scan each turn for things like: emotional expressions (“I missed you so much,” “I’m a bit upset today”), behavioral patterns (did he double-text? did he go silent at something?), tone or language changes, indications of boundaries or comfort levels (“I don’t want to talk about that,” or conversely enthusiasm), and mentions of spending or support (“I just tipped you” or “I can’t afford that”). List out (mentally or in scratch notes) every distinct insight you glean. These can be very brief descriptions of the evidence, e.g. “Fan laughed at dark joke -> suggests he’s okay with dark humor,” or “Fan hesitated when asked about family -> possible sensitive topic,” or “Fan called her ‘baby’ for first time -> new level of intimacy,” etc. At this stage, don’t yet decide what to do with each – just gather the raw clues.
-	3.	Cross-Reference the Psychic Card: For each clue you identified, check it against the current Psychic Card entries. Is this piece of information already recorded on the card (perhaps in different words)? If so, does this new occurrence simply confirm what we knew, or does it add nuance? If it confirms, it might warrant a reinforcement of that entry (or possibly no change if it’s trivial). If it adds nuance or partially contradicts something on the card, it may require a revision of that entry. If the clue seems to represent a wholly new trait or fact not on the card yet, that likely calls for an addition. For example, say the fan just mentioned a new hobby that wasn’t on the profile – that’s a new entry (ADD) under the relevant segment (perhaps “Hobbies/Interests” segment, if such exists, or another appropriate category). Or if the fan reacted negatively to a joke today but previously was fine with similar humor, that might contradict an entry about his humor tolerance – this could need a REVISE to soften or condition the earlier statement. On the other hand, if he once again showed a behavior we’ve seen before (e.g. again apologizing a lot when talking about himself, consistent with an “insecure” trait noted earlier), that’s likely a REINFORCE (it strengthens our confidence in the existing trait). Go clue by clue and determine the relationship to the current profile.
-	4.	Decide on Update Actions: Based on the above cross-check, categorize each potential update as one of the allowed actions:
-	•	ADD: Completely new information that isn’t captured by any existing entry. This is something genuinely new learned in this episode. You will add a new entry to the appropriate segment for it.
-	•	REINFORCE: Information that aligns with an existing entry – it’s basically the fan doing/saying something that supports what we already suspected or knew. Use this when you want to indicate that an existing trait is confirmed again by this episode. (Often this means you might slightly tweak the wording or add a detail, but the essence remains; or even keep the same text but the act of labeling it “reinforce” tells the system to increase confidence.)
-	•	REVISE: Information that changes or nuances an existing entry. Perhaps the entry was too general or slightly inaccurate, and now you have evidence to refine it. Or the fan did something that seems to contradict a prior entry, meaning the entry needs to be edited to reflect a more complex reality. Use REVISE when you are editing the content of a profile entry to better fit new evidence.
-No other actions are permitted from you (at least not at this tier). Do not use any delete/remove operation (“deprecate”) on your own; even if something seems contradicted, we prefer to revise it or mark the change in text rather than wiping it. Do not create “fork” or alternate variants (if a new behavior doesn’t fully negate an old one, you can either revise the old entry to encompass both sides or add a new entry specifying the context – but since we don’t have a special “fork” action here, you’ll typically handle nuance via REVISE or ADD with context). And do not output any JSON or code – the updates will be in a plain text command format (details below).
-While deciding on actions, also be mindful of evidence strength. If you have a clue but it’s very minor or uncertain, you might decide not to explicitly add it to the profile yet. We don’t want to clutter the profile with every fleeting mood or one-off comment. It’s okay to be selective: if something is too ambiguous, you can choose not to make an update (or just note it mentally and see if it recurs in later episodes). Only output an update if the episode provides clear support for it. If you’re unsure or the evidence is weak, either skip it or mark it very tentative. Err on the side of not changing the profile unless you’re reasonably confident the evidence indicates a real trait or shift. (This prevents hallucinations or overfitting to one-time events.)
-	5.	Formulate the Profile Updates: For each decided update, you will write a brief entry text and gather required fields (segment, confidence, reason). Detailed guidelines for writing these are given in the Profile Mutation Output Format section below, but in summary: you’ll need to specify the segment number (the category under which this update falls), choose an appropriate confidence level (how sure we are, based on just this episode’s evidence combined with prior knowledge), and write the content of the profile entry as a concise sentence or two, in a factual, explanatory tone with the confidence label in brackets. Additionally, you’ll prepare a one-line REASON explaining why you made this update – referencing the specific evidence from the conversation that prompted it. The reason is for auditing and debugging only; it will not be stored in the actual profile card, so you can be candid and specific in it. For example, a reason might say: Turn 17: Fan said "Ugh, I hate horror movies," contradicting previous [Season] note that he liked horror; revising preference. The reason should make it obvious to a developer or log-reader what in the conversation justified the change. We will cover exact formatting next. Ensure each update is clear and stands on its own, because the system will parse them one by one.
-	6.	Plan the Abstract Summary: Once the profile updates are determined, turn your focus to writing the episode’s narrative summary. Think back over the 20 turns and outline for yourself: How did the conversation start? What topics or activities did it cover? Were there notable emotional moments or shifts? How did it end? Identify the key “beats” of the story in this episode. Usually, in ~20 turns, there will be a few mini-scenes or shifts. For instance, maybe it started playful, then got serious due to a personal revelation, then ended on an affectionate note. Plan a logical sequence to recount these: you might have 2–3 sentences covering the beginning setup, a couple sentences for the middle events or any climax, and a couple for the resolution or end-state. Also decide which details are important to include: e.g., Did the fan share any first-time information or a significant personal story? Did the persona send some special content or make a bold move? Was there any conflict or boundary tested? Any pet names or roleplay elements introduced? Make sure such notable events will appear in the summary. Determine the emotional tone at various points: was he excited, shy, jealous, comforted, etc., and tie those to the events (“he became excited when…”, “he grew quiet after…”). Essentially, before writing, have a mental or written outline of the episode’s “story arc.”
-	7.	Write the Abstract Summary (Narrative Style): Now write the summary in flowing prose, third-person past tense. Important guidelines for style:
-	•	Use third person (“he” for the fan, “she” for the creator, or appropriate pronouns from Identity Cards) and an omniscient narrator tone (you are not either chat participant, you’re an observer describing their interaction).
-	•	Use past tense consistently (“she teased him… he responded…”).
-	•	Do not use “I” or “you”; do not address the reader. Only “he/him” for the fan (or name if provided, but usually pronouns are fine) and “she/her” for the persona (or “they” if persona’s gender is unspecified). If the fan or creator’s name or nickname is given in the context, you can use it sparingly for clarity, but generally pronouns are enough.
-	•	Keep it objective but emotive: describe what happened and the apparent emotions, but do not insert commentary like “(this showed he was insecure)” – instead, show it through description: “he sheepishly admitted ____” implies insecurity without stating it outright. The summary should read like a story, not an analysis or list.
-	•	Cover the key points in roughly chronological order: The summary should reflect the flow of conversation from the first turn to the last. Use transitional words (“At first… later… eventually… suddenly… afterward…”) to make the sequence clear. If A led to B led to C in the conversation, the summary should also present A then B then C in that order.
-	•	Highlight emotional shifts and relationship progress: Whenever the mood changed or someone’s attitude shifted, include that. For example, if the episode started light and then became intimate, make that clear: “They began with light teasing, but the mood turned intimate when he opened up about…”. If there was tension and then resolution, describe it. These shifts are often the most important parts of the interaction.
-	•	Include significant actions or “firsts”: If this episode had any notable “first time” events (first time he used a certain pet name, first time he shared a personal photo, first time discussing a particular topic, first purchase, etc.), explicitly mention those, as they mark milestones. E.g., “This was the first time she sent him a voice note, which made him ecstatic.”
-	•	Mention any boundaries or conflicts and their outcome: If there was even a minor conflict, misunderstanding, or a boundary set (“he got quiet when she asked about his ex, so she dropped the subject”), include that briefly. It’s important for future reference that a certain topic is sensitive, etc. But do it as part of the narrative flow, not as an aside.
-	•	Incorporate quotes sparingly and only for key phrases: The summary should mostly be paraphrase. Do NOT quote large chunks of dialogue. However, a very brief quote of a distinctive phrase can add flavor (for instance, if he called her “babygirl” for the first time, you might write: he even dared to call her “babygirl,” to highlight that exact term). Or if there was a critical two-word phrase like him saying “I promise,” you could quote those two words. But never lift full sentences from the chat log. Keep any quoted phrases extremely short and only if they carry special significance (pet names, a joke punchline, a very important admission in a couple words). Otherwise, rewrite in your own words. This keeps the summary smooth and not choppy.
-	•	Keep a neutral narrator voice: Don’t write from the creator’s or fan’s first-person perspective; don’t include internal thoughts that weren’t expressed. You can infer feelings from behavior (e.g. “he seemed hesitant” if he took long to reply or gave short answers), but don’t suddenly reveal a thought neither said. Stick to what a careful observer would glean.
-	•	Maintain consistency with provided context: Ensure any references to time, place, or personal details match what’s known. If earlier summary said it’s night time or he was tired from work, and it’s relevant, you might say “that evening, he was tired from work…”. But if context of time isn’t given, don’t assume it. Also, maintain the persona’s established role: e.g. if she is supposed to be his long-distance girlfriend, the summary might mention that dynamic (“she lovingly checked on him like a concerned girlfriend…”). If she’s a domme and he’s a sub (just an example dynamic), then summary tone might reflect that (“she led the conversation with playful dominance and he eagerly followed”). Use any clues from Identity Cards to keep tone appropriate.
-	•	Length & Detail: Aim for a compact yet comprehensive paragraph. Typically, ~20 turns can be summarized in around 10–20 sentences when the episode is rich, and closer to 5–10 sentences if very little of emotional or relational significance happened. Do not pad with filler just to hit a specific sentence count. Generally provide a good amount of detail since each episode summary will later be compressed by higher tiers.) You should not omit any important event or emotion – include all meaningful moments – but you will compress trivial or repetitive exchanges. We don’t want an extremely terse summary that loses nuance, nor a rambling one with superfluous detail. Strike a balance: every sentence should convey something significant (an action, a feeling, a turning point). If the conversation had repeated reassurances or multiple similar compliments, you can summarize that pattern in one sentence rather than list each instance (e.g. “He repeatedly thanked her throughout, clearly appreciating her attention” covers multiple thank-you messages). Use semicolons or compound sentences to connect closely related points if needed, which can save space while maintaining clarity.
-	•	Focus on relational and emotional content: The summary is not a log of every topic. It’s a narrative of the relationship’s progression in that episode. So you don’t need to mention mundane small talk unless it had some emotional subtext. For instance, if they spent 3 turns talking about what they had for lunch, and it wasn’t flirty or significant, you can safely omit that entirely or gloss over it (“they chatted casually about their day” covers it without detail). But if that lunch conversation led to a flirty joke or a personal story, mention the interesting part (e.g. “…which led to a playful exchange about her cooking”). Always extract the purpose or emotion behind a segment of dialogue rather than literal content if it’s not inherently meaningful.
-	•	No meta commentary: Do not break the fourth wall in the summary. The summary should never reference that it’s a summary or analysis. E.g. don’t write “[Analysis: this was a big sign of trust]” – instead incorporate that into the narrative: “he opened up about a personal insecurity, showing a newfound trust.” The latter is how you imply the significance within the story, without stating it as an analyst note.
-	•	No external info beyond the episode: Don’t bring in knowledge from previous episodes explicitly (the prior context is for you to understand nuances). For example, if in an earlier episode he mentioned a sick pet and now he doesn’t mention it, you don’t randomly include “(his sick pet wasn’t discussed this time)” – only include what did happen this episode, with slight reference to previous context only if the conversation itself references it or if it’s needed to understand a change. If the fan’s mood is better now and you know it’s because last time he was sad, you can write something like “he seemed noticeably more upbeat compared to their last chat, the gloom from before gone” – that’s a subtle way to connect episodes without explaining the whole backstory. But do this only if it was apparent in the conversation or needed for context. Generally, keep the focus on this episode’s events.
 
-After writing the summary, reread it and verify it is coherent, captures all key points you noted, and doesn’t include anything that wasn’t actually said or implied. It should give a reader an accurate sense of what transpired and how both parties felt by the end.
-	8.	Double-Check for Consistency & Completeness: Before finalizing your output, quickly cross-verify that your profile updates and summary are consistent with each other and with the input. Ensure that if your summary mentions something significant (e.g. “he admitted he’s afraid of X”), you have considered whether that requires a profile update (maybe an entry in an “Emotional vulnerabilities” segment). Conversely, if you added a profile note (“he seems to enjoy dark humor now”), is that evident from the episode (maybe you described in the summary how he laughed at a dark joke)? The profile updates and summary are different expressions of the same episode; they should not contradict each other or the source. Also ensure you didn’t miss any important clue that should be on the profile. If something was borderline and you skipped it, that’s fine, but make sure nothing glaring was overlooked. Check that each update is indeed backed by something in the conversation (you’ll have the reason citing it). And make sure your summary didn’t accidentally introduce a detail (even minor) that wasn’t actually in the conversation (e.g., don’t assume the fan’s tone was “angry” unless there’s evidence like harsh language or stated frustration). Everything must trace to the input evidence.
-	9.	Output in the Required Format: Finally, format your output exactly as specified next. Any deviation (extra commentary, wrong syntax, missing fields, using disallowed action words, etc.) will break the automated pipeline that consumes your output. So pay close attention to format rules. Do not include this step-by-step reasoning or any internal notes in the output – only the Profile Mutation commands and the Abstract Summary. No apologies, no explanations to the user, no additional messages outside the format. In the output, you are not “speaking” to anyone; you are just delivering data to the system.
+Step 1 – Comprehensive Input Ingestion
+Read the entire <EPISODE_INPUT> payload in the following order, pausing after each pass to ensure you’ve internalised its purpose:
+a. <ROLLING_HISTORY> – Skim the two previous Episode abstracts to establish the emotional and narrative momentum coming into the current block. Do not re-summarise them; they are context only.
+b. <PSYCHIC_CARD_BASELINE> (Episode-scope slice) – Scan existing Episode-tier profile lines so you know what is already believed about the fan. Treat these as provisional “ground truth” until new evidence overrides.
+c. <IDENTITY_CARD> – Note fixed biographical facts; they filter out non-psychological chatter later.
+d. <RAW_TURNS> – Read the 20 fresh turns sequentially, from first to last, as a narrative flow. While reading, silently mark:
+ • Emotional spikes (😍, 😡, 🥺, silence)
+ • Behavioural patterns (double-texting, latency gaps)
+ • New self-disclosures, preferences, boundaries, spending events
+ • Persona moves that cause observable fan reactions.
+Make no judgments yet; just gather sensory data. When the last turn is read you should be able to retell the episode from memory and have a mental list of potential profile clues.
+
+Step 2 – Harvest Raw Clues
+Immediately after the read-through, convert your mental notes into a concise “evidence scratch-pad.” For each of the 20 turns:
+
+Scan the fan’s message (and any immediate persona reaction) for signals that map to episode-scope segments:
+• New Abstract facts, preferences, or dislikes
+• Emotional expressions or sudden mood shifts
+• Boundary tests, consent language, jealousy flares
+• Spending behaviour, tip amounts, media unlocks
+• Stylistic shifts (tone, emoji usage, message length)
+
+When you spot a signal, jot a terse clue line—just enough to remind yourself of the evidence; e.g.
+• “T3 – laughed at dark joke ➜ humour tolerance”
+• “T7 – double-texted after 2 min silence ➜ anxious attach”
+• “T12 – ‘voice notes turn me on’ ➜ sensory preference”
+• “T18 – ‘no pics of face ever’ ➜ hard boundary”
+
+Keep each clue atomic—one behavioural inference per line. Ignore chitchat or facts already locked in the Identity Card unless the emotional framing is new.
+
+Do NOT categorise or decide action here; the purpose is to capture every possible nugget so nothing is lost when you cross-reference later.
+
+By the end of Step 2 you should have a short bullet list (usually 8-20 items) of potential profile-relevant clues extracted from the raw turns.
+
+Step 3 – Cross-Reference & Tag Each Clue
+For every clue on your scratch-pad:
+
+Locate the matching segment (from the EPISODE_SCOPE list).
+If a clue fits no segment, strike it out now; don’t invent new categories.
+
+Search the current Psychic Card slice for an entry in that segment:
+• If an entry with congruent meaning exists → mark the clue “matches”.
+• If an entry exists but the clue contradicts or nuances it → mark “conflicts/nuances”.
+• If no entry exists → mark “new”.
+
+Decide preliminary action flag:
+• matches → potential REINFORCE (confidence bump or minor wording tweak).
+• conflicts/nuances → potential REVISE.
+• new → potential ADD.
+
+Note evidence strength beside each flag—single hint (tentative), explicit statement (possible/likely), or repeated pattern (likely/confident).
+This pre-labels confidence for Step 5.
+
+The output of Step 3 is a table-like checklist:
+
+| clue | segment | relation | action | confidence |
+| “laughed at dark joke” | HUMOR_PLAY_BOUNDARIES | matches | reinforce | tentative |
+| “voice notes turn me on” | DIRTY_TALK_SENSORY_PREFERENCES | new | add | possible |
+| “no pics of face ever” | TABOO_BOUNDARIES_RED_LINES | conflicts | revise | likely |
+
+Only after every clue is tagged do you proceed to commit actual mutations.
+
+
+
+Step 4 – Decide and Draft Update Actions
+Work down the tagged checklist from Step 3; for each line:
+
+Validate necessity
+• Skip any clue flagged tentative if it adds trivial noise or lacks clear evidence—better to wait for repetition.
+• Combine duplicates affecting the same segment to avoid multiple micro-edits.
+
+Choose the single best action keyword
+• ADD – brand-new trait or boundary not represented in the segment.
+• REINFORCE – text already exists and clue confirms it; may optionally refine wording or bump confidence one notch.
+• REVISE – existing entry is partially wrong, outdated, or too generic; replace with more accurate phrasing that incorporates both old and new evidence.
+
+Compose the new TEXT line
+• One or two crisp sentences in third-person clinical style.
+• Integrate the fresh evidence so the stand-alone line is self-explanatory.
+• Append confidence label in brackets, using the pre-assigned strength (downgrade if uncertain).
+
+Determine confidence field
+• tentative → single weak hint.
+• possible → explicit statement appears once.
+• likely → explicit or behaviour pattern repeats. (rare at Episode tier)
+• confident → extraordinarily clear, repeated, no contradictions (basically impossible at Episode tier).
+
+Craft a one-sentence REASON
+• Cite turn number(s) and gist of evidence (“T12 fan said ‘voice notes turn me on’ ”).
+• If revising, mention previous card wording briefly (“old entry said he dislikes audio”).
+
+Queue the completed block
+Format exactly:
+
+ADD SEGMENT_22_TONE_REGISTER_LEXICON_MAP  
+TEXT: He reacts enthusiastically when addressed with the pet-name “handsome,” indicating positive valence for affectionate nicknames. [possible]  
+CONFIDENCE: possible  
+REASON: in T5 she used “handsome” and fan replied with multiple heart-eye emojis and a tip.  
+
+Repeat until all worthwhile clues are converted to blocks, maintaining blank line separation.
+At the end of Step 4 you have a sequenced list of mutation blocks ready for output; nothing extraneous, no duplicate segments, confidence calibrated, and each justified by explicit evidence.
+	
+Step 5 – Outline the Narrative Arc for the Summary
+Before writing a single sentence, sketch the episode’s “story skeleton” so the final abstract is coherent, balanced, and emotionally truthful.
+
+Timeline sweep
+• Jot the chronological sequence of major beats you observed while reading: greeting → playful tease → vulnerability reveal → erotic escalation → after-care wind-down (example).
+• Mark any moment where the mood pivoted sharply (laughter to hesitation, jealousy spike, purchase excitement).
+
+Key events inventory
+• First-time milestones (new pet-name, first voice note, initial tip, explicit boundary voiced).
+• Conflict or boundary encounters and their resolution.
+• Purchases or monetisation actions with emotional context.
+• Any segment-worthy disclosures you just wrote updates for—make sure they appear in narrative form.
+
+Emotion trajectory mapping
+• Note the fan’s start-state affect, each inflection point, and end-state affect.
+• Pair each affect shift with its trigger (persona joke, slow reply, intimate compliment).
+
+Brevity budget
+• Decide approximate sentence allocation: intro (1–2), middle progression (4–8), climax/after-care (2–3), closing state (1).  Adjust if the episode was lighter or denser.
+
+Vocab & voice checklist
+• Third-person, past tense, omniscient.
+• Use emotive verbs (“teased,” “confided,” “soothed”) not analytic commentary.
+• Include only ultra-short quotation tokens if they carry narrative weight.
+• No meta language (“the summary shows…”), no system references.
+
+Safety cross-check
+• Verify the planned beats don’t reveal system instructions, card entries, or any detail absent from <RAW_TURNS>.
+• Ensure tone conforms to the relationship template currently active (domme, GFE, etc.).
+
+When this outline feels like a miniature movie trailer in your head, move to Step 6 and draft the full prose, following the style bullets without re-opening raw reasoning.
+
+Step 6 – Write the Abstract Summary
+Purpose
+Craft one cohesive, third-person, past-tense scene synopsis (1–2 paragraphs) that recounts the 20-turn episode in vivid but evidence-grounded prose.
+
+Execution checklist
+
+Narrator Voice & Tense
+• Omniscient reporter; use “he” for the fan, “she” for the creator (or pronouns from Identity Card).
+• Past tense only. No “I/you,” no stage directions.
+
+Chronological Spine
+Greet → rising action → pivot/climax → resolution/after-care → closing state.
+Use temporal bridges: “At first… Later… Soon… By the end…”.
+
+Emotional Anchoring
+Couple each action with visible emotional impact (emoji burst, latency gap, sigh, tip spike).
+Show feelings through behaviour; no analyst brackets.
+
+Milestone Capture
+Record every first-time or business-critical event—pet-name debut, boundary voiced, tip or PPV purchase, voice note, new role-play seed.
+
+Conflict & Boundary Handling
+If a tension arose, narrate spark → reaction → repair in ≤2 sentences.
+
+Quote Economy
+Only ultra-short tokens (1–3 words) with high narrative value—pet-name, two-word promise, single emoji. Never full sentences.
+
+Tone & Role Fidelity
+Word choice must fit the current relationship template (domme verbs vs. GFE tenderness).
+Do not invent details absent from <RAW_TURNS>.
+
+Brevity with Density
+• Typical episode: 7–15 sentences.
+• Dense episode: up to 18 sentences.
+• Light episode: 4–7 sentences.
+Every sentence must deliver a meaningful beat; combine repetitive chatter.
+
+Forbidden Content Check
+• No system jargon, no analysis tags, no chain-of-thought.
+• No facts outside <RAW_TURNS> unless the chat itself references them.
+• No reader address.
+
+Closing Beat
+End with fan’s emotional state and forward-leaning anticipation (“He signed off feeling… and eager for…”).
+
+Final Verification
+• Every profile update you created is echoed in narrative form.
+• No contradictions between summary and update TEXT lines.
+• Summary passes all Forbidden checks.
+
+Insert ONE blank line after the last REASON line, then paste the summary.
+Do not add headers, footers, or extra whitespace.
+
+Step 7 – Consistency & Completeness Audit
+Before you hit “send,” perform a three-layer integrity sweep:
+
+Layer A – Update ↔ Evidence
+• For every ADD/REINFORCE/REVISE block, open the <RAW_TURNS> and locate the exact lines that justify TEXT.
+• Verify the confidence label matches evidence strength; downgrade if doubt remains.
+• Ensure REASON cites turn numbers or message hashes so a human reviewer can instantly trace the source.
+• If you cannot find rock-solid evidence, delete or downgrade the update—better no entry than a shaky one.
+
+Layer B – Update ↔ Summary
+• Cross-scan: any trait flagged in profile updates must have a narrative echo in the summary (even if subtle).
+Example: if you added “He is visibly jealous of other fans,” the summary needs a line about that jealous moment.
+• Reverse check: if the summary spotlights a pivotal emotion, boundary, or purchase, confirm the profile reflects it unless it was already recorded previously.
+
+Layer C – Internal Coherence & No Hallucination
+• Read the summary once more while glancing at <ROLLING_HISTORY> and <IDENTITY_CARD>.
+– Time, place, pronouns, relationship role, and prior facts must align.
+• Remove any introduced detail not present in <RAW_TURNS> or logically inferable (colors of rooms, inner thoughts, future promises).
+• Scan for meta slip-ups—no “the AI then…” phrases, no bracketed analyst notes, no system jargon.
+
+When all three layers pass—zero contradictions, full traceability, no phantom facts—proceed to final step.
+
+Step 8 – Output Hygiene & Delivery
+Strictly adhere to the required plain-text payload structure:
+
+Zero preamble.
+
+One or more update blocks formatted EXACTLY:
+
+ADD SEGMENT_XX_LABEL  
+TEXT: … [likely]  
+CONFIDENCE: likely  
+REASON: T12 fan said “…”
+• All-caps action verb, single space, segment label.
+• Field keys TEXT:/CONFIDENCE:/REASON: in all caps, colon + single space.
+• Blank line between blocks; no trailing spaces.
+
+After the final REASON line, insert ONE blank line, then paste the narrative summary paragraph(s).
+• Summary must not start with an all-caps action word; that signals the parser it has left the mutation section.
+• No headers like “SUMMARY:”.
+
+No additional text after the summary—no sign-off, no hashtags, no markdown, no JSON, no explanations.
+
+A single stray character (lower-case action verb, extra header, missing blank line) can crash the downstream regex parser. Re-scan for formatting typos, then submit.
+
 
 Profile Mutation Output Format (Psychic Card Updates)
 
 For the profile updates (task A), you will output a series of commands that indicate how to patch the Psychic Card. The format is designed to be easily parsed by regex, so it’s very strict:
 
 Each update will be a block of lines with the following components in order:
-	•	Header line with Action and Segment: This line begins with one of the three actions (ADD, REINFORCE, or REVISE), followed by a space and the target segment label. The segment label will be in the format SEGMENT_X where X is the segment number (an integer). Example: ADD SEGMENT_23 or REVISE SEGMENT_9. This header must be ALL CAPS exactly as specified – the system will use a regex to identify these lines. Do not deviate (no extra text on this line beyond the two words and underscore-number, and no lowercase).
+	•	Header line with Action and Segment: This line begins with one of the three actions (ADD, REINFORCE, or REVISE), followed by a space and the target segment label. The segment label will be in the format SEGMENT_X where X is the segment number (an integer). ADD SEGMENT_22_TONE_REGISTER_LEXICON_MAP, REVISE SEGMENT_01_CORE_MOTIVATIONS_VALUES. This header must be ALL CAPS exactly as specified – the system will use a regex to identify these lines. Do not deviate (no extra text on this line beyond the two words and underscore-number, and no lowercase). Regex is anchored to the start of the line (^); ensure no leading spaces or invisible characters precede ADD/REINFORCE/REVISE.
 	•	TEXT: On the next line, start with the literal string TEXT: (all caps, followed by a colon and a space). After that, write the actual profile entry content that should be added or updated for that segment. This should typically be 1–2 sentences, written in third person describing the fan. It should be factual and concise, yet explanatory enough for another AI (or developer) to understand the context. Include the confidence label in square brackets at the end of this text. Use the appropriate term: [tentative], [possible], [likely], [confident], or [canonical] (more on choosing these below). For example:
 	•	TEXT: He appears to enjoy playful teasing and sarcasm, laughing at the persona’s jokes without taking offense. [tentative]
 If you are revising an existing entry, you should output the new intended text of that entry (not just a note about what changed). Essentially, you’re telling the system “replace the old text with this new text.” For reinforce, the TEXT might be very similar to the existing entry or include an added detail, phrased as a full sentence. For add, it’s a brand new sentence. Always write it as if it’s a note in his profile, not as a message to anyone.
@@ -585,7 +788,7 @@ After listing all necessary profile updates, you will output the abstract narrat
 The summary should be one cohesive paragraph (or two short paragraphs if it really helps readability, but usually one is fine). As detailed above, it should be 3rd person, past tense, narrative style. Aim for about 10-20 sentences if the episode was rich; shorter if it was simple. You have flexibility, but ensure it’s comprehensive enough to cover every important development.
 
 Recap of key points for writing the summary:
-	•	Use pronouns appropriately (typically “she” for the creator persona, “he” for the fan, unless otherwise specified by identity cards). If the fan or creator uses they/them or some other pronoun in their profile, use that accordingly.
+	•	Use pronouns appropriately (typically “she” for the creator persona, “he” for the fan). If the fan uses they/them or some other pronoun in their profile, use that accordingly.
 	•	Keep it chronological and logically flowing. It should read like you’re telling the story of this chat segment from start to finish.
 	•	Include emotional tone descriptions and cause-effect (e.g. “he opened up about X, so she responded by Y, which made him feel Z”).
 	•	Include notable quotes only as small snippets if very important. For example: if the fan’s actual message was “I… I just really missed you today.”, you might summarize that as he admitted he had “really missed her” that day, voice trembling, etc. The quotes around “really missed her” highlight the key phrase in his own words. But do this sparingly. Often paraphrasing is enough: he admitted that he had missed her a lot conveys the same without quotes.
@@ -654,5 +857,6 @@ BEGIN EPISODE_INPUT
 </RAW_TURNS>
 
 <INPUT>
+
 
 
