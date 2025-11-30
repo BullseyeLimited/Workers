@@ -84,22 +84,64 @@ EPISODE-LEVEL EDIT SCOPE  (READ THIS CAREFULLY)
 You MAY create, reinforce, or revise entries ONLY in the following Psychic-Card segments:
 
 01.CORE_MOTIVATIONS_VALUES
-Why is the fan even in this chat and what non-negotiable principles steer his choices minute-to-minute?  This segment isolates the deep drives (needs, hungers, deficits) and the moral / personal rules that justify those drives.  It captures both enduring motives—e.g., “I crave genuine affection, not just nudes,” “I’m here for escapist thrill after a brutal workday”—and situational spikes (“I just need someone to vent to tonight”).  Trace language that reveals unmet needs (loneliness, validation, sexual exploration, mentorship, ego-boost, playful power-exchange) as well as explicit value statements (“I hate fake people,” “loyalty matters more than money”).  Track pay-offs the fan verbalises: emotional intimacy, fantasy fulfilment, guidance, bragging rights, stress release.  Update when a new motive appears, an existing one intensifies/fades, or a value is contradicted (e.g., claims honesty yet lies about relationship status).  High signal cues: direct admissions, repeated behavioural patterns (always tips after reassurance, vanishes when ignored), or moralising language (“that’s disrespectful”).  Use verbatim phrases in quotes inside the profile line to preserve the fan’s own wording, boosting authenticity for future mirroring.  At episode level: ADD on first discovery, REINFORCE when motive resurfaces, REVISE if priorities shuffle (e.g., shifts from “just fun” to “I’m catching feelings”).
+What drives the fan into this chat session right now and what inviolable principles shape those drives?
+• Drive taxonomy: emotional connection, ego validation, escapist thrill, sexual curiosity, mentorship, status recognition, stress vent.  Detect via explicit statements (“just need someone who listens”), behavioural loops (tips only after heartfelt praise), or strong reaction to unmet need (mood crash when persona replies late = attention motive).
+• Value compass: honesty, loyalty, creativity, spiritual purity, politeness, dominance-submission ethics—surface when fan praises or condemns behaviours (“I can’t stand fake people,” “respect means everything”).
+• Competing motives ticker: lonely validation vs. financial prudence (buys PPV then regrets), moral value vs. taboo curiosity—note inner conflicts for future leverage.
+• Temporal variance: payday libido vs. weekday comfort seeking; record situational shifts with timestamps.
+• Motivation intensity meter: emoji floods, tip spikes, or lengthier confessions quantify hunger level each episode.
+• Update protocol: ADD new motive/value when first emerges; REINFORCE when same drive obviously fuels behaviour again; REVISE if hierarchy flips (fun > feelings becomes feelings > fun).  Quote signature phrases (“need real affection, not just pics”) to enable authentic mirroring.
 
 02.SELF_NARRATIVE_IDENTITY_THEMES
-How does the fan narrate who he is—or wishes to be—within and beyond the chat?  This segment logs the labels, archetypes and miniature “origin stories” he deploys: “lonely single dad,” “hopeless romantic,” “workaholic tech bro,” “shy nerd by day, wild at night.”  Note stylistic self-descriptors (humble-brag, self-deprecation, swagger), recurring personal history beats, and any role he assigns himself relative to the persona (protector, disciple, playful rival).  Watch for contradictions or evolution: a man who once said “I’m not the jealous type” later admits “I hate sharing you.”  Capture first-time revelations of biographical weight (military veteran, divorcee, cancer survivor) that colour his self-image, even if those facts also live on the Identity Card—the key here is the emotional framing (“I’m proud of my service,” “My divorce left me guarded”).  These identity claims are magnets for mirroring: using his own taglines back to him deepens rapport.  Update when he coins a new self-label, retires an old one, or the tone around an identity shifts (e.g., joke about being “old” becomes insecurity).
+How does the fan story-tell himself in this slice of conversation, and what labels does he adopt, reject, or test?
+• Identity tags: “shy geek,” “alpha provider,” “hopeless romantic,” “broken soul,” “kinky gentleman.”  Capture verbatim self-descriptors or persona-bestowed nicknames he eagerly accepts.
+• Origin story snippets: divorce scar, military pride, startup grind, recent weight-loss journey—note emotional framing (pride vs. shame).
+• Role positioning: protector, disciple, “good boy,” rival banter partner.  Detect through pronouns and directive language (“your knight reporting”).
+• Consistency audit: contradictions between episodes (“not jealous” last week, possessive today) flagged for later reconciliation.
+• Identity experimentation: try-on of new persona (“call me daddy tonight”)—mark tentative vs. adopted.
+• Update rules: ADD first-time label or backstory beat; REINFORCE when repeated with positive affect; REVISE when label is disowned or tone flips (bragging becomes insecurity).  Store key quotes for callback resonance.
 
 03.WORLDVIEW_INTERPRETATION_FRAMES
-Through what cognitive lens does the fan decode events, jokes, and emotional cues?  Map default outlook (optimist vs. cynic, romantic idealist vs. transactional realist, spiritual mystic vs. data-driven analyst) and any ideological or cultural frames that filter his judgments.  Evidence lives in quick reactions: a teasing delay elicits “lol you’re ghosting me already?” (catastrophising frame) or “haha suspense, I like it” (playful frame).  Track bias patterns—black-and-white thinking, conspiratorial leaps, relentless positivity, dark sarcasm, victimhood narrative—that influence how he’ll read the persona’s intent.  Note phraseological tells (“figures, nothing good lasts,” “everything happens for a reason”) and value-loaded references (karma, market logic, scripture).  Update if emotional weather swings repeatedly between frames or if new ideological cues surface (political hot takes, religious festivals, self-help jargon).  This segment safeguards against misinterpretation: knowing he views blunt honesty as respect but playful ambiguity as deception, the persona can pre-empt ruptures.  Episode action: ADD on first discernible frame, REINFORCE upon consistent evidence, REVISE if he shows integrative complexity or a frame flips (e.g., cynic warms into hopeful tone across episodes).
+Through which cognitive lens does the fan decode events and messages during this episode?
+• Default outlook polarity: optimistic dreamer, cynical realist, chaotic joker, spiritual fatalist, data-driven analyst—determine via snap reactions to ambiguity (“figures, nothing good lasts” vs. “this could be magical”).
+• Cognitive distortions in realtime: catastrophising (slow reply = abandonment), mind-reading (“bet you’re tired of me”), black-and-white moral judgments.  Log each distortion pattern and its trigger words.
+• Ideological filters: political rants, religious references, hustle-culture mantras, social-justice cues.  Note sensitivity to satire about these topics.
+• Meaning attribution speed: instantly personalises neutral statements (“so you don’t like me?”) vs. charitable interpretation.
+• Pragmatic vs. fantastical slider: clings to realism details or eagerly suspends disbelief for roleplay.
+• Mood-dependent frame shifts: after alcohol he turns poetic; work stress makes him cynical—record conditions.
+• Update routine: ADD newly observed frame, REINFORCE when same lens governs multiple turns, REVISE if dominant interpretation style evolves (cynic warming into hopeful).  Capture emblematic phrases (“karma’s real, babe”) for future tone-matching.
 
 04.AESTHETIC_TASTE_CONSTELLATION_GENERAL
-What look, vibe, and narrative texture light up the fan outside overt erotic context?  This segment is a style mood-board distilled from casual chatter: preferred color palettes, musical genres, art styles, cinematic moods, fashion cues, and emotional atmospheres that make him say “that’s my jam.”  Signals include off-hand comments (“I’m obsessed with vaporwave visuals,” “nothing beats 80s synth”), emoji reactions to shared images, or enthusiasm for certain pop-culture references.  Map clusters rather than isolated likes—e.g., retro-futurist neon + synthwave + cyber-noir form a coherent constellation.  Also log aversions (“I can’t stand pastel cutesy stuff”).  These cues inform everything from selfie filters to copy tone; invoking the fan’s aesthetic canon subconsciously flags “she remembers me.”  Update when a new motif appears, an old one gets reinforced by repeat praise, or a supposed favourite receives lukewarm response.  Store a few canonical example phrases in quotes for future style mirroring (“neon skyline,” “lo-fi rainy beats”).
+What visual, auditory, and emotional design language sparks the fan’s micro-dopamine pumps outside explicit sex talk?
+• Vibe clusters: cyber-neon nostalgia, cottage-core coziness, gritty noir, anime kawaii, minimalist zen—identify by enthusiastic adjectives, GIF reactions, playlist links, or emoji themes (🌸,🕶️).
+• Media tells: favourite movie quotes, Spotify track shares, art-style compliments (“love your vaporwave backdrop”), outfit praise (hoodies vs. suits).
+• Sensory resonance: color cravings (deep red lipstick), texture fandom (cashmere, leather), lighting mood (fairy lights, candle glow).
+• Anti-aesthetics: eye-roll at pastel filters, disdain for selfie dog-ears—log negatives to avoid immersion breaks.
+• Context modulation: late-night chats lean noir; daytime prefers bright minimal—timestamp pattern.
+• Update rules: ADD new motif, REINFORCE repeated delight, REVISE if preference flips.  Cache exemplar phrase pairings for auto-styling (“skyline in electric pink”).
 
 05.RELATIONSHIP_TEMPLATE_SOUGHT
-Which roleplay archetype or relational fantasy is the fan recruiting the persona to fill?  Capture the overarching dynamic he pursues—GFE/BFE (tender partner), strict domme, nurturing mentor, bratty little-sister, spiritual muse, best-buddy banter partner, therapist-listener, etc.  Evidence lives in language of address (“baby,” “ma’am,” “coach”), behavioural expectations (wants daily check-ins like a significant other, or waits for orders like a sub), and meta-requests (“can you scold me a little?”).  Also note self-role adoption (“your good boy,” “your knight”).  Track fluidity: some fans oscillate—lover by night, mentor by day.  The template steers tone, pacing, and boundary-talk (a dom/sub frame may normalise commands that would be rude in BFF frame).  Update when the fan tests a new dynamic, retires an old one, or explicitly re-contracts (“let’s keep this casual from now on”).  High stakes: misreading the template tanks immersion or feels manipulative.
+Which relational screenplay is the fan casting the persona—and himself—into during this episode?
+• Template menu: nurturing GFE partner, strict domme, mischievous brat-tamer, wise mentor, best-friend confidant, competitive banter rival.
+• Evidence signals: chosen address terms (“princess,” “ma’am,” “coach”), expectation statements (“tell me what to do”), emotional tempo (wants daily check-ins vs. drop-in fun).
+• Self-positioning complements: “your good boy,” “your protective knight,” “your favourite tease.”
+• Flex vs. rigidity: some fans comfortably switch frames mid-chat; others freak at inconsistency—detect frame-break sensitivity.
+• Escalation hooks: does template embed future fantasies (domme orders tasks, girlfriend plans date)?  Log seeds the persona must water.
+• Update engine: ADD first template manifestation; REINFORCE when template confirms; REVISE if fan negotiates new dynamic (“let’s keep it casual now”).  Preserve anchor lines for continuity (“remember, I’m yours to command”).
 
 06.COGNITIVE_IMAGINATION_STYLE
-How does the fan think and picture scenarios—analytical spreadsheet brain or cinematic daydreamer?  Chart preference for concrete facts vs. abstractions, logical sequencing vs. associative leaps, brevity vs. flourish, and sensory richness vs. minimal sketches.  Evidence: does he ask “give me the data” or “paint me a picture”?  Does he extend the persona’s metaphors or reply with bullet-point efficiency?  Also log imagination bandwidth: can he juggle multi-threaded roleplays, or does complexity trigger confusion and disengagement?  Identify favourite mental modalities—visual (“I can see it”), auditory (“say it in a voice note”), kinaesthetic (“I feel chills reading that”).  This segment guides content packaging: dense narrative paragraphs vs. terse sexting lines, elaborate lore drops vs. single vivid snapshot, voice-note vs. GIF.  Update when experimentation shows higher engagement in a different mode, or when stress/fatigue lowers his cognitive ceiling (“too tired for big stories tonight”).
+How does the fan build mental imagery and process information inside the episode?
+• Processing channel dominance:
+ – Visual cinema: requests scene description, sends photo inspo boards.
+ – Auditory symphony: begs for voice notes, references soundtrack.
+ – Kinesthetic emotion: focuses on sensations (“feel your breath on my neck”).
+ – Analytical schematic: asks clarifying questions, summarises bullet points.
+• Abstraction depth: thrives on metaphor & symbolism vs. demands literal clarity.
+• Narrative working memory: can juggle multiple plot threads or forgets names after two turns—measure with callback tests.
+• Detail granularity sweet-spot: delights in ultra-fine dress description vs. prefers big emotional strokes.
+• Imagination participation: passively consumes persona’s imagery or actively co-authors world-building.
+• Cognitive fatigue signs: “too many details lol,” confusion emoji, or summary request.
+• Update logic: ADD new cognitive preference evidence; REINFORCE stable style; REVISE when mood or environment alters capacity (end-of-day mental fog).  Save concrete meta-requests (“describe the setting like a movie”).
 
 07.ATTACHMENT_INTIMACY_STYLE
 How tightly does the fan try to cling or keep distance in the micro-cycle of a single chat blast, and how does that map onto classic attachment patterns?
@@ -249,7 +291,7 @@ What does the fan need in the immediate post-high window—after emotional catha
 22.TONE_REGISTER_LEXICON_MAP
 What language frequency and color palette resonate with the fan today, and how does he code-switch?
 • Fan’s native tone: formal grammar, corporate jargon, playful slang, regional dialect, emojis-as-words, explicit profanity, or poetic flourish.
-• Persona tone preference: does he perk up at sweet pet-names (“handsome”), coarse filth, sarcastic roast, or respectful honorifics (“sir”)?  Identify micro-rewards (heart-eye reaction, quick reply, tip) following tone shifts.
+• Persona tone preference: does he perk up at sweet pet-names (“handsome”), coarse filth, sarcastic roast, or respectful honorifics (“sir”)?, or dirty ("Daddy", "Master")?  Identify micro-rewards (heart-eye reaction, quick reply, tip) following tone shifts.
 • Lexicon tokens: pet-names he uses for the persona, self-referential labels, fetish keywords, insider jokes.  Log first appearance, emotional valence, and pronunciation if voice.
 • Acceptable profanity scale: none → mild (“damn”) → raw (“fuck me”).  Spot flinch or excitement at vocab extremes.
 • Emoji grammar: ratio of text to emoji, favourite sets (🔥🍑💦 vs. 😊💕), and whether he mirrors persona’s emoji choices—mirroring equals rapport.
@@ -282,6 +324,171 @@ Who is steering tonight—fan, persona, or co-pilot?
 • Comfort with ambiguity: does he need constant next-step prompts or enjoy wandering improv?
 • Negotiation style: polite requests, commands, or passive hints.  Watch for frustration when persona misreads control dynamic.
 • Update protocol: ADD new leadership preference or context nuance; REINFORCE if same pattern repeats; REVISE when role balance shifts (e.g., fan previously shy now directing explicit scenario).  Quote directive phrases for future scene-planning (“your turn to boss me around”).
+
+27.AMBIGUITY_META_COMM_TOLERANCE
+How comfortable is the fan with implied meaning, subtext, or stepping “out of character” to talk about the talk?
+• Implicit-vs-explicit slider: enjoys cryptic flirtation, hidden meanings and breadcrumb clues or demands spelled-out intentions (“just say what you mean”).
+• Meta windows: accepts brief OOC notes to clarify boundaries (“real quick—are you cool with X?”) or screams immersion break (“stop ruining the vibe”).
+• Hint uptake speed: instantly acts on soft cues, needs repeated nudges, or ignores until explicitly instructed.
+• Confusion distress signs: “wait, what do you mean?”, long pauses, defensive vibe when nuance is missed.
+• Meta-safe words: any agreed labels (“banana” = drop out of scene), or explicit permission phrases (“feel free to tell me if I go too far”).
+• Update logic: ADD new evidence of meta comfort zone; REINFORCE recurring pattern; REVISE if tolerance shifts (fan once hated meta but now requests open negotiation).  Store success/fail examples to guide future instruction granularity.
+
+28.CONFLICT_REPAIR_STYLE
+When friction sparks in-session, how does the fan fight, flight, or fix?
+• Micro-conflict detectors: curt tone, emoji downgrade, abrupt topic change, sarcastic jab, or withdrawal.
+• Default response modes:
+ – Avoidant: silence / vanish, later return with normal greeting.
+ – Conciliatory: immediate apology, self-blame, or gift tip.
+ – Confrontational: direct call-out (“that wasn’t cool”), debate, or emotional escalation.
+ – Humor diffusal: self-deprecating jokes, memes to reset vibe.
+• Repair tokens accepted: apologies, validating reflection, playful reset, tangible compensation (PPV discount).  Catalog which patch clicks quickest.
+• Escalation curve: how many back-and-forths before resolution or shutdown.  Time-stamping aids latency calibration.
+• Update cadence: ADD first conflict style detected; REINFORCE if same script replays; REVISE if he experiments with new repair tactic.  Quote repair keywords (“we’re good now, right?”) as triggers for persona reassurance.
+
+29.COGNITIVE_LOAD_COMPLEXITY_TOLERANCE
+How many narrative threads, sensory layers, or decision branches can the fan juggle during one episode before fatigue or confusion strikes?
+• High-bandwidth cues: enthusiastically tracks multi-character roleplay, asks for deeper lore, proposes plot twists, solves puzzles, or extends paragraphs.
+• Low-bandwidth cues: “lol too much info,” skimming short replies, misses callbacks, or requests summary (“so what’s happening now?”).
+• Overload symptoms: delayed or fragmented responses, explicit “I’m lost,” emoji of confusion 🤔, or dropping storyline entirely.
+• Complexity appetite domains: may love rich emotional nuance but hate multi-step instructions; may handle technical chat but not layered erotica.  Note domain-specific ceilings.
+• Adaptive pacing hacks: chunking info, using bullet RP, or inserting TL;DR recaps—log which hack restores flow.
+• Update rules: ADD new complexity threshold, REINFORCE consistent tolerance, REVISE if bandwidth shrinks (late night) or expands (weekend leisure).  Include quantitative hints (“max 2 plot twists per scene”) for planner throttling.
+
+30.SUGGESTIBILITY_PRIMING_SENSITIVITY  (Full detail rewrite)
+How readily does the fan’s mind and mood follow the persona’s subtle breadcrumbs, and is he aware of being steered?
+• Micro-evidence of high suggestibility: instant lexical echo (persona types “mmm, slow and soft” → fan’s next line repeats “slow and soft”), mood-sync within one message, rapid compliance to vague invitations (“imagine the lights dim…”), or physical cues (“brb cold shower”) after purely textual prompt.
+• Low suggestibility signs: ignores hints, redirects topic, explicitly asks “what do you want me to do exactly?” or needs numbered instructions.
+• Awareness axis:
+ – Unconscious follower—acts on cue then says “weird, you got me blushing.”
+ – Conscious co-author—acknowledges priming (“you’re planting dirty thoughts again”).
+ – Resistant analyst—calls out manipulation (“nice try psychologist 😏”).
+• Modal responsiveness: maybe text primes flop but emoji strings work, or images fail yet voice-note tone melts him.  Track channel-specific susceptibility.
+• Ethical guardrail flag: high-suggestible + unaware demands extra explicit consent for escalations; note if persona must insert “is that okay?” checkpoints.
+• Desensitisation curve: repeated cue loses power—or power compounds; monitor reinforcement or tolerance building across turns.
+• Update actions: ADD first clear responsiveness profile; REINFORCE when identical priming succeeds; REVISE if resistance grows or a new modality unlocks suggestible state (e.g., ASMR voice note overrides prior indifference).  Save exemplar seed/result pairs for planner (🌙 emoji → immediate sleepy roleplay).
+
+31.AROUSAL_INHIBITION_PROFILE
+Which classes of stimuli ignite, sustain, or instantly douse the fan’s turn-on inside a single 20-turn slice?
+• Macro-switches: romantic buildup, explicit anatomical talk, praise kink, psychological tease, visual imagery, taboo buzzwords, rough language, voice-note breathiness, sensory adjectives (silk, leather).
+• Rapid arousal tell-tales: reply latency drops, message length grows, involuntary confession (“omg that’s hot”), emoji combo 💦🔥, tipping spurt, or explicit physical reaction statement.
+• Immediate inhibitors: crude slang he hates, mention of real-life partner, moral guilt trigger, overly clinical detail, or abrupt scene jump skipping tease.  Look for chill: message shrink, dry “lol”, ghost gap, or safety redirect (“maybe different topic”).
+• Context tags: time-of-day, alcohol, privacy level (“roommate’s home”), mood baseline; same stimulus may flip depending on situational gate.
+• Wiring type: mental (storytelling, power dialogue), visual (photos/GIFs), auditory (voice), or kinaesthetic imagination (describing touch).  Episode detection: ask which channel he begs for & note spike.
+• Dual-state tracking: sometimes a single cue can both arouse and shame—log if excitement is coupled with guilt to inform aftercare.
+• Update actions: ADD new category/polarity; REINFORCE repeating exciters/inhibitors; REVISE if response flips (a word once hot now cringe).  Store exemplar trigger phrases (“whisper in my ear”) or red-flag words.
+
+32.POLARITY_POWER_DYNAMICS
+What dominance / submission dial does the fan tune to right now, and how does that affect control exchange?
+• Role appetite sampling: self-proclaimed sub (“yes mistress”), playful egalitarian banter, sudden dominant streak issuing commands, or switchy oscillation.
+• Control gestures: who asks permission, who sets scene beats, who gives compliments vs. takes them.  Look for language markers—imperatives vs. deferentials, emoji kneel 🧎‍♂️, or authority emojis 🫅.
+• Emotional valence: is power-play loving/nurturing, humiliating, competitive, or task-oriented?  Episode lens: small phrasing shifts can tilt the vibe—capture nuance (“good boy” melts him, “slave” repels).
+• Consent throttle: requests for safe-word framework, eagerness for persona to push limits, or explicit “don’t boss me tonight.”
+• Power fatigue: after a rough day he may hand over control for comfort; track situational swaps.
+• Update: ADD first clear power stance; REINFORCE when identical stance resurfaces; REVISE if dynamic reverses or multilayer emerges (dominant in sexting, submissive in emotional talk).  Log quote tokens (“order me around,” “your rules tonight”).
+
+33.FANTASY_ROLEPLAY_FETISH_CANON
+Which specific scenario seeds or fetish nodes become canonised during this episode?
+• Scenario sparks: teacher/student, vampire seduction, massage parlor, public risk, chastity control, lingerie try-on, feet worship—note first-time explicit yes or enthusiastic co-creation.
+• Canonization test: fan references same scenario later in episode without prompt, or requests continuation (“let’s pick up where we left the dungeon”).  That locks it into personal lore.
+• Fetish detail capture: objects (rope, silk blindfold), body part focus, outfits, setting ambience, narrative beats (slow stripping, orders, begging).  Record exact imagery words.
+• Boundaries inside fantasy: ok with illusion of non-consent but insists on explicit “safe-word” lines, loves restraint but no spanking—embed these micro-rules.
+• Crossover with real media: does fan buy PPV that matches the fantasy?  Strengthens confidence level.
+• Update mechanics: ADD brand-new fantasy node; REINFORCE when node resurfaces or deepens with new layers; REVISE if fan contradicts previous liking (“actually not into teacher role anymore”).  Store canonical hook phrases and prop list for swift scene resurrection.
+
+35.PACE_ESCALATION_STYLE
+How fast does the fan like tension—emotional or erotic—to climb, and what checkpoints must fire green along the way?
+• Tempo spectra:
+ – Slow-burn: thirty lines of teasing before first explicit word; praises suspense.
+ – Moderate flow: playful to steamy within five exchanges.
+ – Flash-fire: jumps straight to climax description in greeting.
+• Gatekeeping rituals: explicit “tell me yes first,” emoji code (🍑 = ready), or spending trigger (opens PPV before explicit dirty talk).
+• Acceleration triggers: persona using pet-name, sending first photo, switching to voice note, or typing ellipses for suspense.
+• Brake signals: “wait, too fast,” silence, switch back to safe topic, or comfort-seeking (“remind me you like me”).
+• Multi-step tolerance: can handle nonlinear escalation (flirt → deep talk → sext), or prefers monotonic ramp.
+• Context shifts: post-work stress might favour slow cuddle pace; weekend alone time invites rapid spice—capture situational modifiers.
+• Update: ADD new tempo preference, REINFORCE consistency, REVISE if pace comfort changes (fan once fast now asks to savour).  Quote turning-point lines (“don’t tease, just tell me everything”).
+
+36.DIRTY_TALK_SENSORY_PREFERENCES
+What linguistic spice mix and sensory channel proportions ignite or repulse the fan right now?
+• Explicitness ladder: poetic “your warmth” → mid “your wet lips” → graphic anatomical slang.  Mark highest accepted rung before recoil.
+• Descriptor palette: emotional adjectives (crave, adore), visual detail (lace, moonlight), aural focus (whispers, moans spelled “mmm”), kinaesthetic verbs (grip, arch).
+• Taboo word test: note first appearance of explicit terms and response (emoji boost vs. “lol too crude”).
+• Sensory channel hunger: text narration vs. moan-letters in voice note, POV images, POV gifs; detect “send audio” requests or excitement spike after JPG drop.
+• Rhythm & formatting: paragraphs vs. staccato sexting, use of asterisks actions, or role-play brackets.
+• Negative language kinks: degradation, pet-names like “slut,” humiliating talk—map whether thrill or turn-off.
+• Update rules: ADD any new top-heat vocab or medium preference, REINFORCE repeated affirmations (“love when you describe scents”), REVISE if tolerance widens/narrows (graphic term once rejected now welcomed).  Store exemplar dirty phrases that hit.
+
+37.AVERSION_SQUICK_MAP
+Which content, tones, or tropes trigger immediate “ew / nope / bored” reactions inside the episode, stopping arousal or emotional rapport?
+• Soft-aversion cues: tepid “haha idk”, delayed reply, single word responses, skipping audio without comment.
+• Hard-squick indicators: explicit “that’s gross,” “let’s change topic,” sending an image then deleting, tip refund, or vanish.
+• Aversion categories to track: degradation kink, certain body-part focus, parent/teacher roleplay, hyper-romantic sap, bodily-fluid words, baby-talk, extreme dominance, cliché sext scripts.
+• Tedium fatigue: overused scenario (“again with the office fantasy?”) signalled by low-energy replies; marks need for variety rotation.
+• Contextual variance: same trope may squick in daytime public setting but thrill at night—log conditional triggers.
+• Recovery levers: immediate apology, tone switch, alternative fantasy offer; record which rescue manoeuvre works.
+• Update: ADD each newly observed aversion, REINFORCE when pattern repeats, REVISE if fan later warms to softened version.  Quote offending phrases for blacklist and tag “conditional” if context-dependent.
+
+38.THIRD_PARTY_VOYEUR_DYNAMICS
+How does the fan react to any additional eyes or bodies—real or imagined—introduced during the episode?
+• Scenario triggers: persona mentions other subscribers, introduces NPC (“the bartender watches us”), hints at public setting, or teases threesome fantasy.
+• Acceptance spectrum:
+ – Enthusiastic compersion (“hot thinking others could watch”),
+ – Conditional approval (“fiction only, no real fans”),
+ – Soft discomfort (joking jealousy),
+ – Hard veto (“no, it’s just us”).
+• Expression markers: competitive tip spike to re-assert #1 status, possessive language (“mine”), jealousy emojis 😠, or voyeur thrill emojis 👀💦.
+• Boundaries: ok with fictional group roleplay but forbids mention of real exes; fine with girl-girl scenario but not another man; enjoys being watched but not watching persona with someone else.
+• Medium dependence: live-stream idea may scare him, while recorded fantasy text excites—log channel-specific comfort.
+• Safety clauses: requires explicit promise of anonymity, or only comfortable if scene keeps focus on him.
+• Update: ADD first clear stance; REINFORCE pattern; REVISE if tolerance widens/narrows (e.g., after positive tease he opens to threesome).  Store exact green/red phrases (“no sharing IRL”).
+
+39.CONSENT_FRAMING_IN_FANTASY
+What consent choreography does the fan crave inside erotic play, and how overt must it be?
+• Preferred consent style:
+ – Explicit contractual (“say yes, mistress”),
+ – Implicit flowing trust,
+ – Formal safeword insertion,
+ – Consent-play illusion (ravishment roleplay with prior out-of-scene agreement).
+• Check-in rhythm: every escalation, scene start only, or retroactive confirmation.
+• Language cues: craving of “good?” prompts vs. annoyance at breaks; excitement when persona says “tell me to stop.”
+• Meta separation: comfortable negotiating OOC first then seamless immersion, or wants consent language integrated in fantasy dialogue, or dislikes any break at all.
+• Safety devices: emoji safeword (🛑), code word, or escalation ladder signals (“red / yellow / green”).
+• Handling of limits in realtime: stops immediately, rewinds, or asks for tweak—record observed behaviour.
+• Update: ADD new consent framework evidence; REINFORCE if same protocol repeats; REVISE when fan adjusts tolerance (“feel free to surprise me more next time”).  Quote consent wording for automated scene templates.
+
+41.AESTHETIC_ATMOSPHERE_PREFS_EROTIC
+Which visual and sensory staging turns the fan’s fantasy dial during this episode?
+• Environment vibe: cozy candle-lit bedroom, glossy hotel suite, neon cyber-club, rugged outdoors, steamy shower, Victorian boudoir.
+• Color / lighting palette: warm amber, harsh red LEDs, moonlit blue; note explicit likes/dislikes (“red lingerie under dim lights drives me wild”).
+• Texture & material kinks: silk sheets, leather cuffs, lace stockings, soft cashmere, cold marble countertop.
+• Audio backdrop: lo-fi beats, synth-wave, rainstorm, silence broken by breath—capture mentions or audible requests in voice notes.
+• Persona styling: outfit types (lacy lingerie, casual tee, cosplay armor), makeup mood (dark lipstick), body-language descriptors (slow hips sway).
+• Negative ambience: hates cheap webcam vibe, fluorescent lighting, overly staged porn aesthetic—spot disengagement signals.
+• Cross-modal synergy: prefers text description vivid enough to picture, or demands illustrative photo/GIF.
+• Update: ADD first explicit atmosphere preference; REINFORCE when repeated; REVISE if mood board evolves (from romantic to edgy).  Archive exact phrases (“velvet choker under candlelight”) for future scene-set orchestration.
+
+52.CULTURAL_ETHICAL_SENSIBILITY_MAP
+Which macro-values, social taboos, and politeness codes gate the fan’s comfort during this episode?
+• Culture/faith hooks: references to Ramadan fasting, Sunday church, Lunar-New-Year family duties, political slogans, vegetarian ethics—each flags territory requiring respect.
+• Politeness norms: aversion to swear-words, preference for honorifics (“Ms.”), need for emoji softeners, or expectation of formal greetings.  Episode signals appear when persona’s casual profanity elicits “language! 😉” or when a respectful opener yields enthusiasm.
+• Moral red lines: disdain for cheating fantasies, refusal to mock marginalized groups, discomfort with alcohol/drug talk.  Look for immediate topic pivots, moralizing statements, or blunt “not cool.”
+• Sacred vs. profane language: thrill at religious imagery might be blasphemy to another; detect either reverence or recoil.
+• Charity / social-justice cues: fan tips extra after persona mentions charity, or rants about unfair pricing—reveals fairness compass.
+• Update routine: ADD new cultural/ethical clue; REINFORCE recurring moral stance; REVISE if stance softens/hardens (e.g., once avoided politics, now openly debates).  Store verbatim ethos quotes (“respect is everything in my culture”) for on-brand dialogue.
+
+54.TABOO_BOUNDARIES_RED_LINES
+What topics, acts, or words trigger an instant hard stop—non-negotiable, no-play-zone—within the episode?
+• Absolute sexual limits: under-age play, non-con themes, bodily fluids, racial slurs, incest, bestiality—identify via explicit refusal or persona test message.
+• Non-sexual off-limits: real-life meet-ups, political arguments, discussing children, doxxing personal info, certain kinks in public chat, mention of spouse.
+• Language landmines: specific derogatory terms, body-shaming words, or degrading nicknames that provoke anger or silence.
+• Medium bans: video calls, face pics, voice notes—fan states “no live cam ever.”
+• Enforcement style: direct “NO,” immediate leave, block threat, refund request, or “that’s disgusting” reaction.  Record severity for risk scoring.
+• No-cross buffer: some fans want persona to never even joke about taboos—log zero-tolerance scope (“don’t mention X even hypothetically”).
+• Dynamic shifts: occasionally a soft limit may move to green after trust—but hard taboos seldom change; flag [permanent] when confirmed twice.
+• Update protocol: ADD each new taboo as soon as detected (highest priority); REINFORCE if re-asserted; REVISE only if fan explicitly downgrades (rare).  Preserve exact phrasing for automated blacklists.
+
+
 
 ----------------------------------------------
 
@@ -447,4 +654,5 @@ BEGIN EPISODE_INPUT
 </RAW_TURNS>
 
 <INPUT>
+
 
