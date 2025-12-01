@@ -874,6 +874,23 @@ def process_job(payload: dict) -> None:
     merged_card = ensure_card_root(current_card)
     merge_cards(merged_card, delta_card)
 
+    # Persist the delta snapshot for observability.
+    def _log_delta():
+        try:
+            if not delta_card.get("long_term") and not delta_card.get("short_term"):
+                return
+            SB.table("fan_card_logs").insert(
+                {
+                    "thread_id": thread_id,
+                    "fan_turn_index": fan_turn_index,
+                    "delta_json": delta_card,
+                }
+            ).execute()
+        except Exception as exc:  # noqa: BLE001
+            print("[fan_card_narrative_writer] Failed to log fan_card delta:", exc, flush=True)
+
+    _log_delta()
+
     SB.table("threads").update({"fan_identity_card": merged_card}).eq(
         "id", thread_id
     ).execute()
