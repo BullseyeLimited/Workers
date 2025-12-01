@@ -686,7 +686,7 @@ Goal: build a compact scratch-pad of every fan signal that might matter once we 
 2 a. Pass-through logging
 • Go back to the start of <RAW_TURNS> and scan again, this time turn-by-turn.
 • For each fan message (and any immediate persona reaction) look for Chapter-scope evidence:
- – New facts, likes, dislikes, or self-labels
+ – New abstract facts, likes, dislikes, or self-labels
  – Emotional spikes or mood swings
  – Boundary tests, consent language, jealousy flares
  – Spending events, tip sizes, media unlocks
@@ -1053,6 +1053,7 @@ BEGIN EPISODE_INPUT
 </RAW_TURNS>
 
 <INPUT>
+
 
 
 
