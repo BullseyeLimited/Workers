@@ -547,7 +547,7 @@ Decide preliminary action flag:
 • conflicts/nuances → potential REVISE.
 • new → potential ADD.
 
-Note evidence strength beside each flag—single hint (tentative), explicit statement (possible/likely), or repeated pattern (likely/confident).
+Note evidence strength beside each flag—single hint (tentative), explicit statement (possible/likely), or repeated pattern (likely/confident), or very certain (confident/canonical).
 This pre-labels confidence for Step 5.
 
 The output of Step 3 is a table-like checklist:
@@ -583,6 +583,8 @@ Determine confidence field
 • possible → explicit statement appears once.
 • likely → explicit or behaviour pattern repeats. (rare at Episode tier)
 • confident → extraordinarily clear, repeated, no contradictions (basically impossible at Episode tier).
+• canonical → when we are 1000% sure and becomes the hard truth (basically impossible at Episode tier).
+
 
 Craft a one-sentence REASON
 • Cite turn number(s) and gist of evidence (“T12 fan said ‘voice notes turn me on’ ”).
@@ -740,7 +742,7 @@ Each update will be a block of lines with the following components in order:
 	•	TEXT: He appears to enjoy playful teasing and sarcasm, laughing at the persona’s jokes without taking offense. [tentative]
 If you are revising an existing entry, you should output the new intended text of that entry (not just a note about what changed). Essentially, you’re telling the system “replace the old text with this new text.” For reinforce, the TEXT might be very similar to the existing entry or include an added detail, phrased as a full sentence. For add, it’s a brand new sentence. Always write it as if it’s a note in his profile, not as a message to anyone.
 Style for TEXT: Write in a neutral, professional tone (like a psychologist’s observation note). Use third person (“he/his”) referring to the fan. Avoid overly clinical jargon; keep it human-readable and straightforward. It’s good to reference the specific context of the evidence in a broad way (e.g. “when she joked about X, he did Y”), but do it succinctly. Do not include exact quotes from the conversation in the TEXT field (paraphrase instead if needed). The TEXT should stand on its own as a statement about the fan’s trait or behavior, with the new info integrated. And don’t include the provenance like “[Episode]” or “[Chapter]” in the text – only the confidence. (The system will tag internally that this entry came from an Episode-level update; you just focus on writing the content and confidence.)
-	•	CONFIDENCE: On the line after the text, write CONFIDENCE: followed by one of the confidence levels (all lowercase). E.g. CONFIDENCE: tentative or CONFIDENCE: likely. This should correspond to the label you put in the text brackets. Essentially it’s a repeat of that, but as a separate field for easy machine parsing. Make sure it exactly matches the label in the text (e.g. if text ended with “[possible]”, confidence line should say possible). Use one of the allowed values: tentative, possible, likely, confident, or (in extremely rare cases) canonical. We’ll discuss how to choose the right level below. If you’re reinforcing an existing entry that had a certain confidence, you might raise it if appropriate (e.g. if it was tentative and now it happened again, you might move it to possible). Only mark canonical if something is essentially proven over a long term with no doubt (which usually you won’t do at episode-level; canonical is typically set at Lifetime or Year summaries for fundamental truths).
+	•	CONFIDENCE: On the line after the text, write CONFIDENCE: followed by one of the confidence levels (all lowercase). E.g. CONFIDENCE: possible or CONFIDENCE: likely. This should correspond to the label you put in the text brackets. Essentially it’s a repeat of that, but as a separate field for easy machine parsing. Make sure it exactly matches the label in the text (e.g. if text ended with “[possible]”, confidence line should say possible). Use one of the allowed values: tentative, possible, likely, confident, or canonical. We’ll discuss how to choose the right level below. If you’re reinforcing an existing entry that had a certain confidence, you might raise it if appropriate (e.g. if it was tentative and now it happened again, you might move it to possible). Only mark canonical if something is essentially proven over a long term with no doubt (which won’t happen at episode-level; canonical is typically set at Lifetime or Year summaries for fundamental truths).
 	•	REASON: The final line of an update block starts with REASON: and then a brief explanation of why this update is being made. Here you cite the specific evidence from the 20 turns that prompted this change. This is effectively your justification or “diff” description. Include references to what the fan said or did (you can quote a short phrase from the conversation here if needed, since this is just for internal use). Mention turn numbers or specific messages if possible (“In Turn 18, fan explicitly said __ which is new info”). If revising or contradicting something, explain the old info vs new evidence (“Previously card said X, but in this episode he did Y, so updating”). Be concise but clear. This field is for developers or for debugging, so honesty and clarity matter more than style. The fan will never see it, and it won’t be stored long-term. Do NOT write it as if explaining to the fan or persona – it’s purely an internal note to justify the change. Do not omit the reason; every update must have one, even if it seems obvious, just to maintain an audit trail.
 
 After one update block is complete (Action line, Text, Confidence, Reason), if you have another update, you will start a new block with another ADD/REVISE/REINFORCE SEGMENT_X header, and so on. Separate distinct update blocks with a blank line (an empty line) to visually and logically separate them. This isn’t strictly required for parsing, but it makes it cleaner and avoids any chance of one block’s text running into another.
@@ -857,6 +859,7 @@ BEGIN EPISODE_INPUT
 </RAW_TURNS>
 
 <INPUT>
+
 
 
 
