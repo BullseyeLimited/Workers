@@ -589,6 +589,7 @@ def upsert_kairos_details(
         "psychological_levers": analysis["PSYCHOLOGICAL_LEVERS"],
         "risks": analysis["RISKS"],
         "kairos_summary": analysis["TURN_MICRO_NOTE"]["SUMMARY"],
+        "turn_micro_note": analysis["TURN_MICRO_NOTE"],
         "extras": {
             "kairos_raw_json": analysis,
             "kairos_raw_text_preview": (raw_text or "")[:2000],
