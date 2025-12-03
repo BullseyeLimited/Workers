@@ -407,13 +407,6 @@ create or extend a subcategory for that entity, for example friend_julia
 
 capture the concrete facts that were stated
 
-HARD EXCLUSIONS — NEVER STORE
-- Conversation meta about this call itself (how the chat feels, tone, style, sexting, jokes, compliments, roleplay content, message contents), including “we are sexting,” “you called me babe,” etc.
-- Forms of address, pet names, nicknames, or honorifics used for the Creator (e.g., “babe,” “sir,” “princess”) — these are not entities.
-- Any fact whose only source is a Creator turn, unless the fan explicitly affirms it as their own factual statement.
-- Inferences about intent, mood, initiation, intensity, or style (e.g., who started the chat, whether it was explicit, playful, etc.).
-- Any information about the Creator as a person or contact. The Creator is **out of scope** for the FAN card.
-
 You must ignore
 abstract feelings, opinions, preferences, moods
 
