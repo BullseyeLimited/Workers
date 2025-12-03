@@ -204,12 +204,15 @@ def make_block(thread_id: int, tier: str, limit: int = 4, *, client=None) -> str
         return f"[No {tier.title()} summaries yet]"
 
     blocks = []
+    total = len(rows)
     for idx, row in enumerate(reversed(rows), 1):
+        # Newest summary should be #1 (like turns), oldest gets the highest number.
+        recency_number = total - idx + 1
         start, end = row.get("start_turn"), row.get("end_turn")
         if start is not None and end is not None:
-            label = f"{tier.title()} {start}-{end}"
+            label = f"{tier.title()} {recency_number} – Turns {start}-{end}"
         else:
-            label = f"{tier.title()} #{row.get('id') or idx}"
+            label = f"{tier.title()} {recency_number} – #{row.get('id') or idx}"
         narrative = row.get("narrative_summary")
         abstract = row.get("abstract_summary")
         if narrative:
@@ -328,9 +331,11 @@ def live_turn_window(
     if not rows:
         return ""
 
-    # Present oldest -> newest with explicit turn numbers and speaker labels.
+    # Present oldest -> newest (top to bottom), numbering by recency (newest = 1).
     lines: list[str] = []
-    for row in reversed(rows):
+    total = len(rows)
+    for idx, row in enumerate(reversed(rows), 1):
+        turn_number = total - idx + 1  # newest message becomes Turn 1
         sender_raw = (row.get("sender") or "").strip().lower()
         if sender_raw.startswith("f"):
             sender_label = "Fan"
@@ -338,8 +343,7 @@ def live_turn_window(
             sender_label = "Creator"
         else:
             sender_label = sender_raw.title() or "Unknown"
-        turn_idx = row.get("turn_index")
-        turn_label = f"Turn {turn_idx}" if turn_idx is not None else "Turn ?"
+        turn_label = f"Turn {turn_number}"
         text = _clean_turn_text(row.get("message_text"))
         lines.append(f"{turn_label} ({sender_label}): {text}")
 
