@@ -82,6 +82,32 @@ def _load_template(template_name: str) -> str:
     return path.read_text(encoding="utf-8")
 
 
+def _format_psychic_card(card: Any) -> str:
+    """
+    Return a condensed psychic card. If all segments are empty (or card missing),
+    render a clear placeholder so the prompt doesn't show an empty schema.
+    """
+
+    if card is None:
+        return "Psychic card: empty"
+    if isinstance(card, str):
+        stripped = card.strip()
+        return stripped if stripped else "Psychic card: empty"
+    if isinstance(card, dict):
+        segments = card.get("segments") or {}
+        names = card.get("segment_names") or {}
+        lines: list[str] = []
+        for key, value in segments.items():
+            if not value:
+                continue
+            label = names.get(str(key)) or str(key)
+            lines.append(f"{label}: {_stringify(value)}")
+        if not lines:
+            return "Psychic card: empty"
+        return "Psychic card:\n" + "\n".join(lines)
+    return _stringify(card)
+
+
 def _stringify(value: Any) -> str:
     if value is None:
         return ""
@@ -219,9 +245,9 @@ def _load_cards(thread_id: int, *, client=None, worker_tier=None) -> Dict[str, s
 
     return {
         "FAN_IDENTITY_CARD": row.get("fan_identity_card") or "[Fan Identity Card unavailable]",
-        "FAN_PSYCHIC_CARD": fan_psychic,
+        "FAN_PSYCHIC_CARD": _format_psychic_card(fan_psychic),
         "CREATOR_IDENTITY_CARD": row.get("creator_identity_card") or "[Creator Identity Card unavailable]",
-        "CREATOR_PSYCHIC_CARD": row.get("creator_psychic_card") or "[Creator Psychic Card unavailable]",
+        "CREATOR_PSYCHIC_CARD": _format_psychic_card(row.get("creator_psychic_card")),
     }
 
 
@@ -302,9 +328,9 @@ def live_turn_window(
     if not rows:
         return ""
 
-    # Present newest -> oldest with explicit turn numbers and speaker labels.
+    # Present oldest -> newest with explicit turn numbers and speaker labels.
     lines: list[str] = []
-    for row in rows:
+    for row in reversed(rows):
         sender_raw = (row.get("sender") or "").strip().lower()
         if sender_raw.startswith("f"):
             sender_label = "Fan"

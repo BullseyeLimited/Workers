@@ -324,7 +324,7 @@ You must output these 5 sections in this exact order:
 
 At runtime, the system will inject the following block. Treat it as read-only.
 
-Recent turns are presented newest → oldest (top to bottom), one per line, formatted as `Turn # (Fan|Creator): <text>` with raw text only (no summaries).
+Recent turns are presented oldest → newest (top to bottom), one per line, formatted as `Turn # (Fan|Creator): <text>` with raw text only (no summaries).
 
 <NAPOLEON_INPUT>
   <CONTEXT>
