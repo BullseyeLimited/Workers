@@ -324,13 +324,25 @@ You must output these 5 sections in this exact order:
 
 At runtime, the system will inject the following block. Treat it as read-only.
 
+Recent turns are presented newest → oldest (top to bottom), one per line, formatted as `Turn # (Fan|Creator): <text>` with raw text only (no summaries).
+
 <NAPOLEON_INPUT>
   <CONTEXT>
-    {LIFETIME_BLOCK}
-    {YEAR_BLOCK}
-    {SEASON_BLOCK}
-    {CHAPTER_BLOCK}
-    {EPISODE_BLOCK}
+    <LIFETIME_BLOCK>
+      {LIFETIME_BLOCK}
+    </LIFETIME_BLOCK>
+    <YEAR_BLOCK>
+      {YEAR_BLOCK}
+    </YEAR_BLOCK>
+    <SEASON_BLOCK>
+      {SEASON_BLOCK}
+    </SEASON_BLOCK>
+    <CHAPTER_BLOCK>
+      {CHAPTER_BLOCK}
+    </CHAPTER_BLOCK>
+    <EPISODE_BLOCK>
+      {EPISODE_BLOCK}
+    </EPISODE_BLOCK>
     <TURNS>
       {RAW_TURNS}
     </TURNS>
@@ -361,13 +373,21 @@ At runtime, the system will inject the following block. Treat it as read-only.
   </PLAN_HISTORY>
 
   <FAN_CARDS>
-    <IDENTITY>{FAN_IDENTITY_CARD}</IDENTITY>
-    <PSYCHIC>{FAN_PSYCHIC_CARD}</PSYCHIC>
+    <IDENTITY>
+      {FAN_IDENTITY_CARD}
+    </IDENTITY>
+    <PSYCHIC>
+      {FAN_PSYCHIC_CARD}
+    </PSYCHIC>
   </FAN_CARDS>
 
   <CREATOR_CARDS>
-    <IDENTITY>{CREATOR_IDENTITY_CARD}</IDENTITY>
-    <PSYCHIC>{CREATOR_PSYCHIC_CARD}</PSYCHIC>
+    <IDENTITY>
+      {CREATOR_IDENTITY_CARD}
+    </IDENTITY>
+    <PSYCHIC>
+      {CREATOR_PSYCHIC_CARD}
+    </PSYCHIC>
   </CREATOR_CARDS>
 </NAPOLEON_INPUT>
 

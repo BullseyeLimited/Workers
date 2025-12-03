@@ -718,7 +718,11 @@ def process_job(payload):
     thread_id = msg["thread_id"]
     latest_fan_text = msg.get("message_text") or ""
 
-    raw_turns = live_turn_window(thread_id, client=SB)
+    raw_turns = live_turn_window(
+        thread_id,
+        boundary_turn=msg.get("turn_index"),
+        client=SB,
+    )
     system_prompt, user_prompt = build_prompt_sections(
         "napoleon",
         thread_id,

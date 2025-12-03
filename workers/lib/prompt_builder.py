@@ -287,11 +287,7 @@ def live_turn_window(
 
     query = (
         sb.table("messages")
-        .select(
-            "id,turn_index,sender,message_text,"
-            "message_ai_details:message_ai_details!"
-            "message_ai_details_message_id_fkey(kairos_summary)"
-        )
+        .select("id,turn_index,sender,message_text")
         .eq("thread_id", thread_id)
         .gt("turn_index", cutoff_turn)
         .order("turn_index", desc=True)
@@ -306,23 +302,20 @@ def live_turn_window(
     if not rows:
         return ""
 
-    half = len(rows) // 2 or 1
+    # Present newest -> oldest with explicit turn numbers and speaker labels.
     lines: list[str] = []
-    for idx, row in enumerate(rows):
-        sender_key = (row.get("sender") or "").strip()[:1].upper() or "?"
-        text = row.get("message_text") or ""
-        details = row.get("message_ai_details") or {}
-        if isinstance(details, list):
-            details = details[0] if details else {}
-        summary = details.get("kairos_summary")
-
-        if idx < half:
-            lines.append(f"[{sender_key}] {text}")
+    for row in rows:
+        sender_raw = (row.get("sender") or "").strip().lower()
+        if sender_raw.startswith("f"):
+            sender_label = "Fan"
+        elif sender_raw.startswith("c"):
+            sender_label = "Creator"
         else:
-            if sender_key == "F" and summary:
-                lines.append(f"[F_SUM] {summary}")
-            else:
-                lines.append(f"[{sender_key}] {text}")
+            sender_label = sender_raw.title() or "Unknown"
+        turn_idx = row.get("turn_index")
+        turn_label = f"Turn {turn_idx}" if turn_idx is not None else "Turn ?"
+        text = _clean_turn_text(row.get("message_text"))
+        lines.append(f"{turn_label} ({sender_label}): {text}")
 
     return "\n".join(lines)
 
