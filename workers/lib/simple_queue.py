@@ -40,7 +40,13 @@ def receive(queue: str, vt_seconds: int = 30):
     # 2 · claim it by pushing its visibility timeout into the future
     SB.table("job_queue").update({"available_at": vt_until}).eq("id", row_id).execute()
 
-    return {"row_id": row_id, "payload": json.loads(rows[0]["payload"])}
+    payload = rows[0]["payload"]
+    if isinstance(payload, str):
+        try:
+            payload = json.loads(payload)
+        except Exception:
+            payload = {}
+    return {"row_id": row_id, "payload": payload}
 
 
 # ------------------------------------------------------------------

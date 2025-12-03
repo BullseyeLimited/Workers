@@ -360,6 +360,14 @@ use its existing nested structure and naming patterns as your guide for subcateg
 extend this structure when you add new entities or sub entities, there is no other schema
 
 SCOPE OF FAN FACT
+
+HARD EXCLUSIONS -- NEVER STORE
+- Conversation meta about this call itself (how the chat feels, tone, style, sexting, jokes, compliments, roleplay content, message contents), including "we are sexting," "you called me babe," etc.
+- Forms of address, pet names, nicknames, or honorifics used for the Creator (e.g., "babe," "sir," "princess") -- these are not entities.
+- Any fact whose only source is a Creator turn, unless the fan explicitly affirms it as their own factual statement.
+- Inferences about intent, mood, initiation, intensity, or style (e.g., who started the chat, whether it was explicit, playful, etc.).
+- Any information about the Creator as a person or contact. The Creator is **out of scope** for the FAN card.
+
 Treat something as a fan fact only if it is a concrete factual statement about one of these areas.
 About the fan
 age, birth, residence, jobs, roles, schedules
@@ -398,6 +406,13 @@ store Julia under the relevant category such as social.friends
 create or extend a subcategory for that entity, for example friend_julia
 
 capture the concrete facts that were stated
+
+HARD EXCLUSIONS — NEVER STORE
+- Conversation meta about this call itself (how the chat feels, tone, style, sexting, jokes, compliments, roleplay content, message contents), including “we are sexting,” “you called me babe,” etc.
+- Forms of address, pet names, nicknames, or honorifics used for the Creator (e.g., “babe,” “sir,” “princess”) — these are not entities.
+- Any fact whose only source is a Creator turn, unless the fan explicitly affirms it as their own factual statement.
+- Inferences about intent, mood, initiation, intensity, or style (e.g., who started the chat, whether it was explicit, playful, etc.).
+- Any information about the Creator as a person or contact. The Creator is **out of scope** for the FAN card.
 
 You must ignore
 abstract feelings, opinions, preferences, moods
@@ -625,6 +640,19 @@ def build_prompt(current_card: str, conversation_text: str) -> str:
         )
     )
 
+def _log_raw_delta(raw_text: str, thread_id: int, fan_turn_index: int, label: str) -> None:
+    """
+    Persist raw model output locally for debugging, even if it fails validation.
+    """
+    try:
+        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        base_dir = Path.cwd() / "logs" / "fan_card_raw"
+        base_dir.mkdir(parents=True, exist_ok=True)
+        fname = f"{timestamp}-thread{thread_id}-turn{fan_turn_index}-{label}.txt"
+        (base_dir / fname).write_text(raw_text or "", encoding="utf-8")
+    except Exception as exc:  # noqa: BLE001
+        print("[fan_card_narrative_writer] Failed to log raw delta:", exc, flush=True)
+
 def _write_debug_logs(system_prompt: str, user_prompt: str, response_payload: dict, response_text: str) -> None:
     """
     Persist prompts and responses to a timestamped folder under ./logs for local debugging.
@@ -647,9 +675,16 @@ def _write_debug_logs(system_prompt: str, user_prompt: str, response_payload: di
 
 def runpod_call(system_prompt: str, user_prompt: str) -> str:
     # Use chat/completions with explicit system/user split.
-    url = "http://213.173.96.53:10320/v1/chat/completions"
+    base = (os.getenv("RUNPOD_URL") or "").rstrip("/")
+    if not base:
+        raise RuntimeError("RUNPOD_URL is not set")
+    url = f"{base}/v1/chat/completions"
+    model = os.getenv(
+        "RUNPOD_MODEL_NAME",
+        "/workspace/models/qwen3-235b-instruct-q4km/Q4_K_M.gguf",
+    )
     body = {
-        "model": "/workspace/models/qwen3-235b-instruct-q4km/Q4_K_M.gguf",
+        "model": model,
         "messages": [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
@@ -697,6 +732,7 @@ def runpod_call(system_prompt: str, user_prompt: str) -> str:
         pass
     resp.raise_for_status()
     data = resp.json()
+
     choice = data["choices"][0]
     text = (choice.get("message") or {}).get("content") or ""
 
@@ -714,14 +750,19 @@ def build_conversation_slice(messages: list[dict]) -> str:
 
 
 def safe_load_card(card_text: str) -> dict:
+    """
+    Parse a JSON string into a dict; accept dict input; log parse errors.
+    """
     if not card_text:
         return {}
+    if isinstance(card_text, dict):
+        return card_text
     try:
         data = json.loads(card_text)
         if isinstance(data, dict):
             return data
-    except Exception:
-        pass
+    except Exception as exc:  # noqa: BLE001
+        print(f"[fan_card_narrative_writer] Failed to parse model JSON: {exc}")
     return {}
 
 
@@ -862,6 +903,7 @@ def process_job(payload: dict) -> None:
         user_prompt = "Return only the JSON delta payload."
 
     new_card_text = runpod_call(system_prompt, user_prompt).strip()
+    _log_raw_delta(new_card_text, thread_id, fan_turn_index, "raw")
 
     delta_card = ensure_card_root(safe_load_card(new_card_text))
     if not delta_card["long_term"] and not delta_card["short_term"]:
@@ -869,6 +911,7 @@ def process_job(payload: dict) -> None:
             "[fan_card_narrative_writer] Model returned no JSON delta; skipping update.",
             flush=True,
         )
+        _log_raw_delta(new_card_text, thread_id, fan_turn_index, "empty_delta")
         return
 
     merged_card = ensure_card_root(current_card)

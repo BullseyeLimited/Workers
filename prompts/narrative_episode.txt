@@ -35,7 +35,7 @@ HOW TO THINK (perform internally)
 
 STYLE RULES
 -  One coherent paragraph-no headings, bullets, or numbering.
--  Target band: 220 - 350 words.
+-  Target band: maximum 250 words it should contain everything but the wording should be shortened, meaning if you can create it with less words and keep 99% of the meaning, do it.
 -  Third-person, past tense.
 -  No emojis, no excessive exclamation points, no direct addresses ("you/your").
 -  Quotes allowed sparingly-maximum two direct quotes, each <=12 words, only for pivotal boundaries or offers.
