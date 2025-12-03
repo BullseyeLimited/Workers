@@ -328,6 +328,7 @@ Recent turns are presented oldest → newest (top to bottom), one per line, form
 
 <NAPOLEON_INPUT>
   <CONTEXT>
+    <SUMMARIES>
     <LIFETIME_BLOCK>
       {LIFETIME_BLOCK}
     </LIFETIME_BLOCK>
@@ -343,6 +344,7 @@ Recent turns are presented oldest → newest (top to bottom), one per line, form
     <EPISODE_BLOCK>
       {EPISODE_BLOCK}
     </EPISODE_BLOCK>
+    </SUMMARIES>
     <RECENT_TURNS>
       --- Recent Turns (oldest → newest) ---
     <TURNS>
@@ -359,6 +361,7 @@ Recent turns are presented oldest → newest (top to bottom), one per line, form
   </ANALYST_ANALYSIS_JSON>
 
   <PLANNER_INTENT>
+    --- Planner Intent ---
     {CREATOR_TACTICAL_PLAN_3TURN}
     <LIFETIME_PLAN>{CREATOR_LIFETIME_PLAN}</LIFETIME_PLAN>
     <YEAR_PLAN>{CREATOR_YEAR_PLAN}</YEAR_PLAN>
@@ -376,21 +379,23 @@ Recent turns are presented oldest → newest (top to bottom), one per line, form
   </PLAN_HISTORY>
 
   <FAN_CARDS>
-    <IDENTITY>
+    --- Fan Cards ---
+    <IDENTITY_CARD>
       {FAN_IDENTITY_CARD}
-    </IDENTITY>
-    <PSYCHIC>
+    </IDENTITY_CARD>
+    <PSYCHIC_CARD>
       {FAN_PSYCHIC_CARD}
-    </PSYCHIC>
+    </PSYCHIC_CARD>
   </FAN_CARDS>
 
   <CREATOR_CARDS>
-    <IDENTITY>
+    --- Creator Cards ---
+    <IDENTITY_CARD>
       {CREATOR_IDENTITY_CARD}
-    </IDENTITY>
-    <PSYCHIC>
+    </IDENTITY_CARD>
+    <PSYCHIC_CARD>
       {CREATOR_PSYCHIC_CARD}
-    </PSYCHIC>
+    </PSYCHIC_CARD>
   </CREATOR_CARDS>
 </NAPOLEON_INPUT>
 

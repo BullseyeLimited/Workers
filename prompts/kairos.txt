@@ -404,6 +404,7 @@ Recent turns are shown oldest → newest (top to bottom), one per line, formatte
 <ANALYST_INPUT>
 
 <CONTEXT>
+<SUMMARIES>
 <LIFETIME_BLOCK>
 {LIFETIME_BLOCK}
 </LIFETIME_BLOCK>
@@ -419,6 +420,7 @@ Recent turns are shown oldest → newest (top to bottom), one per line, formatte
 <EPISODE_BLOCK>
 {EPISODE_BLOCK}
 </EPISODE_BLOCK>
+</SUMMARIES>
 <RECENT_TURNS>
 --- Recent Turns (oldest → newest) ---
 <TURNS>
@@ -431,6 +433,7 @@ Recent turns are shown oldest → newest (top to bottom), one per line, formatte
 </CONTEXT>
 
 <PLANNER_INTENT>
+--- Planner Intent ---
 {CREATOR_TACTICAL_PLAN_3TURN}
 <LIFETIME_PLAN>{CREATOR_LIFETIME_PLAN}</LIFETIME_PLAN>
 <YEAR_PLAN>{CREATOR_YEAR_PLAN}</YEAR_PLAN>
@@ -440,13 +443,24 @@ Recent turns are shown oldest → newest (top to bottom), one per line, formatte
 </PLANNER_INTENT>
 
 <FAN_CARDS>
-<IDENTITY>
+--- Fan Cards ---
+<IDENTITY_CARD>
 {FAN_IDENTITY_CARD}
-</IDENTITY>
-<PSYCHIC>
+</IDENTITY_CARD>
+<PSYCHIC_CARD>
 {FAN_PSYCHIC_CARD}
-</PSYCHIC>
+</PSYCHIC_CARD>
 </FAN_CARDS>
+
+<CREATOR_CARDS>
+--- Creator Cards ---
+<IDENTITY_CARD>
+{CREATOR_IDENTITY_CARD}
+</IDENTITY_CARD>
+<PSYCHIC_CARD>
+{CREATOR_PSYCHIC_CARD}
+</PSYCHIC_CARD>
+</CREATOR_CARDS>
 
 </ANALYST_INPUT>
 
