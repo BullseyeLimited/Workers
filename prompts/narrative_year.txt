@@ -60,3 +60,4 @@ OUTPUT CONTRACT (machine-readable, key name never changes)
 
 === INPUT (do not alter) ===
 {CHILD_SUMMARIES}
+
