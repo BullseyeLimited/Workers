@@ -244,9 +244,9 @@ def _load_cards(thread_id: int, *, client=None, worker_tier=None) -> Dict[str, s
             pass
 
     return {
-        "FAN_IDENTITY_CARD": row.get("fan_identity_card") or "[Fan Identity Card unavailable]",
+        "FAN_IDENTITY_CARD": row.get("fan_identity_card") or "Identity card: empty",
         "FAN_PSYCHIC_CARD": _format_psychic_card(fan_psychic),
-        "CREATOR_IDENTITY_CARD": row.get("creator_identity_card") or "[Creator Identity Card unavailable]",
+        "CREATOR_IDENTITY_CARD": row.get("creator_identity_card") or "Identity card: empty",
         "CREATOR_PSYCHIC_CARD": _format_psychic_card(row.get("creator_psychic_card")),
     }
 
@@ -369,6 +369,9 @@ def _clean_turn_text(text: Any) -> str:
     if not text:
         return "(empty)"
     single_line = " ".join(str(text).split())
+    # Strip common storage prefixes like "Message 1:" to make turns feel like chat.
+    if single_line.lower().startswith("message 1:"):
+        single_line = single_line[len("message 1:") :].lstrip()
     return single_line[:2000]
 
 

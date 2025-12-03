@@ -343,9 +343,12 @@ Recent turns are presented oldest → newest (top to bottom), one per line, form
     <EPISODE_BLOCK>
       {EPISODE_BLOCK}
     </EPISODE_BLOCK>
+    <RECENT_TURNS>
+      --- Recent Turns (oldest → newest) ---
     <TURNS>
       {RAW_TURNS}
     </TURNS>
+    </RECENT_TURNS>
     <CURRENT_FAN_TURN>
       {FAN_LATEST_VERBATIM}
     </CURRENT_FAN_TURN>
