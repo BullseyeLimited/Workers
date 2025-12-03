@@ -420,6 +420,52 @@ def _fetch_summaries(thread_id: int, tier: str) -> List[dict]:
     )
 
 
+def _cache_exists(
+    thread_id: int,
+    tier: str,
+    start_turn: int | None,
+    end_turn: int | None,
+    tier_index: int | None,
+) -> bool:
+    query = (
+        SB.table("abstract_cache")
+        .select("id")
+        .eq("thread_id", thread_id)
+        .eq("tier", tier)
+    )
+    if start_turn is not None:
+        query = query.eq("start_turn", start_turn)
+    if end_turn is not None:
+        query = query.eq("end_turn", end_turn)
+    if tier_index is not None:
+        query = query.eq("tier_index", tier_index)
+    rows = query.limit(1).execute().data or []
+    return bool(rows)
+
+
+def _pending_job(
+    queue: str,
+    thread_id: int,
+    start_turn: int | None,
+    end_turn: int | None,
+    tier_index: int | None,
+    *,
+    draft: bool | None = None,
+) -> bool:
+    query = SB.table("job_queue").select("id").eq("queue", queue)
+    query = query.filter("payload->>thread_id", "eq", str(thread_id))
+    if start_turn is not None:
+        query = query.filter("payload->>start_turn", "eq", str(start_turn))
+    if end_turn is not None:
+        query = query.filter("payload->>end_turn", "eq", str(end_turn))
+    if tier_index is not None:
+        query = query.filter("payload->>tier_index", "eq", str(tier_index))
+    if draft is not None:
+        query = query.filter("payload->>draft", "eq", str(draft).lower())
+    rows = query.limit(1).execute().data or []
+    return bool(rows)
+
+
 def _maybe_enqueue_next(thread_id: int, tier: str):
     cfg = TIER_PIPELINE.get(tier)
     if not cfg:
@@ -439,12 +485,13 @@ def _maybe_enqueue_next(thread_id: int, tier: str):
     consumed = upper_count * chunk_size
     backlog = lower_count - consumed
 
-    if backlog < trigger:
-        return
-
     chunk = lower_rows[consumed : consumed + chunk_size]
     if len(chunk) < chunk_size:
         return
+
+    start_turn = min(row.get("start_turn") or 0 for row in chunk) or None
+    end_turn = max(row.get("end_turn") or 0 for row in chunk) or None
+    next_tier_index = upper_count + 1
 
     lines = []
     for row in chunk:
@@ -453,9 +500,35 @@ def _maybe_enqueue_next(thread_id: int, tier: str):
         lines.append(f"{lower_tier.title()} {idx}: {abstract}")
     raw_block = "\n\n".join(lines)
 
-    start_turn = min(row.get("start_turn") or 0 for row in chunk) or None
-    end_turn = max(row.get("end_turn") or 0 for row in chunk) or None
-    next_tier_index = upper_count + 1
+    # Stage draft as soon as the next chunk exists.
+    if not _cache_exists(thread_id, upper_tier, start_turn, end_turn, next_tier_index):
+        if not _pending_job(
+            queue_name, thread_id, start_turn, end_turn, next_tier_index, draft=True
+        ):
+            SB.table("job_queue").insert(
+                {
+                    "queue": queue_name,
+                    "payload": json.dumps(
+                        {
+                            "thread_id": thread_id,
+                            "tier": upper_tier,
+                            "start_turn": start_turn,
+                            "end_turn": end_turn,
+                            "tier_index": next_tier_index,
+                            "raw_block": raw_block,
+                            "draft": True,
+                        },
+                        ensure_ascii=False,
+                    ),
+                }
+            ).execute()
+
+    if backlog < trigger:
+        return
+
+    # Publish using staged cache if available.
+    if _pending_job(queue_name, thread_id, start_turn, end_turn, next_tier_index, draft=False):
+        return
 
     payload = {
         "thread_id": thread_id,
@@ -464,6 +537,7 @@ def _maybe_enqueue_next(thread_id: int, tier: str):
         "end_turn": end_turn,
         "tier_index": next_tier_index,
         "raw_block": raw_block,
+        "draft": False,
     }
 
     SB.table("job_queue").insert(

@@ -28,6 +28,37 @@ SB = create_client(
 )
 
 QUEUE = "episode.abstract"
+TIER = "episode"
+
+
+def _cache_entry(thread_id: int, start_turn: int, end_turn: int) -> dict | None:
+    rows = (
+        SB.table("abstract_cache")
+        .select("raw_text,raw_hash")
+        .eq("thread_id", thread_id)
+        .eq("tier", TIER)
+        .eq("start_turn", start_turn)
+        .eq("end_turn", end_turn)
+        .limit(1)
+        .execute()
+        .data
+        or []
+    )
+    return rows[0] if rows else None
+
+
+def _upsert_cache(thread_id: int, start_turn: int, end_turn: int, raw_text: str, raw_hash: str):
+    SB.table("abstract_cache").upsert(
+        {
+            "thread_id": thread_id,
+            "tier": TIER,
+            "start_turn": start_turn,
+            "end_turn": end_turn,
+            "raw_text": raw_text,
+            "raw_hash": raw_hash,
+            "status": "ready",
+        }
+    ).execute()
 
 
 def call_llm(prompt: str) -> str:
@@ -110,30 +141,53 @@ def process_job(payload: dict) -> bool:
     thread_id = payload["thread_id"]
     end_turn = int(payload.get("end_turn") or 0)
     start_turn = int(payload.get("start_turn") or 0) or max(1, end_turn - 19)
+    is_draft = bool(payload.get("draft"))
 
     if _summary_exists(thread_id, start_turn, end_turn):
         # Already summarized; acknowledge quietly.
         return True
+
+    if is_draft and _cache_entry(thread_id, start_turn, end_turn):
+        # Draft already prepared.
+        return True
+
+    cached = None
+    raw_text = ""
+    raw_hash = ""
+    if not is_draft:
+        cached = _cache_entry(thread_id, start_turn, end_turn)
+        if cached:
+            raw_text = cached.get("raw_text") or ""
+            raw_hash = cached.get("raw_hash") or ""
 
     rows = fetch_turns(thread_id, start_turn, end_turn)
     if len(rows) < 1:
         print(f"[episode_abstract_writer] no turns for thread {thread_id}")
         return True
 
-    raw_turns = render_raw_turns(rows)
-    prompt = build_prompt(
-        "episode_abstract",
-        thread_id,
-        raw_turns,
-        client=SB,
-        include_blocks=False,
-        include_plans=False,
-        include_analyst=False,
-        include_episode_rolling=True,
-        worker_tier=TimeTier.EPISODE,
-    )
-    raw_text = call_llm(prompt)
-    raw_hash = hashlib.sha256(raw_text.encode("utf-8")).hexdigest()
+    if not raw_text:
+        raw_turns = render_raw_turns(rows)
+        prompt = build_prompt(
+            "episode_abstract",
+            thread_id,
+            raw_turns,
+            client=SB,
+            include_blocks=False,
+            include_plans=False,
+            include_analyst=False,
+            include_episode_rolling=True,
+            worker_tier=TimeTier.EPISODE,
+        )
+        raw_text = call_llm(prompt)
+        raw_hash = hashlib.sha256(raw_text.encode("utf-8")).hexdigest()
+
+    if is_draft:
+        _upsert_cache(thread_id, start_turn, end_turn, raw_text, raw_hash)
+        return True
+
+    # Publish (card.patch), prefer cached if present.
+    if not raw_hash:
+        raw_hash = hashlib.sha256(raw_text.encode("utf-8")).hexdigest()
 
     send(
         "card.patch",

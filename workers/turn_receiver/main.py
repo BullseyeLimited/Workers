@@ -69,23 +69,39 @@ def _summary_exists(thread_id: int, tier: str, start_turn: int, end_turn: int) -
     return bool(existing)
 
 
+def _cache_exists(thread_id: int, tier: str, start_turn: int, end_turn: int) -> bool:
+    existing = (
+        SB.table("abstract_cache")
+        .select("id")
+        .eq("thread_id", thread_id)
+        .eq("tier", tier)
+        .eq("start_turn", start_turn)
+        .eq("end_turn", end_turn)
+        .limit(1)
+        .execute()
+        .data
+    )
+    return bool(existing)
+
+
 def _pending_summary_job(
-    queue: str, thread_id: int, start_turn: int, end_turn: int
+    queue: str, thread_id: int, start_turn: int, end_turn: int, *, draft: bool | None = None
 ) -> bool:
     """
     Check if a matching job is already in-flight to avoid duplicate episode summaries.
     """
-    jobs = (
+    query = (
         SB.table("job_queue")
         .select("id")
         .eq("queue", queue)
         .filter("payload->>thread_id", "eq", str(thread_id))
         .filter("payload->>start_turn", "eq", str(start_turn))
         .filter("payload->>end_turn", "eq", str(end_turn))
-        .limit(1)
-        .execute()
-        .data
     )
+    if draft is not None:
+        query = query.filter("payload->>draft", "eq", str(draft).lower())
+
+    jobs = query.limit(1).execute().data
     return bool(jobs)
 
 
@@ -96,6 +112,27 @@ def _maybe_enqueue_episode_summary(thread_id: int, latest_turn_index: int):
     """
     last_episode_end = _latest_summary_end(thread_id, "episode")
     unsummarized = latest_turn_index - last_episode_end
+
+    # Stage draft at 20 turns (pre-cook; do not advance cutoff).
+    if unsummarized >= 20:
+        start_turn = last_episode_end + 1
+        end_turn = start_turn + 19
+        if not _summary_exists(thread_id, "episode", start_turn, end_turn) and not _cache_exists(
+            thread_id, "episode", start_turn, end_turn
+        ):
+            if not _pending_summary_job(
+                "episode.abstract", thread_id, start_turn, end_turn, draft=True
+            ):
+                send(
+                    "episode.abstract",
+                    {
+                        "thread_id": thread_id,
+                        "start_turn": start_turn,
+                        "end_turn": end_turn,
+                        "draft": True,
+                    },
+                )
+
     if unsummarized < 40:
         return
 
@@ -105,7 +142,7 @@ def _maybe_enqueue_episode_summary(thread_id: int, latest_turn_index: int):
     if _summary_exists(thread_id, "episode", start_turn, end_turn):
         return
 
-    if _pending_summary_job("episode.abstract", thread_id, start_turn, end_turn):
+    if _pending_summary_job("episode.abstract", thread_id, start_turn, end_turn, draft=False):
         return
 
     send(
@@ -114,6 +151,7 @@ def _maybe_enqueue_episode_summary(thread_id: int, latest_turn_index: int):
             "thread_id": thread_id,
             "start_turn": start_turn,
             "end_turn": end_turn,
+            "draft": False,
         },
     )
 

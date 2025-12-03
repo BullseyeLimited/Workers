@@ -27,6 +27,40 @@ SB = create_client(
 )
 
 QUEUE = "chapter.abstract"
+TIER = "chapter"
+
+
+def _cache_entry(thread_id: int, tier_index: int, start_turn: int | None, end_turn: int | None) -> dict | None:
+    query = (
+        SB.table("abstract_cache")
+        .select("raw_text,raw_hash")
+        .eq("thread_id", thread_id)
+        .eq("tier", TIER)
+        .eq("tier_index", tier_index)
+    )
+    if start_turn is not None:
+        query = query.eq("start_turn", start_turn)
+    if end_turn is not None:
+        query = query.eq("end_turn", end_turn)
+    rows = query.limit(1).execute().data or []
+    return rows[0] if rows else None
+
+
+def _upsert_cache(
+    thread_id: int, tier_index: int, start_turn: int | None, end_turn: int | None, raw_text: str, raw_hash: str
+):
+    SB.table("abstract_cache").upsert(
+        {
+            "thread_id": thread_id,
+            "tier": TIER,
+            "tier_index": tier_index,
+            "start_turn": start_turn,
+            "end_turn": end_turn,
+            "raw_text": raw_text,
+            "raw_hash": raw_hash,
+            "status": "ready",
+        }
+    ).execute()
 
 
 def call_llm(prompt: str) -> str:
@@ -68,29 +102,53 @@ def call_llm(prompt: str) -> str:
 def process_job(payload: dict) -> bool:
     thread_id = payload["thread_id"]
     raw_block = payload.get("raw_block") or ""
+    tier_index = int(payload.get("tier_index") or 0)
+    start_turn = payload.get("start_turn")
+    end_turn = payload.get("end_turn")
+    is_draft = bool(payload.get("draft"))
 
-    extra_ctx = _recent_tier_abstracts(thread_id, "chapter", client=SB)
-    prompt = build_prompt(
-        "chapter_abstract",
-        thread_id,
-        raw_block,
-        client=SB,
-        extra_context=extra_ctx,
-        include_plans=False,
-        include_analyst=False,
-        worker_tier=TimeTier.CHAPTER,
-    )
-    raw_text = call_llm(prompt)
-    raw_hash = hashlib.sha256(raw_text.encode("utf-8")).hexdigest()
+    if tier_index and is_draft and _cache_entry(thread_id, tier_index, start_turn, end_turn):
+        return True
+
+    raw_text = ""
+    raw_hash = ""
+    if tier_index and not is_draft:
+        cached = _cache_entry(thread_id, tier_index, start_turn, end_turn)
+        if cached:
+            raw_text = cached.get("raw_text") or ""
+            raw_hash = cached.get("raw_hash") or ""
+
+    if not raw_text:
+        extra_ctx = _recent_tier_abstracts(thread_id, "chapter", client=SB)
+        prompt = build_prompt(
+            "chapter_abstract",
+            thread_id,
+            raw_block,
+            client=SB,
+            extra_context=extra_ctx,
+            include_plans=False,
+            include_analyst=False,
+            worker_tier=TimeTier.CHAPTER,
+        )
+        raw_text = call_llm(prompt)
+        raw_hash = hashlib.sha256(raw_text.encode("utf-8")).hexdigest()
+
+    if is_draft:
+        if tier_index:
+            _upsert_cache(thread_id, tier_index, start_turn, end_turn, raw_text, raw_hash)
+        return True
+
+    if not raw_hash:
+        raw_hash = hashlib.sha256(raw_text.encode("utf-8")).hexdigest()
 
     send(
         "card.patch",
         {
             "thread_id": thread_id,
             "tier": "chapter",
-            "start_turn": payload.get("start_turn"),
-            "end_turn": payload.get("end_turn"),
-            "tier_index": payload.get("tier_index"),
+            "start_turn": start_turn,
+            "end_turn": end_turn,
+            "tier_index": tier_index,
             "raw_text": raw_text,
             "raw_hash": raw_hash,
         },
