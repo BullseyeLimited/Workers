@@ -389,21 +389,41 @@ def _insert_summary_row(
     extract_status: str,
 ) -> int:
     summary_idx = tier_index or _next_tier_index(thread_id, tier)
-    payload = {
-        "thread_id": thread_id,
-        "tier": tier,
-        "tier_index": summary_idx,
-        "start_turn": start_turn,
-        "end_turn": end_turn,
-        "abstract_summary": abstract_summary,
-        "fan_psychic_card_action": patches,
-        "raw_writer_json": {"raw_text": raw_text},
-        "raw_hash": raw_hash,
-        "extract_status": extract_status,
-    }
-    res = SB.table("summaries").insert(payload).execute().data
+    # Try update first (if row exists), then insert if missing.
+    res = (
+        SB.table("summaries")
+        .update(
+            {
+                "abstract_summary": abstract_summary,
+                "fan_psychic_card_action": patches,
+                "raw_writer_json": {"raw_text": raw_text},
+                "raw_hash": raw_hash,
+                "extract_status": extract_status,
+            }
+        )
+        .eq("thread_id", thread_id)
+        .eq("tier", tier)
+        .eq("start_turn", start_turn)
+        .eq("end_turn", end_turn)
+        .execute()
+        .data
+    )
     if not res:
-        raise RuntimeError("failed to insert summary row")
+        payload = {
+            "thread_id": thread_id,
+            "tier": tier,
+            "tier_index": summary_idx,
+            "start_turn": start_turn,
+            "end_turn": end_turn,
+            "abstract_summary": abstract_summary,
+            "fan_psychic_card_action": patches,
+            "raw_writer_json": {"raw_text": raw_text},
+            "raw_hash": raw_hash,
+            "extract_status": extract_status,
+        }
+        res = SB.table("summaries").insert(payload).execute().data
+        if not res:
+            raise RuntimeError("failed to insert summary row")
     return res[0]["id"]
 
 
@@ -418,52 +438,6 @@ def _fetch_summaries(thread_id: int, tier: str) -> List[dict]:
         .data
         or []
     )
-
-
-def _cache_exists(
-    thread_id: int,
-    tier: str,
-    start_turn: int | None,
-    end_turn: int | None,
-    tier_index: int | None,
-) -> bool:
-    query = (
-        SB.table("abstract_cache")
-        .select("id")
-        .eq("thread_id", thread_id)
-        .eq("tier", tier)
-    )
-    if start_turn is not None:
-        query = query.eq("start_turn", start_turn)
-    if end_turn is not None:
-        query = query.eq("end_turn", end_turn)
-    if tier_index is not None:
-        query = query.eq("tier_index", tier_index)
-    rows = query.limit(1).execute().data or []
-    return bool(rows)
-
-
-def _pending_job(
-    queue: str,
-    thread_id: int,
-    start_turn: int | None,
-    end_turn: int | None,
-    tier_index: int | None,
-    *,
-    draft: bool | None = None,
-) -> bool:
-    query = SB.table("job_queue").select("id").eq("queue", queue)
-    query = query.filter("payload->>thread_id", "eq", str(thread_id))
-    if start_turn is not None:
-        query = query.filter("payload->>start_turn", "eq", str(start_turn))
-    if end_turn is not None:
-        query = query.filter("payload->>end_turn", "eq", str(end_turn))
-    if tier_index is not None:
-        query = query.filter("payload->>tier_index", "eq", str(tier_index))
-    if draft is not None:
-        query = query.filter("payload->>draft", "eq", str(draft).lower())
-    rows = query.limit(1).execute().data or []
-    return bool(rows)
 
 
 def _maybe_enqueue_next(thread_id: int, tier: str):
@@ -500,34 +474,10 @@ def _maybe_enqueue_next(thread_id: int, tier: str):
         lines.append(f"{lower_tier.title()} {idx}: {abstract}")
     raw_block = "\n\n".join(lines)
 
-    # Stage draft as soon as the next chunk exists.
-    if not _cache_exists(thread_id, upper_tier, start_turn, end_turn, next_tier_index):
-        if not _pending_job(
-            queue_name, thread_id, start_turn, end_turn, next_tier_index, draft=True
-        ):
-            SB.table("job_queue").insert(
-                {
-                    "queue": queue_name,
-                    "payload": json.dumps(
-                        {
-                            "thread_id": thread_id,
-                            "tier": upper_tier,
-                            "start_turn": start_turn,
-                            "end_turn": end_turn,
-                            "tier_index": next_tier_index,
-                            "raw_block": raw_block,
-                            "draft": True,
-                        },
-                        ensure_ascii=False,
-                    ),
-                }
-            ).execute()
-
     if backlog < trigger:
         return
 
-    # Publish using staged cache if available.
-    if _pending_job(queue_name, thread_id, start_turn, end_turn, next_tier_index, draft=False):
+    if _pending_job(queue_name, thread_id, start_turn, end_turn, next_tier_index):
         return
 
     payload = {
@@ -537,7 +487,6 @@ def _maybe_enqueue_next(thread_id: int, tier: str):
         "end_turn": end_turn,
         "tier_index": next_tier_index,
         "raw_block": raw_block,
-        "draft": False,
     }
 
     SB.table("job_queue").insert(
