@@ -413,8 +413,13 @@ def _parse_rethink_section(section_text: str) -> dict:
     s_match = re.search(r"STATUS\s*:\s*(yes|no)", text, re.IGNORECASE)
     r_match = re.search(r"REASON\s*:\s*(.*)", text, re.IGNORECASE)
 
-    status = s_match.group(1).lower() if s_match else "no"
+    status = s_match.group(1).lower() if s_match else ""
     reason = r_match.group(1).strip() if r_match else ""
+    # If a reason is present but status is missing/negative, infer rethink = yes
+    if reason and status != "yes":
+        status = "yes"
+    if not status:
+        status = "no"
     return {"STATUS": status, "REASON": reason}
 
 
