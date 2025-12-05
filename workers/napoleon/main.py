@@ -825,6 +825,25 @@ def process_job(payload):
     ).lower()
     reason_text = rethink.get("REASON") or rethink.get("reason") or ""
 
+    # Safety net: if any horizon is no longer "ongoing", force a rethink even if the model forgot to say yes.
+    non_ongoing_horizons: list[tuple[str, str]] = []
+    multi_plan = analysis.get("MULTI_HORIZON_PLAN") or {}
+    for hz in HORIZONS:
+        state = (multi_plan.get(hz, {}).get("STATE") or "").lower()
+        if state and state != "ongoing":
+            non_ongoing_horizons.append((hz, state))
+
+    if non_ongoing_horizons and rethink_status != "yes":
+        rethink_status = "yes"
+        if not reason_text:
+            # Compact reason to avoid bloating the output payloads.
+            reason_text = "Auto-rethink: horizons non-ongoing -> " + ", ".join(
+                f"{hz}:{st}" for hz, st in non_ongoing_horizons
+            )
+        rethink["STATUS"] = rethink_status
+        rethink["REASON"] = reason_text
+        analysis["RETHINK_HORIZONS"] = rethink
+
     if rethink_status.startswith("yes"):
         multi_plan = analysis["MULTI_HORIZON_PLAN"]
         for hz in HORIZONS:
