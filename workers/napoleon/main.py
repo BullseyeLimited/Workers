@@ -52,6 +52,13 @@ ANALYST_BLOCK_PATTERN = re.compile(
     r"<ANALYST_ANALYSIS_JSON>.*?</ANALYST_ANALYSIS_JSON>",
     re.IGNORECASE | re.DOTALL,
 )
+PROGRESS_WINDOWS = {
+    "EPISODE": 20,
+    "CHAPTER": 60,
+    "SEASON": 180,
+    "YEAR": 540,
+    "LIFETIME": 1620,
+}
 
 
 def record_napoleon_failure(
@@ -630,6 +637,31 @@ def merge_napoleon_analysis(base: dict, patch: dict) -> dict:
     return merged
 
 
+def _apply_progress_overrides(analysis: dict | None, turn_index: int | None) -> dict | None:
+    """
+    Override model-provided progress with server-derived counters based on turn index.
+    Keeps existing plans/states/notes intact.
+    """
+    if analysis is None or turn_index is None:
+        return analysis
+
+    multi = analysis.get("MULTI_HORIZON_PLAN")
+    if not isinstance(multi, dict):
+        return analysis
+
+    for hz, total in PROGRESS_WINDOWS.items():
+        # Ensure horizon container exists
+        hz_data = multi.setdefault(hz, {"PLAN": "", "PROGRESS": "", "STATE": "", "NOTES": []})
+        try:
+            current = ((int(turn_index) - 1) % total) + 1
+        except Exception:
+            current = 1
+        hz_data["PROGRESS"] = f"({current}/{total})"
+
+    analysis["MULTI_HORIZON_PLAN"] = multi
+    return analysis
+
+
 def _missing_required_fields(analysis: dict | None) -> list[str]:
     """
     Flag a field only if the KEY is absent (empty strings are allowed).
@@ -722,6 +754,7 @@ def process_job(payload):
 
     thread_id = msg["thread_id"]
     latest_fan_text = msg.get("message_text") or ""
+    current_turn_index = msg.get("turn_index")
 
     raw_turns = live_turn_window(
         thread_id,
@@ -800,6 +833,9 @@ def process_job(payload):
         analysis = merged
         parse_error = None
         missing_fields = _missing_required_fields(analysis)
+
+    # Override progress with server-derived turn counters
+    analysis = _apply_progress_overrides(analysis, current_turn_index)
 
     if parse_error is not None or analysis is None or missing_fields:
         # Final failure after retries

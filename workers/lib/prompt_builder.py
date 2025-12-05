@@ -421,26 +421,46 @@ def latest_kairos_json(thread_id: int, *, client=None) -> str:
 
 def latest_plan_fields(thread_id: int, *, client=None) -> dict:
     sb = _resolve_client(client)
-    row = (
-        sb.table("message_ai_details")
+    # Prefer canonical plans stored on the thread; fall back to last Napoleon snapshot.
+    thread_row = (
+        sb.table("threads")
         .select(
-            "tactical_plan_3turn,"
-            "plan_episode,plan_chapter,plan_season,plan_year,plan_lifetime"
+            "episode_plan,chapter_plan,season_plan,year_plan,lifetime_plan"
         )
-        .eq("thread_id", thread_id)
-        .order("created_at", desc=True)
-        .limit(1)
+        .eq("id", thread_id)
+        .single()
         .execute()
         .data
+        or {}
     )
-    row = row[0] if row else {}
+
+    if any(
+        thread_row.get(col) for col in
+        ("episode_plan", "chapter_plan", "season_plan", "year_plan", "lifetime_plan")
+    ):
+        row = thread_row
+    else:
+        snapshot = (
+            sb.table("message_ai_details")
+            .select(
+                "tactical_plan_3turn,"
+                "plan_episode,plan_chapter,plan_season,plan_year,plan_lifetime"
+            )
+            .eq("thread_id", thread_id)
+            .order("created_at", desc=True)
+            .limit(1)
+            .execute()
+            .data
+        )
+        row = snapshot[0] if snapshot else {}
+
     return {
         "CREATOR_TACTICAL_PLAN_3TURN": row.get("tactical_plan_3turn") or "",
-        "CREATOR_EPISODE_PLAN": row.get("plan_episode") or "",
-        "CREATOR_CHAPTER_PLAN": row.get("plan_chapter") or "",
-        "CREATOR_SEASON_PLAN": row.get("plan_season") or "",
-        "CREATOR_YEAR_PLAN": row.get("plan_year") or "",
-        "CREATOR_LIFETIME_PLAN": row.get("plan_lifetime") or "",
+        "CREATOR_EPISODE_PLAN": row.get("plan_episode") or row.get("episode_plan") or "",
+        "CREATOR_CHAPTER_PLAN": row.get("plan_chapter") or row.get("chapter_plan") or "",
+        "CREATOR_SEASON_PLAN": row.get("plan_season") or row.get("season_plan") or "",
+        "CREATOR_YEAR_PLAN": row.get("plan_year") or row.get("year_plan") or "",
+        "CREATOR_LIFETIME_PLAN": row.get("plan_lifetime") or row.get("lifetime_plan") or "",
     }
 
 
