@@ -620,6 +620,231 @@ FINAL INSTRUCTION
 Return only the update blocks or NO_UPDATES. Do not add any extra prose, markdown, or explanation.
 """.strip()
 
+TEXT_SCRIBE_SYSTEM_PROMPT = """SYSTEM: You are TEXT_DELTA_SCRIBE (FAN). You convert a FAN identity-card JSON delta into a plain-text delta that can be appended to an existing plain-text identity card.
+
+YOU RECEIVE (3 INPUTS)
+1) fan_identity_card_current_json
+- Full current FAN card JSON (context only; NOT a source of new facts)
+
+2) fan_identity_card_delta_json
+- The new JSON delta (THIS is the ONLY source of facts you may write)
+
+3) fan_identity_card_current_text
+- The existing plain-text identity card (for deduplication only)
+
+NON-NEGOTIABLE RULES
+- Output plain text only. Never output JSON.
+- Write ONLY facts present in fan_identity_card_delta_json (including its key names / paths). Do not add, infer, or assume anything.
+- You may consult fan_identity_card_current_json ONLY for pronoun style (he/she/they) and naming consistency, but you MUST NOT output any fact unless it appears in the delta.
+- You may consult fan_identity_card_current_text ONLY to prevent duplicates.
+- If there is nothing to output after dedupe, output exactly:
+  EMPTY
+
+ZONES
+The delta may use either:
+- Style A: "LONG_TERM" and "SHORT_TERM"
+- Style B: "long_term" and "working"
+
+Normalize output to TWO section headers (only include if they have lines):
+LONG_TERM
+SHORT_TERM
+
+Map:
+- LONG_TERM or long_term  -> LONG_TERM section
+- SHORT_TERM or working   -> SHORT_TERM section
+
+OUTPUT FORMAT (MUST BE PARSEABLE)
+Within each section, output one fact per line, in this exact line grammar:
+<FACT_KEY> :: <FACT_TEXT>
+
+FACT_KEY SPEC (STABLE POINTERS)
+Use JSON-pointer-style paths (slash-separated) so dotted keys are safe.
+- LONG_TERM facts MUST use prefix: LT:
+- SHORT_TERM facts MUST use prefix: ST:
+FACT_KEY = "<LT: or ST:>" + "<json pointer path from that zone root to the owner of the fact>"
+
+Owner rules:
+- For a notes-based fact: the owner is the object that contains the non-empty "notes" field. Do NOT include "/notes" in FACT_KEY.
+- For a primitive leaf fact: the owner is that primitive value itself (use its exact pointer path).
+Keep keys exactly as they appear in the delta JSON (preserve underscores, casing, digits, etc).
+
+WHAT TO EXTRACT FROM THE DELTA (DELTA-ONLY)
+Traverse fan_identity_card_delta_json recursively (depth-first or any method is fine as long as output ordering rules are applied later).
+Emit a candidate fact whenever you find:
+- an object with a non-empty string field named "notes"
+- a primitive leaf value (string/number/boolean) that is not null
+
+Skip:
+- notes that are null / empty / whitespace-only
+- null values
+- empty objects/containers with no printable facts beneath them
+
+FACT_TEXT (CLEAR ENGLISH REWRITE; NO NEW FACTS)
+If an orchestrator provides an explicit template/mapping block at runtime, apply it.
+Otherwise use the following deterministic fallback rules.
+
+A) NOTES-BASED FACTS ("notes" string)
+Goal: rewrite into a clean, grammatical English sentence while preserving meaning. You may ONLY do:
+- casing fixes
+- punctuation fixes
+- minimal glue words (“is/are/was”, articles, prepositions)
+- reordering for readability
+You MUST NOT introduce any new details.
+
+Subject handling:
+- If the notes already contain an explicit subject (e.g., “Julia is 19”), keep it (only minor cleanup).
+- If the notes are a fragment lacking a clear subject (e.g., “age 19”, “lives in Toronto”), you MAY prepend a subject derived from the FACT_KEY path using the KEY→LABEL rules below.
+- If even then it still doesn’t form a sentence safely, output a minimally-edited version of the notes as the sentence.
+
+Common mini-normalizations allowed (examples, not exhaustive):
+- “age 19” -> “is 19 years old”
+- “born 2004” -> “was born in 2004”
+- “in prague” -> “is in Prague”
+Do NOT guess missing verbs/subjects beyond the KEY→LABEL subject.
+
+B) PRIMITIVE LEAF FACTS (string/number/boolean)
+Goal: output clear English without adding meaning.
+- Preferred: “<Label> is <Value>.”
+- If the value already reads like a sentence, you may keep it as-is.
+- Booleans: use “<Label> is true/false.”
+
+KEY→LABEL (DETERMINISTIC, DELTA-DERIVED)
+This is used ONLY to create a subject/label from the FACT_KEY path.
+Choose a raw identifier from the FACT_KEY path:
+- Let segments = the pointer segments after the zone root (e.g., /family/siblings/sister_julia -> ["family","siblings","sister_julia"])
+- Default raw_id = last segment.
+- If raw_id is an array index like "0" or "1", set raw_id = (second-to-last segment) + " " + index.
+
+Convert raw_id to a readable base label:
+- Replace '_' and '-' with spaces.
+- Split camelCase boundaries.
+- Collapse repeated whitespace.
+- Keep digits as-is.
+- BaseLabel = Title Case each word EXCEPT small glue words ("of","and","or","in","on","at","to","for","with","a","an","the") which should be lowercased unless first word.
+
+Relationship-pattern upgrade (makes “Sister Julia”, “Best friend Max”, etc):
+Prefixes (first match wins): best_friend, close_friend, ex_partner, step_mother, step_father, sister, brother, mother, father, parent, spouse, wife, husband, partner, child, son, daughter, friend.
+RelationPhrase formatting:
+- "best_friend" -> "Best friend"
+- "close_friend" -> "Close friend"
+- "ex_partner" -> "Ex-partner"
+- "step_mother" -> "Step-mother"
+- "step_father" -> "Step-father"
+- single-word relations -> Title Case
+NamePart = remaining tokens Title Cased and joined with spaces. If none, use the RelationPhrase alone.
+Final Label = RelationPhrase + NamePart if matched, else BaseLabel.
+
+PRONOUNS (OPTIONAL)
+- Prefer Label-based sentences (no pronouns). If you use a pronoun, you may look it up from fan_identity_card_current_json; otherwise use singular “they.”
+
+PUNCTUATION RULE
+- Ensure FACT_TEXT ends with ".", "!" or "?"; append "." if missing.
+
+DEDUPLICATION (APPEND-SAFE)
+Before outputting a line, skip it if the same information already exists in fan_identity_card_current_text.
+Normalize for comparison:
+- lowercase
+- trim
+- collapse whitespace
+- remove trailing punctuation
+If normalized(candidate_line) is a substring of normalized(current_text), skip it.
+
+ORDERING (DETERMINISTIC)
+Within each section, sort emitted lines by FACT_KEY (case-insensitive). Only print a section header if it has at least one line. If no sections have lines, output EXACTLY "EMPTY".
+""".strip()
+
+PLAIN_TEXT_CARD_TEMPLATE = """LONG_TERM
+family:
+social:
+pets:
+profile:
+contact:
+handles:
+appearance:
+residence:
+places:
+education:
+work:
+memberships:
+devices:
+services:
+transport:
+health:
+travel:
+favorites:
+accounts:
+contacts:
+
+SHORT_TERM
+location:
+travel:
+activity:
+company:
+availability:
+device:
+connection:
+transport:
+schedule:
+interactions:
+places:
+media:
+health:
+appearance:
+residence:
+work:
+relationships:
+devices:
+tasks:
+environment:
+""".strip()
+
+# Main categories for quick mapping/ordering
+LONG_TERM_CATEGORIES = [
+    "family",
+    "social",
+    "pets",
+    "profile",
+    "contact",
+    "handles",
+    "appearance",
+    "residence",
+    "places",
+    "education",
+    "work",
+    "memberships",
+    "devices",
+    "services",
+    "transport",
+    "health",
+    "travel",
+    "favorites",
+    "accounts",
+    "contacts",
+]
+
+SHORT_TERM_CATEGORIES = [
+    "location",
+    "travel",
+    "activity",
+    "company",
+    "availability",
+    "device",
+    "connection",
+    "transport",
+    "schedule",
+    "interactions",
+    "places",
+    "media",
+    "health",
+    "appearance",
+    "residence",
+    "work",
+    "relationships",
+    "devices",
+    "tasks",
+    "environment",
+]
+
 
 def build_prompt(current_card: str, conversation_text: str) -> str:
     """
@@ -665,6 +890,20 @@ def _write_debug_logs(system_prompt: str, user_prompt: str, response_payload: di
         )
     except Exception as exc:  # noqa: BLE001
         print("[fan_card_narrative_writer] Failed to write debug logs:", exc, flush=True)
+
+
+def _log_text_delta(raw_text: str, thread_id: int, fan_turn_index: int) -> None:
+    """
+    Persist the plain-text delta output for observability.
+    """
+    try:
+        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        base_dir = Path.cwd() / "logs" / "fan_card_text_delta"
+        base_dir.mkdir(parents=True, exist_ok=True)
+        fname = f"{timestamp}-thread{thread_id}-turn{fan_turn_index}-text-delta.txt"
+        (base_dir / fname).write_text(raw_text or "", encoding="utf-8")
+    except Exception as exc:  # noqa: BLE001
+        print("[fan_card_narrative_writer] Failed to log text delta:", exc, flush=True)
 
 def runpod_call(system_prompt: str, user_prompt: str) -> str:
     # Use chat/completions with explicit system/user split.
@@ -732,6 +971,167 @@ def runpod_call(system_prompt: str, user_prompt: str) -> str:
     # Persist debug artifacts locally to inspect prompts and responses.
     _write_debug_logs(system_prompt, user_prompt, data, text)
     return text.strip()
+
+
+def build_text_scribe_prompt(
+    current_card_json: dict, delta_card: dict, current_plain_text: str
+) -> str:
+    """
+    Build the user prompt for TEXT_DELTA_SCRIBE with current card, delta, and existing text.
+    """
+    return (
+        "fan_identity_card_current_json:\n"
+        f"{json.dumps(current_card_json or {}, ensure_ascii=False)}\n\n"
+        "fan_identity_card_delta_json:\n"
+        f"{json.dumps(delta_card or {}, ensure_ascii=False)}\n\n"
+        "fan_identity_card_current_text:\n"
+        f"{current_plain_text or ''}\n"
+    )
+
+
+def _init_plain_text_state() -> dict:
+    """
+    Return an empty structure keyed by section -> category -> list of lines.
+    """
+    return {
+        "LONG_TERM": {cat: [] for cat in LONG_TERM_CATEGORIES},
+        "SHORT_TERM": {cat: [] for cat in SHORT_TERM_CATEGORIES},
+    }
+
+
+def _parse_plain_text_card(text: str) -> dict:
+    """
+    Parse the existing plain-text card into section/category buckets.
+    Expects headers LONG_TERM/SHORT_TERM and category lines ending with ':'.
+    """
+    state = _init_plain_text_state()
+    current_section = None
+    current_cat = None
+
+    for raw in (text or "").splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        upper = line.upper()
+        if upper == "LONG_TERM":
+            current_section, current_cat = "LONG_TERM", None
+            continue
+        if upper == "SHORT_TERM":
+            current_section, current_cat = "SHORT_TERM", None
+            continue
+        if line.endswith(":"):
+            cat_name = line[:-1].strip()
+            if (
+                current_section == "LONG_TERM"
+                and cat_name in state["LONG_TERM"]
+            ):
+                current_cat = cat_name
+            elif (
+                current_section == "SHORT_TERM"
+                and cat_name in state["SHORT_TERM"]
+            ):
+                current_cat = cat_name
+            else:
+                current_cat = None
+            continue
+
+        if current_section and current_cat:
+            state[current_section][current_cat].append(line)
+
+    return state
+
+
+def _render_plain_text_card(state: dict) -> str:
+    """
+    Render the section/category buckets back to plain text in template order.
+    """
+    lines: list[str] = []
+    lines.append("LONG_TERM")
+    for cat in LONG_TERM_CATEGORIES:
+        lines.append(f"{cat}:")
+        for entry in state["LONG_TERM"].get(cat, []):
+            lines.append(entry)
+    lines.append("")  # blank line between sections
+    lines.append("SHORT_TERM")
+    for cat in SHORT_TERM_CATEGORIES:
+        lines.append(f"{cat}:")
+        for entry in state["SHORT_TERM"].get(cat, []):
+            lines.append(entry)
+    return "\n".join(lines).strip()
+
+
+def _parse_text_delta(delta_text: str) -> dict:
+    """
+    Parse TEXT_DELTA_SCRIBE output into section/category -> list of fact texts.
+    """
+    additions = {"LONG_TERM": {}, "SHORT_TERM": {}}
+    current_section = None
+    for raw in (delta_text or "").splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        upper = line.upper()
+        if upper == "LONG_TERM":
+            current_section = "LONG_TERM"
+            continue
+        if upper == "SHORT_TERM":
+            current_section = "SHORT_TERM"
+            continue
+        if line.upper() == "EMPTY":
+            continue
+
+        if "::" not in line or not current_section:
+            continue
+
+        fact_key, fact_text = line.split("::", 1)
+        fact_key = fact_key.strip()
+        fact_text = fact_text.strip()
+        if not fact_text:
+            continue
+
+        # Fact key format: LT:/path... or ST:/path...
+        path = fact_key.split(":", 1)[-1]
+        segments = [seg for seg in path.split("/") if seg]
+        if not segments:
+            continue
+        top_level = segments[0]
+
+        if current_section == "LONG_TERM":
+            valid = LONG_TERM_CATEGORIES
+        else:
+            valid = SHORT_TERM_CATEGORIES
+        if top_level not in valid:
+            continue
+
+        additions[current_section].setdefault(top_level, []).append(fact_text)
+
+    return additions
+
+
+def _merge_text_delta_into_card(current_text: str, delta_text: str) -> str:
+    """
+    Merge parsed text delta into the plain-text card and return updated text.
+    """
+    state = _parse_plain_text_card(current_text)
+    additions = _parse_text_delta(delta_text)
+
+    for section, cats in additions.items():
+        for cat, lines in cats.items():
+            existing = state[section].get(cat, [])
+            norm_existing = {
+                " ".join(e.strip().lower().split()) for e in existing if e.strip()
+            }
+            for line in lines:
+                if not line:
+                    continue
+                norm_line = " ".join(line.strip().lower().split())
+                if norm_line in norm_existing:
+                    continue
+                existing.append(line)
+                norm_existing.add(norm_line)
+            state[section][cat] = existing
+
+    return _render_plain_text_card(state)
 
 
 def build_conversation_slice(messages: list[dict]) -> str:
@@ -839,7 +1239,7 @@ def process_job(payload: dict) -> None:
 
     res = (
         SB.table("threads")
-        .select("fan_identity_card")
+        .select("fan_identity_card,fan_identity_card_raw")
         .eq("id", thread_id)
         .single()
         .execute()
@@ -853,6 +1253,15 @@ def process_job(payload: dict) -> None:
         return
 
     current_card_value = thread.get("fan_identity_card")
+    current_plain_text = thread.get("fan_identity_card_raw")
+    if not isinstance(current_plain_text, str) or not current_plain_text.strip():
+        current_plain_text = PLAIN_TEXT_CARD_TEMPLATE
+        try:
+            SB.table("threads").update({"fan_identity_card_raw": current_plain_text}).eq(
+                "id", thread_id
+            ).execute()
+        except Exception as exc:  # noqa: BLE001
+            print("[fan_card_narrative_writer] Failed to seed fan_identity_card_raw:", exc, flush=True)
     if isinstance(current_card_value, str):
         current_card_raw = current_card_value.strip()
     elif isinstance(current_card_value, dict):
@@ -930,6 +1339,23 @@ def process_job(payload: dict) -> None:
     SB.table("threads").update({"fan_identity_card": merged_card}).eq(
         "id", thread_id
     ).execute()
+
+    # Optional: generate a plain-text delta for append-only cards.
+    try:
+        text_user_prompt = build_text_scribe_prompt(
+            merged_card, delta_card, current_plain_text
+        )
+        text_delta = runpod_call(TEXT_SCRIBE_SYSTEM_PROMPT, text_user_prompt)
+        _log_text_delta(text_delta, thread_id, fan_turn_index)
+        if text_delta and text_delta.strip().upper() != "EMPTY":
+            updated_plain_text = _merge_text_delta_into_card(
+                current_plain_text, text_delta
+            )
+            SB.table("threads").update({"fan_identity_card_raw": updated_plain_text}).eq(
+                "id", thread_id
+            ).execute()
+    except Exception as exc:  # noqa: BLE001
+        print("[fan_card_narrative_writer] Text scribe call failed:", exc, flush=True)
 
     print(
         "[fan_card_narrative_writer] Updated fan_identity_card "
