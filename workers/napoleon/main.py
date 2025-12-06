@@ -58,6 +58,17 @@ PROGRESS_WINDOWS = {
     "YEAR": 540,
     "LIFETIME": 1620,
 }
+PLACEHOLDER_TOKENS = {
+    "n/a",
+    "na",
+    "none",
+    "[none]",
+    "null",
+    "nil",
+    "tbd",
+    "todo",
+    "unknown",
+}
 RETHINK_UPDATE_PATTERN = re.compile(
     r"^\s*UPDATE[_\s-]*(?P<idx>\d+)[_\s-]+(?P<field>"
     r"HORIZON|END_STATE|END_EVIDENCE|HISTORIAN_NOTE|"
@@ -84,6 +95,116 @@ def _blank_horizon_plan(state: str = "") -> dict:
         "END_EVIDENCE": "",
         "HISTORIAN_NOTE": "",
     }
+
+
+def _is_placeholder(text: str | None) -> bool:
+    """
+    Return True if the string is an obvious placeholder ("n/a", "none", etc.).
+    """
+    if text is None:
+        return True
+    if not isinstance(text, str):
+        return False
+    stripped = text.strip()
+    if not stripped:
+        return True
+    normalized = re.sub(r"[\s\[\]\(\)\{\}\.,;:_\-]+", "", stripped.lower())
+    return normalized in PLACEHOLDER_TOKENS
+
+
+def _should_use_model_value(val) -> bool:
+    """
+    Decide whether a model-provided value should overwrite canonical state.
+    Rejects None, empty/whitespace, and placeholder tokens.
+    """
+    if val is None:
+        return False
+    if isinstance(val, str):
+        return not _is_placeholder(val)
+    return True
+
+
+def _normalize_state(state: str | None) -> str:
+    """
+    Normalize plan states to the canonical set.
+    """
+    if not state:
+        return ""
+    cleaned = (state or "").strip().lower()
+    if cleaned in {"completed"}:
+        return "achieved"
+    if cleaned in {"complete", "done", "finished"}:
+        return "achieved"
+    if cleaned in {"altered", "adjusted", "changed"}:
+        return "altered"
+    if cleaned in {"diverted", "abandoned", "pivot"}:
+        return "diverted"
+    if cleaned in {"ongoing", "active"}:
+        return "ongoing"
+    return cleaned
+
+
+def _is_complete_update(update: dict) -> bool:
+    """
+    Determine if an UPDATE block is actionable.
+    Requires: HORIZON + END_STATE + at least one NEW_PLAN_* field with a usable value.
+    """
+    if not isinstance(update, dict):
+        return False
+    horizon = (update.get("HORIZON") or "").upper()
+    if not horizon or horizon not in HORIZONS:
+        return False
+    end_state = _normalize_state(update.get("END_STATE"))
+    if not end_state:
+        return False
+    plan_fields = [
+        update.get("NEW_PLAN_OBJECTIVE"),
+        update.get("NEW_PLAN_METHOD"),
+        update.get("NEW_PLAN_SUCCESS_SIGNAL"),
+        update.get("NEW_PLAN_GUARDRAILS"),
+        update.get("PLAN"),
+    ]
+    usable = any(_should_use_model_value(val) for val in plan_fields)
+    return usable
+
+
+def _extract_plan_text(plan_value) -> str:
+    """
+    Return a string plan body from either a string or dict.
+    """
+    if plan_value is None:
+        return ""
+    if isinstance(plan_value, dict):
+        return str(plan_value.get("PLAN") or plan_value.get("plan") or "")
+    return str(plan_value)
+
+
+def _already_archived(
+    thread_id: int,
+    horizon: str,
+    plan_status: str,
+    previous_plan,
+    reason_for_change: str,
+) -> bool:
+    """
+    Idempotency guard to avoid duplicate plan_history rows on retries.
+    """
+    try:
+        existing = (
+            SB.table("plan_history")
+            .select("id")
+            .eq("thread_id", thread_id)
+            .eq("horizon", horizon)
+            .eq("plan_status", plan_status)
+            .eq("previous_plan", previous_plan)
+            .eq("reason_for_change", reason_for_change)
+            .limit(1)
+            .execute()
+            .data
+        )
+        return bool(existing)
+    except Exception:
+        return False
 
 
 def record_napoleon_failure(
@@ -460,19 +581,19 @@ def _parse_multi_horizon_section(section_text: str) -> dict:
             fields["SUCCESS_SIGNAL"] = success
             fields["GUARDRAILS"] = guardrails
             parts = []
-            if objective:
+            if not _is_placeholder(objective):
                 parts.append(f"OBJECTIVE: {objective}")
-            if method:
+            if not _is_placeholder(method):
                 parts.append(f"METHOD: {method}")
-            if success:
+            if not _is_placeholder(success):
                 parts.append(f"SUCCESS_SIGNAL: {success}")
-            if guardrails:
+            if not _is_placeholder(guardrails):
                 parts.append(f"GUARDRAILS: {guardrails}")
             fields["PLAN"] = " | ".join(parts)
             notes: list[str] = []
-            if fields["HISTORIAN_NOTE"]:
+            if fields["HISTORIAN_NOTE"] and not _is_placeholder(fields["HISTORIAN_NOTE"]):
                 notes.append(fields["HISTORIAN_NOTE"])
-            if fields["END_EVIDENCE"]:
+            if fields["END_EVIDENCE"] and not _is_placeholder(fields["END_EVIDENCE"]):
                 notes.append(fields["END_EVIDENCE"])
             fields["NOTES"] = notes
 
@@ -494,6 +615,7 @@ def _parse_rethink_section(section_text: str) -> dict:
             "REASON": "",
             "CHANGED_HORIZONS": [],
             "UPDATES": [],
+            "HAS_UPDATES": False,
         }
 
     status = ""
@@ -501,6 +623,8 @@ def _parse_rethink_section(section_text: str) -> dict:
     reason = ""
     changed: list[str] = []
     updates: dict[int, dict[str, str]] = {}
+
+    has_updates = False
 
     for line in section_text.splitlines():
         header_match = re.match(
@@ -531,6 +655,7 @@ def _parse_rethink_section(section_text: str) -> dict:
             field = (update_match.group("field") or "").upper()
             value = update_match.group("value") or ""
             updates.setdefault(idx, {})[field] = value.strip()
+            has_updates = True
 
     ordered_updates = []
     for idx in sorted(updates):
@@ -551,6 +676,9 @@ def _parse_rethink_section(section_text: str) -> dict:
     if not changed:
         changed = [u["HORIZON"] for u in ordered_updates if u.get("HORIZON")]
 
+    if has_updates and status != "yes":
+        status = "yes"
+
     if summary and not reason:
         reason = summary
     if reason and status != "yes":
@@ -564,6 +692,7 @@ def _parse_rethink_section(section_text: str) -> dict:
         "REASON": reason,
         "CHANGED_HORIZONS": changed,
         "UPDATES": ordered_updates,
+        "HAS_UPDATES": has_updates,
     }
 
 
@@ -758,11 +887,8 @@ def merge_napoleon_analysis(base: dict, patch: dict) -> dict:
                     if val:
                         target["NOTES"] = val
                 else:
-                    if val is None:
+                    if not _should_use_model_value(val):
                         continue
-                    if isinstance(val, str):
-                        if not val.strip():
-                            continue
                     target[field_key] = val
 
     # Merge rethink
@@ -811,13 +937,14 @@ def _canonical_multi_from_threads(thread_row: dict | None) -> dict:
                 elif upper_key in container:
                     if value is None:
                         continue
-                    if isinstance(value, str) and not value.strip():
-                        continue
+                    if isinstance(value, str):
+                        if _is_placeholder(value) or not value.strip():
+                            continue
                     container[upper_key] = value
             if not container["PLAN"]:
                 container["PLAN"] = val.get("PLAN") or val.get("plan") or ""
         else:
-            container["PLAN"] = val or ""
+            container["PLAN"] = "" if _is_placeholder(val) else (val or "")
         plans[hz] = container
     return plans
 
@@ -850,9 +977,7 @@ def _merge_with_canonical_plans(
                     if val:
                         base["NOTES"] = val
                 else:
-                    if val is None:
-                        continue
-                    if isinstance(val, str) and not val.strip():
+                    if not _should_use_model_value(val):
                         continue
                     base[field_key] = val
 
@@ -1051,6 +1176,27 @@ def process_job(payload):
     # Evaluate for missing fields before applying server defaults.
     missing_fields = _missing_required_fields(analysis)
 
+    rethink_meta = (analysis or {}).get("RETHINK_HORIZONS") or {}
+    updates_raw = rethink_meta.get("UPDATES") or []
+    complete_updates = [u for u in updates_raw if _is_complete_update(u)]
+    has_updates = bool(complete_updates)
+    status_is_yes = (rethink_meta.get("STATUS") or "").lower() == "yes"
+
+    # If STATUS is yes but no actionable updates, request repair.
+    if status_is_yes and not has_updates:
+        missing_fields.append("RETHINK_HORIZONS.UPDATES_MISSING")
+
+    # If CHANGED_HORIZONS lists horizons without updates, flag mismatch.
+    advisory_changed = set(
+        hz.strip().upper() for hz in (rethink_meta.get("CHANGED_HORIZONS") or []) if hz
+    )
+    updated_horizons = set((u.get("HORIZON") or "").upper() for u in complete_updates)
+    missing_update_details = advisory_changed - updated_horizons
+    if status_is_yes and missing_update_details:
+        missing_fields.append(
+            "RETHINK_HORIZONS.UPDATE_MISMATCH:" + ",".join(sorted(missing_update_details))
+        )
+
     # If parsing failed or critical fields are missing, try repair up to 2 attempts.
     if (parse_error is not None or analysis is None or missing_fields) and attempt < 2:
         retry_payload = {
@@ -1129,12 +1275,10 @@ def process_job(payload):
         or ""
     )
     updates_list = rethink.get("UPDATES") or []
-    changed_from_header = [
-        hz.strip().upper() for hz in (rethink.get("CHANGED_HORIZONS") or []) if hz
-    ]
+    complete_updates = [u for u in updates_list if _is_complete_update(u)]
     updates_by_hz = {
         (item.get("HORIZON") or "").upper(): item
-        for item in updates_list
+        for item in complete_updates
         if item.get("HORIZON")
     }
 
@@ -1178,10 +1322,7 @@ def process_job(payload):
 
     if rethink_status.startswith("yes"):
         multi_plan = analysis["MULTI_HORIZON_PLAN"]
-        changed_horizons = set(changed_from_header) | set(updates_by_hz.keys())
-        if not changed_horizons and non_ongoing_horizons:
-            changed_horizons |= {hz for hz, _ in non_ongoing_horizons}
-        target_horizons = changed_horizons or set(HORIZONS)
+        target_horizons = set(updates_by_hz.keys())
 
         for hz in HORIZONS:
             if target_horizons and hz not in target_horizons:
@@ -1189,14 +1330,13 @@ def process_job(payload):
 
             hz_data = multi_plan.get(hz, _blank_horizon_plan("ongoing"))
             update_meta = updates_by_hz.get(hz, {})
-            new_plan_payload = hz_data
             status_raw = (
                 update_meta.get("END_STATE")
                 or hz_data.get("END_STATE")
                 or hz_data.get("STATE")
                 or "ongoing"
             )
-            status = (status_raw or "ongoing").lower()
+            plan_status_canonical = _normalize_state(status_raw) or "ongoing"
             col = f"{hz.lower()}_plan"
 
             old_plan = (
@@ -1208,9 +1348,13 @@ def process_job(payload):
                 .data.get(col)
                 or ""
             )
+            old_plan_text = _extract_plan_text(old_plan)
+            new_plan_text = hz_data.get("PLAN") or ""
+            if not _should_use_model_value(new_plan_text):
+                new_plan_text = old_plan_text
 
-            changed = (_plan_repr(new_plan_payload) != _plan_repr(old_plan)) or (
-                status and status != "ongoing"
+            changed = (new_plan_text != old_plan_text) or (
+                plan_status_canonical and plan_status_canonical != "ongoing"
             )
             if changed:
                 change_reason = (
@@ -1219,32 +1363,38 @@ def process_job(payload):
                     or reason_text
                     or "Plan updated"
                 )
-                plan_status = status or "ongoing"
+                plan_status = plan_status_canonical or "ongoing"
                 normalized_status = (
-                    "completed" if plan_status.lower() == "achieved" else plan_status
+                    "completed" if plan_status == "achieved" else plan_status
                 )
+
+                if _already_archived(
+                    thread_id,
+                    hz.lower(),
+                    normalized_status,
+                    old_plan_text,
+                    change_reason,
+                ):
+                    continue
+
                 send(
                     "plans.archive",
                     {
                         "fan_message_id": fan_message_id,
                         "thread_id": thread_id,
                         "horizon": hz.lower(),
-                        "previous_plan": old_plan,
+                        "previous_plan": old_plan_text,
                         "plan_status": normalized_status,
                         "reason_for_change": change_reason,
                     },
                 )
 
-                stored_plan = dict(new_plan_payload)
-                # Reset active state to ongoing and clear END_STATE so the new plan
-                # does not keep triggering rethink cycles.
-                stored_plan["STATE"] = "ongoing"
-                stored_plan["END_STATE"] = ""
-
-                SB.table("threads").update({col: stored_plan}).eq(
+                SB.table("threads").update({col: new_plan_text}).eq(
                     "id", thread_id
                 ).execute()
                 analysis["MULTI_HORIZON_PLAN"][hz]["STATE"] = "ongoing"
+                analysis["MULTI_HORIZON_PLAN"][hz]["END_STATE"] = ""
+                analysis["MULTI_HORIZON_PLAN"][hz]["PLAN"] = new_plan_text
 
     creator_msg_id = insert_creator_reply(thread_id, analysis["FINAL_MESSAGE"])
 
