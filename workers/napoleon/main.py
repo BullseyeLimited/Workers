@@ -29,7 +29,6 @@ HORIZONS = ["EPISODE", "CHAPTER", "SEASON", "YEAR", "LIFETIME"]
 HEADER_PATTERN = re.compile(
     r"^[\s>*#-]*\**\s*(?:SECTION\s*\d+\s*[:\-–—]?\s*)?(?P<header>"
     r"TACTICAL[\s_-]?PLAN[\s_-]?3[\s_-]?TURNS|"
-    r"MULTI[\s_-]?HORIZON[\s_-]?PLAN|"
     r"RETHINK[\s_-]?HORIZONS|"
     r"VOICE[\s_-]?ENGINEERING[\s_-]?LOGIC|"
     r"FINAL[\s_-]?MESSAGE"
@@ -476,7 +475,7 @@ def parse_napoleon_headers(raw_text: str) -> tuple[dict | None, str | None]:
 
     required = [
         "TACTICAL_PLAN_3TURNS",
-        "MULTI_HORIZON_PLAN",
+        # MULTI_HORIZON_PLAN is now optional; can be provided only on rethink/seeding.
         "RETHINK_HORIZONS",
         "VOICE_ENGINEERING_LOGIC",
         "FINAL_MESSAGE",
@@ -487,7 +486,11 @@ def parse_napoleon_headers(raw_text: str) -> tuple[dict | None, str | None]:
 
     try:
         tactical = _parse_tactical_section(sections["TACTICAL_PLAN_3TURNS"])
-        multi_plan = _parse_multi_horizon_section(sections["MULTI_HORIZON_PLAN"])
+        # MULTI_HORIZON_PLAN header is deprecated; attempt to parse horizon lines only from the rethink section.
+        try:
+            multi_plan = _parse_multi_horizon_section(sections["RETHINK_HORIZONS"])
+        except Exception:
+            multi_plan = {}
         rethink = _parse_rethink_section(sections["RETHINK_HORIZONS"])
         voice_logic = _parse_voice_section(sections["VOICE_ENGINEERING_LOGIC"])
         final_message = sections["FINAL_MESSAGE"].strip()
@@ -541,10 +544,10 @@ def parse_napoleon_partial(raw_text: str) -> dict:
         except Exception:
             pass
 
-    if "MULTI_HORIZON_PLAN" in sections:
+    if "RETHINK_HORIZONS" in sections:
         try:
             result["MULTI_HORIZON_PLAN"] = _parse_multi_horizon_section(
-                sections["MULTI_HORIZON_PLAN"]
+                sections["RETHINK_HORIZONS"]
             )
         except Exception:
             pass
@@ -635,6 +638,32 @@ def merge_napoleon_analysis(base: dict, patch: dict) -> dict:
         merged["FINAL_MESSAGE"] = patch["FINAL_MESSAGE"]
 
     return merged
+
+
+def _canonical_multi_from_threads(thread_row: dict | None) -> dict:
+    """
+    Build a multi-horizon plan dict from canonical thread columns.
+    Falls back to empty strings when missing.
+    """
+    plans = {}
+    if not isinstance(thread_row, dict):
+        thread_row = {}
+    for hz in HORIZONS:
+        col = f"{hz.lower()}_plan"
+        val = thread_row.get(col)
+        if isinstance(val, dict):
+            plan_text = val.get("PLAN") or val.get("plan") or ""
+            notes = val.get("NOTES") or val.get("notes") or []
+        else:
+            plan_text = val or ""
+            notes = []
+        plans[hz] = {
+            "PLAN": plan_text,
+            "PROGRESS": "",
+            "STATE": "ongoing",
+            "NOTES": notes if isinstance(notes, list) else [],
+        }
+    return plans
 
 
 def _apply_progress_overrides(analysis: dict | None, turn_index: int | None) -> dict | None:
@@ -756,6 +785,19 @@ def process_job(payload):
     latest_fan_text = msg.get("message_text") or ""
     current_turn_index = msg.get("turn_index")
 
+    # Fetch canonical thread plans for fallback/seeding.
+    thread_row = (
+        SB.table("threads")
+        .select(
+            "episode_plan,chapter_plan,season_plan,year_plan,lifetime_plan"
+        )
+        .eq("id", thread_id)
+        .single()
+        .execute()
+        .data
+        or {}
+    )
+
     raw_turns = live_turn_window(
         thread_id,
         boundary_turn=msg.get("turn_index"),
@@ -799,9 +841,6 @@ def process_job(payload):
 
     analysis, parse_error = parse_napoleon_headers(raw_text)
 
-    # Basic validation for missing required fields
-    missing_fields = _missing_required_fields(analysis)
-
     # Establish root analysis from the first attempt (best-effort partial)
     if not root_analysis:
         root_analysis = parse_napoleon_partial(raw_text)
@@ -832,10 +871,16 @@ def process_job(payload):
         merged = merge_napoleon_analysis(root_analysis, patch)
         analysis = merged
         parse_error = None
-        missing_fields = _missing_required_fields(analysis)
 
-    # Override progress with server-derived turn counters
-    analysis = _apply_progress_overrides(analysis, current_turn_index)
+    # Fill missing multi-horizon plan from canonical thread plans if absent/empty.
+    if analysis is not None:
+        if not analysis.get("MULTI_HORIZON_PLAN"):
+            analysis["MULTI_HORIZON_PLAN"] = _canonical_multi_from_threads(thread_row)
+        # Override progress with server-derived turn counters
+        analysis = _apply_progress_overrides(analysis, current_turn_index)
+
+    # Basic validation for missing required fields (after filling defaults)
+    missing_fields = _missing_required_fields(analysis)
 
     if parse_error is not None or analysis is None or missing_fields:
         # Final failure after retries
