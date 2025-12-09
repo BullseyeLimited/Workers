@@ -68,7 +68,6 @@ def _summary_exists(thread_id: int, tier: str, start_turn: int, end_turn: int) -
     )
     return bool(existing)
 
-
 def _pending_summary_job(
     queue: str, thread_id: int, start_turn: int, end_turn: int
 ) -> bool:

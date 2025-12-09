@@ -92,13 +92,31 @@ def parse_historian_headers(raw_text: str) -> dict:
 
 
 def process_job(payload):
+    thread_id = payload["thread_id"]
+    try:
+        turn_count_row = (
+            SB.table("threads")
+            .select("turn_count")
+            .eq("id", thread_id)
+            .single()
+            .execute()
+            .data
+            or {}
+        )
+        if (turn_count_row.get("turn_count") or 0) <= 1:
+            # Skip historian on the very first turn.
+            return
+    except Exception:
+        # If we cannot fetch the thread safely, avoid blocking the queue; proceed.
+        pass
+
     prompt = TPL.format(**payload)
     raw_text = call_llm(prompt)
     parsed = parse_historian_headers(raw_text)
 
     SB.table("plan_history").insert(
         {
-            "thread_id": payload["thread_id"],
+            "thread_id": thread_id,
             "horizon": payload["horizon"],
             "plan_status": payload["plan_status"],
             "previous_plan": payload["previous_plan"],

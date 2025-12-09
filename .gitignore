@@ -17,6 +17,9 @@ eggs/
 lib/
 !workers/lib/
 !workers/lib/**
+# Ignore build artefacts inside workers/lib
+workers/lib/**/__pycache__/
+workers/lib/**/*.py[cod]
 lib64/
 parts/
 sdist/
