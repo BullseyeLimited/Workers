@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+from datetime import datetime, timezone
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Dict, Iterable
@@ -316,7 +317,7 @@ def live_turn_window(
 
     query = (
         sb.table("messages")
-        .select("id,turn_index,sender,message_text")
+        .select("id,turn_index,sender,message_text,created_at")
         .eq("thread_id", thread_id)
         .gt("turn_index", cutoff_turn)
         .order("turn_index", desc=True)
@@ -345,7 +346,8 @@ def live_turn_window(
             sender_label = sender_raw.title() or "Unknown"
         turn_label = f"Turn {turn_number}"
         text = _clean_turn_text(row.get("message_text"))
-        lines.append(f"{turn_label} ({sender_label}): {text}")
+        ts = _format_turn_timestamp(row.get("created_at"))
+        lines.append(f"{turn_label} @ {ts} ({sender_label}): {text}")
 
     return "\n".join(lines)
 
@@ -377,6 +379,30 @@ def _clean_turn_text(text: Any) -> str:
     if single_line.lower().startswith("message 1:"):
         single_line = single_line[len("message 1:") :].lstrip()
     return single_line[:2000]
+
+
+def _format_turn_timestamp(value: Any) -> str:
+    """Render a compact UTC timestamp for a turn."""
+    if not value:
+        return "unknown time"
+    if isinstance(value, datetime):
+        dt = value
+    elif isinstance(value, (int, float)):
+        dt = datetime.fromtimestamp(value, tz=timezone.utc)
+    elif isinstance(value, str):
+        try:
+            cleaned = value.replace("Z", "+00:00")
+            dt = datetime.fromisoformat(cleaned)
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            else:
+                dt = dt.astimezone(timezone.utc)
+        except ValueError:
+            return value
+    else:
+        return str(value)
+
+    return dt.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
 
 
 def latest_kairos_json(thread_id: int, *, client=None) -> str:
