@@ -1082,14 +1082,6 @@ def run_repair_call(
 
 def process_job(payload):
     fan_message_id = payload["message_id"]
-    attempt = int(payload.get("napoleon_retry", 0))
-    is_repair = bool(payload.get("repair_mode"))
-    previous_raw_text = payload.get("orig_raw_text") or ""
-    root_raw_text = payload.get("root_raw_text") or previous_raw_text or ""
-    previous_missing = payload.get("missing_fields") or []
-    orig_system_prompt = payload.get("orig_system_prompt") or ""
-    orig_user_prompt = payload.get("orig_user_prompt") or ""
-    root_analysis = payload.get("root_analysis") or {}
 
     msg = (
         SB.table("messages")
@@ -1139,15 +1131,7 @@ def process_job(payload):
     raw_hash = hashlib.sha256(full_prompt_log.encode("utf-8")).hexdigest()
 
     try:
-        if is_repair:
-            raw_text, _request_payload = run_repair_call(
-                root_raw_text or previous_raw_text or "",
-                previous_missing,
-                orig_system_prompt or system_prompt,
-                orig_user_prompt or user_prompt,
-            )
-        else:
-            raw_text, _request_payload = runpod_call(system_prompt, user_prompt)
+        raw_text, _request_payload = runpod_call(system_prompt, user_prompt)
     except Exception as exc:  # noqa: BLE001
         record_napoleon_failure(
             fan_message_id=fan_message_id,
@@ -1162,16 +1146,9 @@ def process_job(payload):
 
     analysis, parse_error = parse_napoleon_headers(raw_text)
 
-    # Establish root analysis from the first attempt (best-effort partial)
-    if not root_analysis:
-        root_analysis = parse_napoleon_partial(raw_text)
-
-    if is_repair:
-        # Parse partial repair output and merge into root analysis
-        patch = parse_napoleon_partial(raw_text)
-        merged = merge_napoleon_analysis(root_analysis, patch)
-        analysis = merged
-        parse_error = None
+    # If the model returned nothing parsable, treat as a hard parse error.
+    if analysis is None:
+        parse_error = parse_error or "analysis_none"
 
     # Evaluate for missing fields before applying server defaults.
     missing_fields = _missing_required_fields(analysis)
@@ -1214,26 +1191,6 @@ def process_job(payload):
         parse_error = None
         status_is_yes = False
 
-    # If parsing failed or critical fields are missing, try repair up to 2 attempts.
-    if (parse_error is not None or analysis is None or missing_fields) and attempt < 2:
-        retry_payload = {
-            "message_id": fan_message_id,
-            "napoleon_retry": attempt + 1,
-            "repair_mode": True,
-            "orig_raw_text": raw_text,
-            "root_raw_text": root_raw_text or raw_text,
-            "missing_fields": missing_fields,
-            "orig_system_prompt": orig_system_prompt or system_prompt,
-            "orig_user_prompt": orig_user_prompt or user_prompt,
-            "root_analysis": analysis or root_analysis,
-        }
-        send(QUEUE, retry_payload)
-        print(
-            f"[Napoleon] Enqueued repair attempt {attempt + 1} for fan message {fan_message_id} "
-            f"(parse_error={parse_error}, missing={missing_fields})"
-        )
-        return True
-
     # Fill missing multi-horizon plan from canonical thread plans if absent/empty.
     if analysis is not None:
         analysis = _merge_with_canonical_plans(analysis, thread_row)
@@ -1243,37 +1200,18 @@ def process_job(payload):
     # Basic validation for missing required fields (after filling defaults)
     missing_fields = _missing_required_fields(analysis)
 
-    if missing_fields and attempt < 2:
-        retry_payload = {
-            "message_id": fan_message_id,
-            "napoleon_retry": attempt + 1,
-            "repair_mode": True,
-            "orig_raw_text": raw_text,
-            "root_raw_text": root_raw_text or raw_text,
-            "missing_fields": missing_fields,
-            "orig_system_prompt": orig_system_prompt or system_prompt,
-            "orig_user_prompt": orig_user_prompt or user_prompt,
-            "root_analysis": analysis or root_analysis,
-        }
-        send(QUEUE, retry_payload)
-        print(
-            f"[Napoleon] Enqueued repair attempt {attempt + 1} for fan message {fan_message_id} "
-            f"(after defaults, missing={missing_fields})"
-        )
-        return True
-
     if parse_error is not None or analysis is None or missing_fields:
-        # Final failure after retries
+        # Record failure immediately; no repair retries.
         record_napoleon_failure(
             fan_message_id=fan_message_id,
             thread_id=thread_id,
             prompt=prompt_log,
             raw_text=raw_text,
             raw_hash=raw_hash,
-            error_message=f"Parse/validation error after retries (missing={missing_fields}, parse_error={parse_error})",
+            error_message=f"Parse/validation error (missing={missing_fields}, parse_error={parse_error})",
         )
         print(
-            f"[Napoleon] Parse/validation error after retries for fan message {fan_message_id}: "
+            f"[Napoleon] Parse/validation error for fan message {fan_message_id}: "
             f"missing={missing_fields}, parse_error={parse_error}"
         )
         return True
