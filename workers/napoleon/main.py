@@ -1382,6 +1382,7 @@ def process_job(payload):
                     {
                         "fan_message_id": fan_message_id,
                         "thread_id": thread_id,
+                        "turn_index": current_turn_index,
                         "horizon": hz.lower(),
                         "previous_plan": old_plan_text,
                         "plan_status": normalized_status,
