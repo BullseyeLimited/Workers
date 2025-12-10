@@ -179,9 +179,9 @@ STEP B: THE IMMEDIATE CONTEXT (Episode & Turns)
 
 STEP C: THE EMOTIONAL REALITY (The Analyst)
 5.  Kairos Analysis: This is your "Empathy Engine." Kairos will tell you what the Fan is feeling beneath his words.
-     If Kairos says "Fan is masking insecurity," your Director Strategy must pivot to Validation.
-     If Kairos says "Fan is high-arousal/playful," your Director Strategy must pivot to Escalation.
-     Trust the Analyst. Do not second-guess the emotional read unless the raw text explicitly contradicts it.
+     If Kairos says "Fan is masking insecurity," your Director Strategy can pivot to Validation.
+     If Kairos says "Fan is high-arousal/playful," your Director Strategy can pivot to Escalation.
+     Treat Kairos as your employed psychologist, his words are far from final, they are suggestions, which you do not have to follow, its good to have them to know but you have your own brain and you use them with caution. You are the mastermind behind this, you treat his analysis as recommendations, you do not blindly follow them. 
 
 STEP D: THE TARGET PROFILES (The Cards)
 6.  Fan Identity & Psychic Cards:
@@ -507,6 +507,7 @@ Execute.
 </NAPOLEON_INPUT>
 
 ---
+
 
 
 
