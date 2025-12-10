@@ -442,18 +442,25 @@ Hard rules:
 	•	For Year/Season changes, END_EVIDENCE must reference a real structural reason (not vibes).
 
 SECTION 3: VOICE_ENGINEERING_LOGIC
-(The Actor's Workbench - Show your reasoning here)
- INTENT: [The specific psychological reaction we want to trigger]
- MECHANISM: [The specific syntax/punctuation tools you will use]
- DRAFTING: [Briefly draft or refine the line to perfect the tone]
+(The Actor's Workbench)
+INTENT: <write intent here>
+MECHANISM: <write mechanism here>
+DRAFTING: <draft here>
 
 SECTION 4: FINAL_MESSAGE
 (The Execution)
-[The exact text to be sent to the Fan. No quotes, no meta-text. Just the message.]
+<write final message here>
 
 ### END
 
 ---
+COMMAND:
+Read the `<NAPOLEON_INPUT>` above.
+Assume the Identity of Napoléon.
+Engage Director Mode to plan the trajectory.
+Engage Actor Mode to engineer the voice.
+Execute.
+
 
 ### 8. INPUT TEMPLATE (REFERENCE)
 
@@ -536,12 +543,7 @@ Recent turns are presented oldest → newest (top to bottom), one per line, form
 
 ---
 
-COMMAND:
-Read the `<NAPOLEON_INPUT>` above.
-Assume the Identity of Napoléon.
-Engage Director Mode to plan the trajectory.
-Engage Actor Mode to engineer the voice.
-Execute.
+
 
 
 
