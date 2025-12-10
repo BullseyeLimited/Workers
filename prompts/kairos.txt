@@ -297,14 +297,7 @@ List hard evidence visible in the text itself.
  Other Signals: Look for tone shifts, punctuation aggression, silence, or specific keywords from his Identity Card.
 
 PSYCHOLOGICAL_LEVERS
-(Bullet points, 1-3 sentences each)
-Creative Recommendations for the Planner.
-Based on the unique intersection of his Psychic Card, Identity Card, and Current Mood, what specific buttons should Napoleon push?
- Strict Data Integrity: Any specific data points (nicknames, memories, facts) suggested here MUST be explicitly present in the Input (Cards or History). Do not invent new nicknames or facts that are not in the record.
- Reference the Cards: If his Identity Card says he is a CEO, suggest: "Power Play: He is used to being in charge. Tease him for working too hard to trigger his desire for escape."
- Word Suggestions: If his Psychic Card mentions a "Praise Kink," suggest: "Specific Phrasing: Use the word 'Good Boy' or 'Proud of you' to trigger his dopaminergic response."
- Format: "Lever Name: Specific suggestion on how to apply it and why it works now."
- NO TUNNEL VISION: Use your full psychological knowledge to identify unique opportunities based on the specific context of this turn. If you see a lever that isn't listed, define it and use it.
+write "none" here
 
 RISKS
 (The "Paranoid Analyst" Rule) You are the guardian of the simulation's longevity. Do not default to writing "None" simply because there is no immediate crisis. You must actively hunt for latent friction points, logical traps, or subtle strategic drifts that could erode the relationship over time.
@@ -472,6 +465,9 @@ END ANALYST INPUT TEMPLATE
 ────────────────────────────────────────────────────────────────────────
 
 Based on the input above, immediately generate the response using the required headers.
+
+
+
 
 
 
