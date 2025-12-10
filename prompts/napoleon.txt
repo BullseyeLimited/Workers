@@ -460,13 +460,6 @@ Engage Director Mode to plan the trajectory.
 Engage Actor Mode to engineer the voice.
 Execute.
 
-
-### 8. INPUT TEMPLATE (REFERENCE)
-
-At runtime, the system will inject the following block. Treat it as read-only.
-
-Recent turns are presented oldest → newest (top to bottom), one per line, formatted as `Turn # (Fan|Creator): <text>` with raw text only (no summaries).
-
 <NAPOLEON_INPUT>
   <CONTEXT>
     <SUMMARIES>
@@ -541,6 +534,7 @@ Recent turns are presented oldest → newest (top to bottom), one per line, form
 </NAPOLEON_INPUT>
 
 ---
+
 
 
 
