@@ -93,6 +93,11 @@ def parse_historian_headers(raw_text: str) -> dict:
 
 def process_job(payload):
     thread_id = payload["thread_id"]
+    turn_index = payload.get("turn_index")
+    # Skip archiving for the very first turn; ack happens in the caller.
+    if isinstance(turn_index, int) and turn_index <= 1:
+        print(f"[historian] Skipping archive for thread {thread_id} turn {turn_index} (first turn).", flush=True)
+        return
     try:
         turn_count_row = (
             SB.table("threads")
@@ -113,6 +118,8 @@ def process_job(payload):
     prompt = TPL.format(**payload)
     raw_text = call_llm(prompt)
     parsed = parse_historian_headers(raw_text)
+    if turn_index is not None:
+        parsed["turn_index"] = turn_index
 
     SB.table("plan_history").insert(
         {
