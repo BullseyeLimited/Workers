@@ -211,7 +211,16 @@ def make_block(thread_id: int, tier: str, limit: int = 4, *, client=None) -> str
         recency_number = total - idx + 1
         start, end = row.get("start_turn"), row.get("end_turn")
         if start is not None and end is not None:
-            label = f"{tier.title()} {recency_number} – Turns {start}-{end}"
+            label = f"{tier.title()} {recency_number}"
+            start_ts, end_ts = _summary_time_bounds(thread_id, start, end, client=sb)
+            if start_ts or end_ts:
+                label = (
+                    f"{label} ("
+                    f"{_format_turn_timestamp(start_ts) if start_ts else '?'}"
+                    f" \u2192 "
+                    f"{_format_turn_timestamp(end_ts) if end_ts else '?'}"
+                    f")"
+                )
         else:
             label = f"{tier.title()} {recency_number} – #{row.get('id') or idx}"
         narrative = row.get("narrative_summary")
@@ -403,6 +412,32 @@ def _format_turn_timestamp(value: Any) -> str:
         return str(value)
 
     return dt.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+
+
+def _summary_time_bounds(
+    thread_id: int, start_turn: int | None, end_turn: int | None, *, client=None
+) -> tuple[Any | None, Any | None]:
+    """Return (earliest_created_at, latest_created_at) for a turn span."""
+
+    sb = _resolve_client(client)
+
+    def _query(desc: bool):
+        q = (
+            sb.table("messages")
+            .select("created_at,turn_index")
+            .eq("thread_id", thread_id)
+        )
+        if start_turn is not None:
+            q = q.gte("turn_index", start_turn)
+        if end_turn is not None:
+            q = q.lte("turn_index", end_turn)
+        q = q.order("turn_index", desc=desc).limit(1)
+        rows = q.execute().data or []
+        return rows[0].get("created_at") if rows else None
+
+    earliest = _query(desc=False)
+    latest = _query(desc=True)
+    return earliest, latest
 
 
 def latest_kairos_json(thread_id: int, *, client=None) -> str:
