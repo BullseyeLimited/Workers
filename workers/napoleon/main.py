@@ -1197,6 +1197,23 @@ def process_job(payload):
             "RETHINK_HORIZONS.UPDATE_MISMATCH:" + ",".join(sorted(missing_update_details))
         )
 
+    # Safety valve: if the only issues are horizon-format problems, drop the rethink
+    # to avoid repair loops (we'll just skip horizon updates this turn).
+    horizon_only_errors = all(
+        field.startswith("RETHINK_HORIZONS") for field in missing_fields
+    )
+    if status_is_yes and missing_fields and horizon_only_errors:
+        analysis["RETHINK_HORIZONS"] = {
+            "STATUS": "no",
+            "SUMMARY": "",
+            "REASON": "",
+            "CHANGED_HORIZONS": [],
+            "UPDATES": [],
+        }
+        missing_fields = []
+        parse_error = None
+        status_is_yes = False
+
     # If parsing failed or critical fields are missing, try repair up to 2 attempts.
     if (parse_error is not None or analysis is None or missing_fields) and attempt < 2:
         retry_payload = {

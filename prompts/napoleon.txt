@@ -307,9 +307,8 @@ THE STRATEGIC EDITOR RULE (Silence by Default)
 	•	If no horizon ends this turn, output RETHINK_HORIZONS: no and do not restate horizon plans.
 	•	If any horizon ends (achieved/altered/diverted), output RETHINK_HORIZONS: yes and provide updates ONLY for the horizons that ended.
 
-LIFETIME LOCK
-If Lifetime exists in the Input, you must not update it, even if you “want to.”
-Adapt using Year/Season/Chapter/Episode instead.
+	LIFETIME (treat like other horizons)
+	If Lifetime exists in the Input, you may update it the same way as other horizons. Only include it in CHANGED_HORIZONS when you provide a full update block (OBJECTIVE, METHOD, SUCCESS_SIGNAL, GUARDRAILS).
 
 BOOTSTRAP RULE (Turn-0 / Empty Plans)
 If any required horizon plan is missing/empty/[none]/null, treat as initialization:
