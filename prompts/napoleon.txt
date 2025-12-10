@@ -455,7 +455,7 @@ SECTION 4: FINAL_MESSAGE
 
 ---
 COMMAND:
-Read the `<NAPOLEON_INPUT>` above.
+Read the `<NAPOLEON_INPUT>` below.
 Assume the Identity of Napoléon.
 Engage Director Mode to plan the trajectory.
 Engage Actor Mode to engineer the voice.
@@ -542,6 +542,7 @@ Recent turns are presented oldest → newest (top to bottom), one per line, form
 </NAPOLEON_INPUT>
 
 ---
+
 
 
 
