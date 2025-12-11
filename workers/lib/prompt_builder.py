@@ -326,7 +326,7 @@ def live_turn_window(
 
     query = (
         sb.table("messages")
-        .select("id,turn_index,sender,message_text,created_at")
+        .select("id,turn_index,sender,message_text,media_analysis_text,created_at")
         .eq("thread_id", thread_id)
         .gt("turn_index", cutoff_turn)
         .order("turn_index", desc=True)
@@ -355,6 +355,10 @@ def live_turn_window(
             sender_label = sender_raw.title() or "Unknown"
         turn_label = f"Turn {turn_number}"
         text = _clean_turn_text(row.get("message_text"))
+        media_analysis = row.get("media_analysis_text")
+        if media_analysis:
+            cleaned_media = _clean_turn_text(media_analysis)
+            text = f"{text}\n[MEDIA ANALYSIS]\n{cleaned_media}".strip()
         ts = _format_turn_timestamp(row.get("created_at"))
         lines.append(f"{turn_label} @ {ts} ({sender_label}): {text}")
 

@@ -38,6 +38,11 @@ def enqueue_kairos(mid:int):
     send("kairos.analyse", {"message_id": mid})
 
 
+def enqueue_argus(mid: int):
+    # media-aware worker that will eventually wake Kairos
+    send("argus.analyse", {"message_id": mid})
+
+
 def _latest_summary_end(thread_id: int, tier: str) -> int:
     row = (
         SB.table("summaries")
@@ -133,6 +138,8 @@ async def receive(request: Request):
     ts = payload.get("timestamp") or datetime.datetime.utcnow().replace(
         tzinfo=pytz.UTC
     ).isoformat()
+    media_items = payload.get("media") or []
+    has_media = bool(media_items)
 
     creator_id = get_creator_id(creator)
     fan_hash = hashlib.sha256(fan_id.encode()).hexdigest()
@@ -189,6 +196,9 @@ async def receive(request: Request):
                 "source_channel": payload.get("source_channel") or "live",
                 "created_at": ts,
                 "turn_index": turn_index,
+                # Media fields are optional; populated only when attachments exist.
+                "media_status": "pending" if has_media else None,
+                "media_payload": {"items": media_items} if has_media else None,
             },
             upsert=False,
         )
@@ -200,7 +210,10 @@ async def receive(request: Request):
 
     msg_id = res[0]["id"]
     SB.table("threads").update({"turn_count": turn_index}).eq("id", thread_id).execute()
-    enqueue_kairos(msg_id)
+    if has_media:
+        enqueue_argus(msg_id)
+    else:
+        enqueue_kairos(msg_id)
 
     _maybe_enqueue_episode_summary(thread_id, turn_index)
 
