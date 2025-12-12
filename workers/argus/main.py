@@ -45,6 +45,7 @@ OPENAI_CLIENT = OpenAI(api_key=OPENAI_KEY, base_url=OPENAI_BASE_URL) if OPENAI_K
 PROMPTS_DIR = Path(__file__).resolve().parents[2] / "prompts"
 ARGUS_VIDEO_MODEL = os.getenv("ARGUS_VIDEO_MODEL")
 ARGUS_PHOTO_MODEL = os.getenv("ARGUS_PHOTO_MODEL")
+ARGUS_CONTEXT_TURNS = int(os.getenv("ARGUS_CONTEXT_TURNS", "6"))
 
 _ARGUS_VIDEO_PROMPT = None
 _ARGUS_PHOTO_PROMPT = None
@@ -203,7 +204,13 @@ def _fallback_analysis(item: dict) -> str:
 
 
 def _merge_context(thread_id: int, turn_index: int | None) -> str:
-    return live_turn_window(thread_id, boundary_turn=turn_index, client=SB)
+    turns = ARGUS_CONTEXT_TURNS if ARGUS_CONTEXT_TURNS > 0 else 6
+    return live_turn_window(
+        thread_id,
+        boundary_turn=turn_index,
+        limit=turns,
+        client=SB,
+    )
 
 
 def _process_items(items: List[dict], context: str) -> Tuple[List[str], List[str], List[dict]]:
