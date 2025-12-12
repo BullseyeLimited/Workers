@@ -90,6 +90,77 @@ def _clean(items) -> List[dict]:
     return []
 
 
+def _normalize_media_kind(item: dict) -> str:
+    """
+    Normalize assorted media type labels (gif/sticker/screenshot/etc.) into
+    image/video/voice buckets so they route to the right describer.
+    """
+    type_val = (item.get("type") or "").strip().lower()
+    mime = (item.get("mime_type") or "").strip().lower()
+    url = (item.get("url") or item.get("signed_url") or item.get("href") or "").lower()
+
+    image_types = {
+        "image",
+        "photo",
+        "picture",
+        "pic",
+        "screenshot",
+        "screen",
+        "screen_capture",
+        "screen-capture",
+        "screen grab",
+        "screen-grab",
+    }
+    gif_types = {"gif", "animated_gif", "gifv"}
+    sticker_types = {"sticker", "sticker_pack", "sticker-pack"}
+    video_types = {"video", "mp4", "mov", "video/mp4", "video/quicktime"}
+    voice_types = {"audio", "voice", "voice_note", "voice-note", "voice message"}
+
+    def is_animated() -> bool:
+        if item.get("animated") or item.get("is_animated"):
+            return True
+        try:
+            if float(item.get("duration") or 0) > 0:
+                return True
+        except Exception:
+            pass
+        try:
+            if int(item.get("frames") or 0) > 1:
+                return True
+        except Exception:
+            pass
+        if "gif" in mime:
+            return True
+        if url.endswith(".gif"):
+            return True
+        return False
+
+    if type_val in image_types:
+        base = "image"
+    elif type_val in sticker_types:
+        base = "sticker"
+    elif type_val in gif_types:
+        base = "gif"
+    elif type_val in video_types:
+        base = "video"
+    elif type_val in voice_types:
+        base = "voice"
+    else:
+        base = type_val or "unknown"
+
+    animated = is_animated()
+
+    # Route stickers/gifs into image or video depending on animation.
+    if base in {"gif", "sticker"}:
+        return "video" if animated else "image"
+
+    # If mime/url indicates gif but type was unknown, treat accordingly.
+    if base == "unknown" and animated:
+        return "video"
+
+    return base
+
+
 def _describe_image(url: str, context: str) -> Tuple[str | None, str | None]:
     """
     Photo description using the Argus Photo prompt with vision support.
@@ -283,13 +354,13 @@ def _process_items(items: List[dict], context: str) -> Tuple[List[str], List[str
     errors: List[str] = []
     processed: List[dict] = []
 
-        for item in items:
-            kind = (item.get("type") or "").lower()
-            url = item.get("url") or item.get("signed_url") or item.get("href")
-            desc: str | None = None
-            err: str | None = None
+    for item in items:
+        kind = _normalize_media_kind(item)
+        url = item.get("url") or item.get("signed_url") or item.get("href")
+        desc: str | None = None
+        err: str | None = None
 
-            if kind == "image":
+        if kind == "image":
                 desc, err = _describe_image(url, context)
             elif kind in {"audio", "voice"}:
                 desc, err = _describe_voice(url, context)
