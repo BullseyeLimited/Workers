@@ -92,6 +92,43 @@ HEADER_PATTERN = re.compile(
 )
 
 
+def _format_fan_turn(row: dict) -> str:
+    """
+    Render the latest fan turn as a sequence of text/media parts, so media
+    descriptions produced by Argus appear inline in Kairos/Napoleon prompts.
+    """
+    parts: list[str] = []
+    text = (row.get("message_text") or "").strip()
+    media_analysis = (row.get("media_analysis_text") or "").strip()
+    media_payload = row.get("media_payload") or {}
+    items = []
+    if isinstance(media_payload, dict):
+        maybe_items = media_payload.get("items")
+        if isinstance(maybe_items, list):
+            items = maybe_items
+
+    if text:
+        parts.append(f"(text): {text}")
+
+    if items:
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            kind = (item.get("type") or "media").lower()
+            desc = (item.get("argus_preview") or "").strip()
+            if not desc and media_analysis:
+                # Fallback: reuse the aggregate analysis if no per-item preview.
+                desc = media_analysis
+            if not desc:
+                desc = item.get("argus_error") or "media attachment"
+            parts.append(f"({kind}): {desc}")
+    elif media_analysis:
+        # No structured items, but Argus still produced text.
+        parts.append(f"(media): {media_analysis}")
+
+    return "\n".join(parts) if parts else text
+
+
 def runpod_call(system_prompt: str, user_message: str) -> tuple[str, dict]:
     """
     Call the RunPod vLLM OpenAI-compatible server using chat completions.
@@ -621,7 +658,7 @@ def process_job(payload: Dict[str, Any], row_id: int) -> bool:
     root_analysis = payload.get("root_analysis") or {}
     message_row = (
         SB.table("messages")
-        .select("id,thread_id,sender,turn_index,message_text")
+        .select("id,thread_id,sender,turn_index,message_text,media_analysis_text,media_payload")
         .eq("id", fan_msg_id)
         .limit(1)
         .execute()
@@ -633,7 +670,7 @@ def process_job(payload: Dict[str, Any], row_id: int) -> bool:
 
     thread_id = message_row["thread_id"]
     turn_index = message_row.get("turn_index")
-    latest_fan_text = message_row.get("message_text") or ""
+    latest_fan_text = _format_fan_turn(message_row)
     raw_turns = live_turn_window(
         thread_id,
         boundary_turn=turn_index,

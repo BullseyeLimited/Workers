@@ -78,6 +78,41 @@ RETHINK_UPDATE_PATTERN = re.compile(
 )
 
 
+def _format_fan_turn(row: dict) -> str:
+    """
+    Render the latest fan turn as a sequence of text/media parts, so media
+    descriptions produced by Argus appear inline in Napoleon/Kairos prompts.
+    """
+    parts: list[str] = []
+    text = (row.get("message_text") or "").strip()
+    media_analysis = (row.get("media_analysis_text") or "").strip()
+    media_payload = row.get("media_payload") or {}
+    items = []
+    if isinstance(media_payload, dict):
+        maybe_items = media_payload.get("items")
+        if isinstance(maybe_items, list):
+            items = maybe_items
+
+    if text:
+        parts.append(f"(text): {text}")
+
+    if items:
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            kind = (item.get("type") or "media").lower()
+            desc = (item.get("argus_preview") or "").strip()
+            if not desc and media_analysis:
+                desc = media_analysis
+            if not desc:
+                desc = item.get("argus_error") or "media attachment"
+            parts.append(f"({kind}): {desc}")
+    elif media_analysis:
+        parts.append(f"(media): {media_analysis}")
+
+    return "\n".join(parts) if parts else text
+
+
 def _blank_horizon_plan(state: str = "") -> dict:
     """
     Return a fresh horizon plan container with all expected fields.
@@ -1085,7 +1120,7 @@ def process_job(payload):
 
     msg = (
         SB.table("messages")
-        .select("thread_id,sender,message_text,turn_index")
+        .select("thread_id,sender,message_text,media_analysis_text,media_payload,turn_index")
         .eq("id", fan_message_id)
         .single()
         .execute()
@@ -1095,7 +1130,6 @@ def process_job(payload):
         raise ValueError(f"Message {fan_message_id} not found")
 
     thread_id = msg["thread_id"]
-    latest_fan_text = msg.get("message_text") or ""
     current_turn_index = msg.get("turn_index")
 
     # Fetch canonical thread plans for fallback/seeding.
@@ -1120,7 +1154,7 @@ def process_job(payload):
         "napoleon",
         thread_id,
         raw_turns,
-        latest_fan_text=latest_fan_text,
+        latest_fan_text=_format_fan_turn(msg),
         client=SB,
     )
     full_prompt_log = json.dumps(
