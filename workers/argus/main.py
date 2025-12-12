@@ -44,8 +44,10 @@ OPENAI_CLIENT = OpenAI(api_key=OPENAI_KEY, base_url=OPENAI_BASE_URL) if OPENAI_K
 
 PROMPTS_DIR = Path(__file__).resolve().parents[2] / "prompts"
 ARGUS_VIDEO_MODEL = os.getenv("ARGUS_VIDEO_MODEL")
+ARGUS_PHOTO_MODEL = os.getenv("ARGUS_PHOTO_MODEL")
 
 _ARGUS_VIDEO_PROMPT = None
+_ARGUS_PHOTO_PROMPT = None
 
 
 def _load_prompt(name: str) -> str | None:
@@ -65,6 +67,13 @@ def _video_prompt() -> str:
     return _ARGUS_VIDEO_PROMPT or ""
 
 
+def _photo_prompt() -> str:
+    global _ARGUS_PHOTO_PROMPT
+    if _ARGUS_PHOTO_PROMPT is None:
+        _ARGUS_PHOTO_PROMPT = _load_prompt("argus_photo.txt")
+    return _ARGUS_PHOTO_PROMPT or ""
+
+
 def _clean(items) -> List[dict]:
     if isinstance(items, list):
         return [i for i in items if isinstance(i, dict)]
@@ -73,35 +82,42 @@ def _clean(items) -> List[dict]:
 
 def _describe_image(url: str, context: str) -> Tuple[str | None, str | None]:
     """
-    Best-effort vision description using OpenAI if configured; otherwise fallback text.
+    Photo description using the Argus Photo prompt with vision support.
     """
     if not url:
         return None, "missing_image_url"
     if not OPENAI_CLIENT:
-        return f"Image at {url} (vision disabled).", "vision_client_unavailable"
+        return None, "vision_client_unavailable"
 
+    prompt = _photo_prompt()
+    if not prompt:
+        return None, "photo_prompt_missing"
+
+    model = ARGUS_PHOTO_MODEL or VISION_MODEL
     try:
         resp = OPENAI_CLIENT.chat.completions.create(
-            model=VISION_MODEL,
+            model=model,
+            response_format={"type": "json_object"},
             messages=[
-                {
-                    "role": "system",
-                    "content": (
-                        "You are Argus, describing an image with uncensored, concrete detail. "
-                        "Include objects, people, setting, lighting, on-screen text (OCR), and notable mood. "
-                        "Use the provided chat context only to focus on relevant details."
-                    ),
-                },
+                {"role": "system", "content": prompt},
                 {
                     "role": "user",
                     "content": [
-                        {"type": "text", "text": f"Chat context:\n{context[:4000]}" if context else "No chat context."},
+                        {
+                            "type": "text",
+                            "text": (
+                                "MESSAGE_CONTEXT:\n"
+                                f"{context[:4000] if context else 'None provided'}\n\n"
+                                "PHOTO:\n"
+                                f"Image URL: {url}"
+                            ),
+                        },
                         {"type": "image_url", "image_url": {"url": url}},
                     ],
                 },
             ],
-            temperature=0.4,
-            max_tokens=600,
+            temperature=0.2,
+            max_tokens=1200,
         )
     except Exception as exc:  # noqa: BLE001
         return None, f"vision_error: {exc}"
@@ -110,7 +126,19 @@ def _describe_image(url: str, context: str) -> Tuple[str | None, str | None]:
     content = (message.content or "").strip()
     if not content:
         return None, "vision_empty_response"
-    return content, None
+
+    try:
+        data = json.loads(content)
+        paragraphs = data.get("paragraphs") if isinstance(data, dict) else None
+    except Exception as exc:  # noqa: BLE001
+        return content, f"photo_json_error: {exc}"
+
+    if isinstance(paragraphs, list) and paragraphs:
+        narration = "\n\n".join(str(p) for p in paragraphs if p)
+    else:
+        narration = content
+
+    return narration.strip(), None
 
 
 def _describe_video(url: str, context: str) -> Tuple[str | None, str | None]:
