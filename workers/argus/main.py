@@ -8,9 +8,11 @@ Design goals:
 
 from __future__ import annotations
 
+import json
 import os
 import time
 import traceback
+from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
 from openai import OpenAI
@@ -39,6 +41,28 @@ OPENAI_BASE_URL = os.getenv("ARGUS_OPENAI_BASE_URL") or os.getenv("OPENAI_BASE_U
 VISION_MODEL = os.getenv("ARGUS_VISION_MODEL", "gpt-4o-mini")
 
 OPENAI_CLIENT = OpenAI(api_key=OPENAI_KEY, base_url=OPENAI_BASE_URL) if OPENAI_KEY else None
+
+PROMPTS_DIR = Path(__file__).resolve().parents[2] / "prompts"
+ARGUS_VIDEO_MODEL = os.getenv("ARGUS_VIDEO_MODEL")
+
+_ARGUS_VIDEO_PROMPT = None
+
+
+def _load_prompt(name: str) -> str | None:
+    path = PROMPTS_DIR / name
+    try:
+        return path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return None
+    except Exception:
+        return None
+
+
+def _video_prompt() -> str:
+    global _ARGUS_VIDEO_PROMPT
+    if _ARGUS_VIDEO_PROMPT is None:
+        _ARGUS_VIDEO_PROMPT = _load_prompt("argus_video.txt")
+    return _ARGUS_VIDEO_PROMPT or ""
 
 
 def _clean(items) -> List[dict]:
@@ -89,6 +113,61 @@ def _describe_image(url: str, context: str) -> Tuple[str | None, str | None]:
     return content, None
 
 
+def _describe_video(url: str, context: str) -> Tuple[str | None, str | None]:
+    """
+    Best-effort video description using a configured OpenAI-compatible endpoint.
+    Expects the backend to be able to fetch/process the video URL.
+    """
+    if not url:
+        return None, "missing_video_url"
+    if not OPENAI_CLIENT:
+        return None, "video_client_unavailable"
+    if not ARGUS_VIDEO_MODEL:
+        return None, "video_model_not_configured"
+
+    prompt = _video_prompt()
+    if not prompt:
+        return None, "video_prompt_missing"
+
+    try:
+        resp = OPENAI_CLIENT.chat.completions.create(
+            model=ARGUS_VIDEO_MODEL,
+            response_format={"type": "json_object"},
+            messages=[
+                {"role": "system", "content": prompt},
+                {
+                    "role": "user",
+                    "content": (
+                        f"Video URL: {url}\n\n"
+                        f"Optional chat context (may be empty):\n{context[:4000] if context else 'None'}"
+                    ),
+                },
+            ],
+            temperature=0.2,
+            max_tokens=1400,
+        )
+    except Exception as exc:  # noqa: BLE001
+        return None, f"video_error: {exc}"
+
+    content = (resp.choices[0].message.content or "").strip()
+    if not content:
+        return None, "video_empty_response"
+
+    try:
+        data = json.loads(content)
+        beats = data.get("beats") if isinstance(data, dict) else None
+    except Exception as exc:  # noqa: BLE001
+        return content, f"video_json_error: {exc}"
+
+    narration = ""
+    if isinstance(beats, list) and beats:
+        narration = "\n\n".join(str(b) for b in beats if b)
+    else:
+        narration = content
+
+    return narration.strip(), None
+
+
 def _fallback_analysis(item: dict) -> str:
     kind = (item.get("type") or "unknown").lower()
     url = item.get("url") or item.get("signed_url") or item.get("href") or "[no url]"
@@ -115,7 +194,7 @@ def _process_items(items: List[dict], context: str) -> Tuple[List[str], List[str
         elif kind in {"audio", "voice"}:
             err = "audio_processing_not_implemented"
         elif kind == "video":
-            err = "video_processing_not_implemented"
+            desc, err = _describe_video(url, context)
         else:
             err = "unknown_media_type"
 
