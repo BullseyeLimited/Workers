@@ -209,6 +209,7 @@ def _process_items(items: List[dict], context: str) -> Tuple[List[str], List[str
 
         enriched = dict(item)
         if desc:
+            enriched["argus_text"] = desc
             enriched["argus_preview"] = desc[:500]
         if err:
             enriched["argus_error"] = err

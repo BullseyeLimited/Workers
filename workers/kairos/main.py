@@ -115,9 +115,11 @@ def _format_fan_turn(row: dict) -> str:
             if not isinstance(item, dict):
                 continue
             kind = (item.get("type") or "media").lower()
-            desc = (item.get("argus_preview") or "").strip()
+            desc = (item.get("argus_text") or "").strip()
+            if not desc:
+                desc = (item.get("argus_preview") or "").strip()
             if not desc and media_analysis:
-                # Fallback: reuse the aggregate analysis if no per-item preview.
+                # Fallback: reuse the aggregate analysis if no per-item text.
                 desc = media_analysis
             if not desc:
                 desc = item.get("argus_error") or "media attachment"
