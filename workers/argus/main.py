@@ -45,10 +45,12 @@ OPENAI_CLIENT = OpenAI(api_key=OPENAI_KEY, base_url=OPENAI_BASE_URL) if OPENAI_K
 PROMPTS_DIR = Path(__file__).resolve().parents[2] / "prompts"
 ARGUS_VIDEO_MODEL = os.getenv("ARGUS_VIDEO_MODEL")
 ARGUS_PHOTO_MODEL = os.getenv("ARGUS_PHOTO_MODEL")
+ARGUS_VOICE_MODEL = os.getenv("ARGUS_VOICE_MODEL")
 ARGUS_CONTEXT_TURNS = int(os.getenv("ARGUS_CONTEXT_TURNS", "6"))
 
 _ARGUS_VIDEO_PROMPT = None
 _ARGUS_PHOTO_PROMPT = None
+_ARGUS_VOICE_PROMPT = None
 
 
 def _load_prompt(name: str) -> str | None:
@@ -73,6 +75,13 @@ def _photo_prompt() -> str:
     if _ARGUS_PHOTO_PROMPT is None:
         _ARGUS_PHOTO_PROMPT = _load_prompt("argus_photo.txt")
     return _ARGUS_PHOTO_PROMPT or ""
+
+
+def _voice_prompt() -> str:
+    global _ARGUS_VOICE_PROMPT
+    if _ARGUS_VOICE_PROMPT is None:
+        _ARGUS_VOICE_PROMPT = _load_prompt("argus_voice.txt")
+    return _ARGUS_VOICE_PROMPT or ""
 
 
 def _clean(items) -> List[dict]:
@@ -197,6 +206,62 @@ def _describe_video(url: str, context: str) -> Tuple[str | None, str | None]:
     return narration.strip(), None
 
 
+def _describe_voice(url: str, context: str) -> Tuple[str | None, str | None]:
+    """
+    Voice note transcription/description using a configured OpenAI-compatible endpoint.
+    Expects the backend to be able to fetch/process the audio URL.
+    """
+    if not url:
+        return None, "missing_audio_url"
+    if not OPENAI_CLIENT:
+        return None, "voice_client_unavailable"
+    if not ARGUS_VOICE_MODEL:
+        return None, "voice_model_not_configured"
+
+    prompt = _voice_prompt()
+    if not prompt:
+        return None, "voice_prompt_missing"
+
+    try:
+        resp = OPENAI_CLIENT.chat.completions.create(
+            model=ARGUS_VOICE_MODEL,
+            response_format={"type": "json_object"},
+            messages=[
+                {"role": "system", "content": prompt},
+                {
+                    "role": "user",
+                    "content": (
+                        "VOICE_NOTE:\n"
+                        f"{url}\n\n"
+                        "MESSAGE_CONTEXT:\n"
+                        f"{context[:4000] if context else 'None provided'}"
+                    ),
+                },
+            ],
+            temperature=0.2,
+            max_tokens=1400,
+        )
+    except Exception as exc:  # noqa: BLE001
+        return None, f"voice_error: {exc}"
+
+    content = (resp.choices[0].message.content or "").strip()
+    if not content:
+        return None, "voice_empty_response"
+
+    try:
+        data = json.loads(content)
+        beats = data.get("beats") if isinstance(data, dict) else None
+    except Exception as exc:  # noqa: BLE001
+        return content, f"voice_json_error: {exc}"
+
+    if isinstance(beats, list) and beats:
+        narration = "\n\n".join(str(b) for b in beats if b)
+    else:
+        narration = content
+
+    return narration.strip(), None
+
+
 def _fallback_analysis(item: dict) -> str:
     kind = (item.get("type") or "unknown").lower()
     url = item.get("url") or item.get("signed_url") or item.get("href") or "[no url]"
@@ -218,20 +283,20 @@ def _process_items(items: List[dict], context: str) -> Tuple[List[str], List[str
     errors: List[str] = []
     processed: List[dict] = []
 
-    for item in items:
-        kind = (item.get("type") or "").lower()
-        url = item.get("url") or item.get("signed_url") or item.get("href")
-        desc: str | None = None
-        err: str | None = None
+        for item in items:
+            kind = (item.get("type") or "").lower()
+            url = item.get("url") or item.get("signed_url") or item.get("href")
+            desc: str | None = None
+            err: str | None = None
 
-        if kind == "image":
-            desc, err = _describe_image(url, context)
-        elif kind in {"audio", "voice"}:
-            err = "audio_processing_not_implemented"
-        elif kind == "video":
-            desc, err = _describe_video(url, context)
-        else:
-            err = "unknown_media_type"
+            if kind == "image":
+                desc, err = _describe_image(url, context)
+            elif kind in {"audio", "voice"}:
+                desc, err = _describe_voice(url, context)
+            elif kind == "video":
+                desc, err = _describe_video(url, context)
+            else:
+                err = "unknown_media_type"
 
         if desc:
             analyses.append(desc.strip())
