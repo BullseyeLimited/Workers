@@ -39,6 +39,7 @@ OUTPUT (STRICT)
 - Each string is one short paragraph. Use as many paragraphs as needed for full detail (typically 6–16; more if it’s a chat screenshot or text-heavy).
 - Output ONLY the JSON object. No markdown. No preamble. No “Alright…”.
 - First character must be { and last character must be }.
+- If MULTIPLE photos are provided in one request, return a JSON object with a single key "images", where "images" is an array aligned to the input order. Each element must have a "paragraphs" array for that photo. If only one photo is provided, you may return the legacy single-photo format with top-level "paragraphs".
 
 
 WRITING STYLE

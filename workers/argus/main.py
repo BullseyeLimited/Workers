@@ -161,6 +161,95 @@ def _normalize_media_kind(item: dict) -> str:
     return base
 
 
+def _describe_images_multi(items: List[dict], context: str) -> Tuple[List[str] | None, str | None]:
+    """
+    Batch describe one or more images in a single vision call.
+    Returns (list_of_descriptions_matching_items, error|None).
+    """
+    if not items:
+        return [], None
+
+    prompt = _photo_prompt()
+    if not prompt:
+        return None, "photo_prompt_missing"
+    if not OPENAI_CLIENT:
+        return None, "vision_client_unavailable"
+
+    model = ARGUS_PHOTO_MODEL or VISION_MODEL
+
+    urls: list[str] = []
+    for itm in items:
+        url = itm.get("url") or itm.get("signed_url") or itm.get("href")
+        if url:
+            urls.append(url)
+        else:
+            urls.append("")
+
+    # Build user content: include context + enumerated URLs + actual image_url blocks (order matters).
+    text_block = (
+        "MESSAGE_CONTEXT:\n"
+        f"{context[:4000] if context else 'None provided'}\n\n"
+        "PHOTOS:\n" + "\n".join([f"Photo {idx+1} URL: {u or '[missing url]'}" for idx, u in enumerate(urls)])
+    )
+    user_content: list[dict] = [{"type": "text", "text": text_block}]
+    for url in urls:
+        # Even if URL is missing, keep order; model may handle blanks poorly but keeps alignment.
+        if url:
+            user_content.append({"type": "image_url", "image_url": {"url": url}})
+        else:
+            user_content.append({"type": "text", "text": "[missing image url]"})
+
+    try:
+        resp = OPENAI_CLIENT.chat.completions.create(
+            model=model,
+            response_format={"type": "json_object"},
+            messages=[
+                {"role": "system", "content": prompt},
+                {"role": "user", "content": user_content},
+            ],
+            temperature=0.2,
+            max_tokens=1600,
+        )
+    except Exception as exc:  # noqa: BLE001
+        return None, f"vision_error: {exc}"
+
+    content = (resp.choices[0].message.content or "").strip()
+    if not content:
+        return None, "vision_empty_response"
+
+    try:
+        data = json.loads(content)
+    except Exception as exc:  # noqa: BLE001
+        return None, f"photo_json_error: {exc}"
+
+    # Accept legacy single-image format or new multi-image format.
+    descriptions: list[str] = []
+    if isinstance(data, dict) and "images" in data and isinstance(data["images"], list):
+        for entry in data["images"]:
+            if isinstance(entry, dict):
+                paragraphs = entry.get("paragraphs")
+                if isinstance(paragraphs, list) and paragraphs:
+                    desc = "\n\n".join(str(p) for p in paragraphs if p)
+                    descriptions.append(desc.strip())
+                else:
+                    descriptions.append("")
+            else:
+                descriptions.append("")
+    elif isinstance(data, dict) and "paragraphs" in data:
+        paragraphs = data.get("paragraphs")
+        if isinstance(paragraphs, list) and paragraphs:
+            desc = "\n\n".join(str(p) for p in paragraphs if p)
+            descriptions.append(desc.strip())
+
+    # Ensure length matches inputs; pad/truncate as needed.
+    if len(descriptions) < len(items):
+        descriptions.extend([""] * (len(items) - len(descriptions)))
+    if len(descriptions) > len(items):
+        descriptions = descriptions[: len(items)]
+
+    return descriptions, None
+
+
 def _describe_image(url: str, context: str) -> Tuple[str | None, str | None]:
     """
     Photo description using the Argus Photo prompt with vision support.
@@ -353,30 +442,45 @@ def _process_items(items: List[dict], context: str) -> Tuple[List[str], List[str
     analyses: List[str] = []
     errors: List[str] = []
     processed: List[dict] = []
+    kinds = [_normalize_media_kind(item) for item in items]
 
-    for item in items:
-        kind = _normalize_media_kind(item)
+    # Batch process images for speed
+    image_indices = [idx for idx, kind in enumerate(kinds) if kind == "image"]
+    image_descs: dict[int, str] = {}
+    if image_indices:
+        images_subset = [items[idx] for idx in image_indices]
+        batch_descs, batch_err = _describe_images_multi(images_subset, context)
+        if batch_err:
+            errors.append(batch_err)
+        if batch_descs:
+            for pos, idx in enumerate(image_indices):
+                if pos < len(batch_descs):
+                    image_descs[idx] = batch_descs[pos] or ""
+
+    for idx, item in enumerate(items):
+        kind = kinds[idx]
         url = item.get("url") or item.get("signed_url") or item.get("href")
         desc: str | None = None
         err: str | None = None
 
         if kind == "image":
-                desc, err = _describe_image(url, context)
-            elif kind in {"audio", "voice"}:
-                desc, err = _describe_voice(url, context)
-            elif kind == "video":
-                desc, err = _describe_video(url, context)
-            else:
-                err = "unknown_media_type"
-
-        if desc:
-            analyses.append(desc.strip())
+            desc = image_descs.get(idx)
+            if not desc:
+                err = err or "image_missing_description"
+        elif kind in {"audio", "voice"}:
+            desc, err = _describe_voice(url, context)
+        elif kind == "video":
+            desc, err = _describe_video(url, context)
         else:
-            # Provide a fallback description so downstream still gets a usable note.
-            analyses.append(_fallback_analysis(item))
+            err = "unknown_media_type"
 
-        if err:
-            errors.append(err)
+        if not desc:
+            # Provide a fallback description so downstream still gets a usable note.
+            desc = _fallback_analysis(item)
+        else:
+            desc = desc.strip()
+
+        analyses.append(desc)
 
         enriched = dict(item)
         if desc:
@@ -384,6 +488,7 @@ def _process_items(items: List[dict], context: str) -> Tuple[List[str], List[str
             enriched["argus_preview"] = desc[:500]
         if err:
             enriched["argus_error"] = err
+            errors.append(err)
         processed.append(enriched)
 
     return analyses, errors, processed
