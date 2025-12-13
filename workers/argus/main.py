@@ -14,7 +14,7 @@ import time
 import traceback
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urljoin
 
 import requests
 from bs4 import BeautifulSoup
@@ -57,6 +57,7 @@ ARGUS_LINK_MODEL = (
 ARGUS_LINK_TIMEOUT = float(os.getenv("ARGUS_LINK_TIMEOUT", "10"))
 ARGUS_LINK_MAX_BYTES = int(os.getenv("ARGUS_LINK_MAX_BYTES", str(1_500_000)))
 ARGUS_LINK_MAX_TEXT_CHARS = int(os.getenv("ARGUS_LINK_MAX_TEXT", str(12000)))
+ARGUS_LINK_MAX_IMAGES = int(os.getenv("ARGUS_LINK_MAX_IMAGES", "3"))
 ARGUS_CONTEXT_TURNS = int(os.getenv("ARGUS_CONTEXT_TURNS", "6"))
 
 _ARGUS_VIDEO_PROMPT = None
@@ -474,6 +475,44 @@ def _extract_html_text(html: str) -> Tuple[str, Dict[str, str]]:
     return collapsed, meta
 
 
+def _extract_image_urls(html: str, meta: Dict[str, str], base_url: str) -> List[str]:
+    """
+    Collect a few representative image URLs from the page:
+    - OpenGraph/Twitter cards
+    - First <img> tags (src/srcset/data-src)
+    """
+    urls: list[str] = []
+    seen = set()
+
+    def _add(raw: str | None):
+        if not raw:
+            return
+        candidate = urljoin(base_url, raw.strip())
+        parsed = urlparse(candidate)
+        if parsed.scheme not in {"http", "https"}:
+            return
+        if candidate in seen:
+            return
+        seen.add(candidate)
+        urls.append(candidate)
+
+    # Meta previews first
+    for key in ("og:image", "og:image:secure_url", "twitter:image"):
+        _add(meta.get(key))
+
+    soup = BeautifulSoup(html, "html.parser")
+    for tag in soup.find_all("img"):
+        src = tag.get("src") or tag.get("data-src") or ""
+        if not src and tag.get("srcset"):
+            srcset = tag.get("srcset") or ""
+            src = srcset.split(",")[0].split()[0] if srcset else ""
+        _add(src)
+        if len(urls) >= ARGUS_LINK_MAX_IMAGES:
+            break
+
+    return urls[:ARGUS_LINK_MAX_IMAGES]
+
+
 def _fetch_link_content(url: str) -> Tuple[Dict[str, Any] | None, str | None]:
     parsed = urlparse(url)
     if parsed.scheme not in {"http", "https"}:
@@ -532,19 +571,19 @@ def _fetch_link_content(url: str) -> Tuple[Dict[str, Any] | None, str | None]:
     )
 
 
-def _describe_link(url: str, context: str) -> Tuple[str | None, str | None]:
+def _describe_link(url: str, context: str) -> Tuple[str | None, str | None, List[dict]]:
     """
     Fetch a URL, extract readable text/metadata, and summarize for Kairos/Napoleon.
     Falls back to media handlers if the URL is actually an image/video/audio.
     """
     if not url:
-        return None, "missing_link_url"
+        return None, "missing_link_url", []
     if not OPENAI_CLIENT:
-        return None, "link_client_unavailable"
+        return None, "link_client_unavailable", []
 
     fetch_result, fetch_error = _fetch_link_content(url)
     if fetch_error:
-        return None, fetch_error
+        return None, fetch_error, []
     assert fetch_result is not None
     content_type = fetch_result.get("content_type") or ""
     final_url = fetch_result.get("final_url") or url
@@ -552,15 +591,18 @@ def _describe_link(url: str, context: str) -> Tuple[str | None, str | None]:
     # Route true media links into existing describers.
     lowered_url = final_url.lower()
     if content_type.startswith("image/") or lowered_url.endswith((".jpg", ".jpeg", ".png", ".webp", ".gif", ".avif")):
-        return _describe_image(final_url, context)
+        desc, err = _describe_image(final_url, context)
+        return desc, err, []
     if content_type.startswith("video/") or lowered_url.endswith((".mp4", ".mov", ".webm")):
-        return _describe_video(final_url, context)
+        desc, err = _describe_video(final_url, context)
+        return desc, err, []
     if content_type.startswith("audio/") or lowered_url.endswith((".mp3", ".wav", ".m4a", ".ogg", ".opus")):
-        return _describe_voice(final_url, context)
+        desc, err = _describe_voice(final_url, context)
+        return desc, err, []
 
     prompt = _link_prompt()
     if not prompt:
-        return None, "link_prompt_missing"
+        return None, "link_prompt_missing", []
 
     raw_text = fetch_result.get("text") or ""
     meta: Dict[str, str] = {}
@@ -573,6 +615,7 @@ def _describe_link(url: str, context: str) -> Tuple[str | None, str | None]:
     meta_title = meta.get("og:title") or meta.get("twitter:title") or meta.get("title") or ""
     meta_desc = meta.get("og:description") or meta.get("twitter:description") or meta.get("description") or ""
     site_name = meta.get("og:site_name") or meta.get("twitter:site") or ""
+    image_urls = _extract_image_urls(raw_text, meta, final_url)
 
     user_block = (
         f"ORIGINAL_URL: {url}\n"
@@ -600,17 +643,17 @@ def _describe_link(url: str, context: str) -> Tuple[str | None, str | None]:
             max_tokens=1400,
         )
     except Exception as exc:  # noqa: BLE001
-        return None, f"link_error: {exc}"
+        return None, f"link_error: {exc}", []
 
     content = (resp.choices[0].message.content or "").strip()
     if not content:
-        return None, "link_empty_response"
+        return None, "link_empty_response", []
 
     try:
         data = json.loads(content)
         paragraphs = data.get("paragraphs") if isinstance(data, dict) else None
     except Exception as exc:  # noqa: BLE001
-        return content, f"link_json_error: {exc}"
+        return content, f"link_json_error: {exc}", []
 
     narration = ""
     if isinstance(paragraphs, list) and paragraphs:
@@ -618,7 +661,16 @@ def _describe_link(url: str, context: str) -> Tuple[str | None, str | None]:
     else:
         narration = content
 
-    return narration.strip(), None
+    derived_images = [
+        {
+            "type": "image",
+            "url": img,
+            "parent_url": final_url,
+        }
+        for img in image_urls
+    ]
+
+    return narration.strip(), None, derived_images
 
 
 def _fallback_analysis(item: dict) -> str:
@@ -640,40 +692,66 @@ def _merge_context(thread_id: int, turn_index: int | None) -> str:
 def _process_items(items: List[dict], context: str) -> Tuple[List[str], List[str], List[dict]]:
     analyses: List[str] = []
     errors: List[str] = []
-    processed: List[dict] = []
-    kinds = [_normalize_media_kind(item) for item in items]
 
-    # Batch process images for speed
-    image_indices = [idx for idx, kind in enumerate(kinds) if kind == "image"]
-    image_descs: dict[int, str] = {}
+    # Stage 1: normalize and expand link items into (link + derived images).
+    expanded: List[dict] = []
+    for item in _clean(items):
+        kind = _normalize_media_kind(item)
+        if kind == "link":
+            url = item.get("url") or item.get("signed_url") or item.get("href")
+            desc, err, derived_images = _describe_link(url, context)
+            enriched = dict(item)
+            if desc:
+                enriched["argus_text"] = desc
+                enriched["argus_preview"] = desc[:500]
+            if err:
+                enriched["argus_error"] = err
+                errors.append(err)
+            expanded.append(enriched)
+            if derived_images:
+                expanded.extend(derived_images)
+        else:
+            expanded.append(item)
+
+    # Stage 2: batch describe any images that still need text.
+    image_indices = [
+        idx
+        for idx, itm in enumerate(expanded)
+        if _normalize_media_kind(itm) == "image" and not itm.get("argus_text")
+    ]
     if image_indices:
-        images_subset = [items[idx] for idx in image_indices]
+        images_subset = [expanded[idx] for idx in image_indices]
         batch_descs, batch_err = _describe_images_multi(images_subset, context)
         if batch_err:
             errors.append(batch_err)
         if batch_descs:
             for pos, idx in enumerate(image_indices):
                 if pos < len(batch_descs):
-                    image_descs[idx] = batch_descs[pos] or ""
+                    desc_val = batch_descs[pos] or ""
+                    expanded[idx]["argus_text"] = desc_val
+                    expanded[idx]["argus_preview"] = desc_val[:500]
 
-    for idx, item in enumerate(items):
-        kind = kinds[idx]
+    # Stage 3: process all items (including derived images).
+    processed: List[dict] = []
+    for item in expanded:
+        kind = _normalize_media_kind(item)
         url = item.get("url") or item.get("signed_url") or item.get("href")
-        desc: str | None = None
-        err: str | None = None
+        desc: str | None = item.get("argus_text")
+        err: str | None = item.get("argus_error")
 
-        if kind == "image":
-            desc = image_descs.get(idx)
-            if not desc:
-                err = err or "image_missing_description"
-        elif kind in {"audio", "voice"}:
-            desc, err = _describe_voice(url, context)
-        elif kind == "video":
-            desc, err = _describe_video(url, context)
-        elif kind == "link":
-            desc, err = _describe_link(url, context)
-        else:
-            err = "unknown_media_type"
+        if not desc:
+            if kind in {"audio", "voice"}:
+                desc, err2 = _describe_voice(url, context)
+            elif kind == "video":
+                desc, err2 = _describe_video(url, context)
+            elif kind == "image":
+                err2 = "image_missing_description"
+            else:
+                err2 = "unknown_media_type"
+            if err2:
+                errors.append(err2)
+                if not err:
+                    err = err2
 
         if not desc:
             # Provide a fallback description so downstream still gets a usable note.
@@ -689,7 +767,6 @@ def _process_items(items: List[dict], context: str) -> Tuple[List[str], List[str
             enriched["argus_preview"] = desc[:500]
         if err:
             enriched["argus_error"] = err
-            errors.append(err)
         processed.append(enriched)
 
     return analyses, errors, processed
