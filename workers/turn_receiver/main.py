@@ -3,8 +3,9 @@ import os, json, hashlib, uuid, datetime
 import pytz
 from fastapi import FastAPI, HTTPException, Request
 from supabase import create_client, ClientOptions
-from workers.lib.simple_queue import send
 from workers.lib.cards import new_base_card
+from workers.lib.link_utils import extract_urls
+from workers.lib.simple_queue import send
 
 # connect to Supabase using secrets that Fly will provide
 SERVICE_KEY = os.environ["SUPABASE_SERVICE_ROLE_KEY"]
@@ -139,7 +140,15 @@ async def receive(request: Request):
         tzinfo=pytz.UTC
     ).isoformat()
     media_items = payload.get("media") or []
-    has_media = bool(media_items)
+    if not isinstance(media_items, list):
+        media_items = []
+
+    link_items = []
+    for url in extract_urls(text):
+        link_items.append({"type": "link", "url": url})
+
+    all_media_items = media_items + link_items
+    has_media = bool(all_media_items)
 
     creator_id = get_creator_id(creator)
     fan_hash = hashlib.sha256(fan_id.encode()).hexdigest()
@@ -198,7 +207,7 @@ async def receive(request: Request):
                 "turn_index": turn_index,
                 # Media fields are optional; populated only when attachments exist.
                 "media_status": "pending" if has_media else None,
-                "media_payload": {"items": media_items} if has_media else None,
+                "media_payload": {"items": all_media_items} if has_media else None,
             },
             upsert=False,
         )

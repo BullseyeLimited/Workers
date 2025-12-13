@@ -6,3 +6,4 @@ fastapi
 uvicorn[standard]
 pytz
 openai>=1.35.0
+beautifulsoup4>=4.12.0
