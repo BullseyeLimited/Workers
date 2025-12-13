@@ -405,25 +405,31 @@ Recent turns are shown oldest → newest (top to bottom), one per line, formatte
 <LIFETIME_BLOCK>
 {LIFETIME_BLOCK}
 </LIFETIME_BLOCK>
+
 <YEAR_BLOCK>
 {YEAR_BLOCK}
 </YEAR_BLOCK>
+
 <SEASON_BLOCK>
 {SEASON_BLOCK}
 </SEASON_BLOCK>
+
 <CHAPTER_BLOCK>
 {CHAPTER_BLOCK}
 </CHAPTER_BLOCK>
+
 <EPISODE_BLOCK>
 {EPISODE_BLOCK}
 </EPISODE_BLOCK>
 </SUMMARIES>
+
 <RECENT_TURNS>
 --- Recent Turns (oldest → newest) ---
 <TURNS>
 {RAW_TURNS}
 </TURNS>
 </RECENT_TURNS>
+
 <CURRENT_FAN_TURN>
 {FAN_LATEST_VERBATIM}
 </CURRENT_FAN_TURN>
@@ -432,11 +438,17 @@ Recent turns are shown oldest → newest (top to bottom), one per line, formatte
 <PLANNER_INTENT>
 --- Planner Intent ---
 {CREATOR_TACTICAL_PLAN_3TURN}
+
 <LIFETIME_PLAN>{CREATOR_LIFETIME_PLAN}</LIFETIME_PLAN>
+
 <YEAR_PLAN>{CREATOR_YEAR_PLAN}</YEAR_PLAN>
+
 <SEASON_PLAN>{CREATOR_SEASON_PLAN}</SEASON_PLAN>
+
 <CHAPTER_PLAN>{CREATOR_CHAPTER_PLAN}</CHAPTER_PLAN>
+
 <EPISODE_PLAN>{CREATOR_EPISODE_PLAN}</EPISODE_PLAN>
+
 </PLANNER_INTENT>
 
 <FAN_CARDS>
@@ -444,6 +456,7 @@ Recent turns are shown oldest → newest (top to bottom), one per line, formatte
 <IDENTITY_CARD>
 {FAN_IDENTITY_CARD}
 </IDENTITY_CARD>
+
 <PSYCHIC_CARD>
 {FAN_PSYCHIC_CARD}
 </PSYCHIC_CARD>
@@ -454,6 +467,7 @@ Recent turns are shown oldest → newest (top to bottom), one per line, formatte
 <IDENTITY_CARD>
 {CREATOR_IDENTITY_CARD}
 </IDENTITY_CARD>
+
 <PSYCHIC_CARD>
 {CREATOR_PSYCHIC_CARD}
 </PSYCHIC_CARD>
@@ -465,6 +479,7 @@ END ANALYST INPUT TEMPLATE
 ────────────────────────────────────────────────────────────────────────
 
 Based on the input above, immediately generate the response using the required headers.
+
 
 
 
