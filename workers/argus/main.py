@@ -679,13 +679,14 @@ def _fallback_analysis(item: dict) -> str:
     return f"{kind.title()} attachment at {url}. Automated analysis unavailable."
 
 
-def _merge_context(thread_id: int, turn_index: int | None) -> str:
+def _merge_context(thread_id: int, turn_index: int | None, message_id: int | None) -> str:
     turns = ARGUS_CONTEXT_TURNS if ARGUS_CONTEXT_TURNS > 0 else 6
     return live_turn_window(
         thread_id,
         boundary_turn=turn_index,
         limit=turns,
         client=SB,
+        exclude_message_id=message_id,
     )
 
 
@@ -822,7 +823,7 @@ def process_job(payload: Dict[str, Any]) -> bool:
         send("kairos.analyse", {"message_id": msg_id})
         return True
 
-    context = _merge_context(thread_id, turn_index)
+    context = _merge_context(thread_id, turn_index, msg_id)
     analyses, errors, processed_items = _process_items(items, context)
 
     analysis_text = "\n\n".join(a for a in analyses if a).strip()

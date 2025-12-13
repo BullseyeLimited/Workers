@@ -1151,6 +1151,7 @@ def process_job(payload):
         thread_id,
         boundary_turn=msg.get("turn_index"),
         client=SB,
+        exclude_message_id=fan_message_id,
     )
     system_prompt, user_prompt = build_prompt_sections(
         "napoleon",

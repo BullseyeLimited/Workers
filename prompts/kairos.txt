@@ -389,7 +389,7 @@ BEGIN ANALYST INPUT TEMPLATE
 (Everything below shows HOW your input will be structured at runtime.)
 
 At runtime, you will receive exactly one <ANALYST_INPUT> block.
-Inside it, all macros in curly braces (like {LIFETIME_BLOCK}, {RAW_TURNS}) will already be replaced with concrete text. Treat that text as your only source of truth about the 
+Inside it, all macros in curly braces (like {{LIFETIME_BLOCK}}, {{RAW_TURNS}}) will already be replaced with concrete text. Treat that text as your only source of truth about the 
 relationship and current turn.
 
 Do NOT output anything inside <ANALYST_INPUT>. It is READ-ONLY input.

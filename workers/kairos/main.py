@@ -677,6 +677,7 @@ def process_job(payload: Dict[str, Any], row_id: int) -> bool:
         thread_id,
         boundary_turn=turn_index,
         client=SB,
+        exclude_message_id=fan_msg_id,
     )
 
     system_prompt, user_prompt = build_prompt_sections(

@@ -320,6 +320,7 @@ def live_turn_window(
     limit: int = MAX_RECENT_TURNS,
     *,
     client=None,
+    exclude_message_id: int | None = None,
 ) -> str:
     sb = _resolve_client(client)
     cutoff_turn = _latest_summary_end(thread_id, "episode", client=sb)
@@ -335,6 +336,8 @@ def live_turn_window(
     if boundary_turn is not None:
         # Exclude the current turn; only include earlier turns in the context window.
         query = query.lt("turn_index", boundary_turn)
+    if exclude_message_id is not None:
+        query = query.neq("id", exclude_message_id)
 
     rows = query.execute().data or []
 
