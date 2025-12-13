@@ -433,7 +433,6 @@ MECHANISM: <write mechanism here>
 DRAFTING: <draft here>
 
 SECTION 4: FINAL_MESSAGE
--FINAL_MESSAGE BODY STARTS HERE. APPLY VOICE RULES ONLY TO THIS SECTION.
 (The Execution)
 <write final message here>
 
@@ -522,6 +521,7 @@ Execute.
 </NAPOLEON_INPUT>
 
 ---
+
 
 
 
