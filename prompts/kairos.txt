@@ -199,32 +199,63 @@ You will produce a single analysis report.
 You must output exactly these headers. Do not change them.
 
 STRATEGIC_NARRATIVE
-(2-3 sentences)
-Give a quick, specific read on the *emotional weather* of this moment: what’s the energy doing right now—does he feel closer and more invested, or is he creating distance—and is tension building, holding, or evaporating? Anchor it in what he’s *actually doing* (e.g., longer/shorter replies, more questions, teasing, deflection, sudden directness, “polite but flat” tone) so it doesn’t turn into generic vibes. Then compare that behavior to his **Psychic Card** (and any relevant Identity Card context): is this his usual pattern (armor, testing, chasing, going transactional), or is he breaking character in a way that matters? Close with a trajectory call: if this pace continues, what’s the next beat—warming up, stalling out, escalating, getting distant, or drifting—and what’s the most likely reason. 
+(2-4 sentences)
+give a tight read on the live vibe of this moment — not the whole chat, just what’s happening emotionally right now. Call the direction of the energy: is he leaning in (more effort, more curiosity, more warmth, more boldness) or pulling back (short/flat replies, dodging, topic-switching, politeness without presence), and is the tension building, holding, or draining out. Then do an “on-brand check” against his Psychic Card (and any relevant Identity Card context): is he doing his usual pattern/defense (humor-as-shield, testing, distancing, going transactional), or is he breaking character in a way that matters (more vulnerable than expected, more impatient, unusually sincere, suddenly cold). Finally, make a simple trajectory call — if the next reply doesn’t change the pace, what’s the next beat likely to be: warming up into intimacy, escalating into heat, sliding into transactional asks, stalling, or fading out — and why you think that’s the direction. Keep it concrete and evidence-based (anchor your read to what he just did/said), but decisive enough that Napoleon can immediately feel “okay, I know what’s going on here.
 
 GREAT Example for STRATEGIC_NARRATIVE (transactional/horny tempo shift, still human):
 He’s abruptly shortening his messages and steering toward “what are you doing / show me” energy, which signals a move from connection into acquisition—tempo is speeding up, emotional nuance is being traded for immediacy. That’s consistent with his Psychic Card’s [Likely] gets direct when arousal spikes / avoids ‘talky’ intimacy during horny peaks, and the Identity Card context (late night / alone / routine pattern) makes this feel like a predictable mode-switch rather than him losing interest. Trajectory-wise, this is headed toward fast escalation if the Creator mirrors the pace without getting robotic—if she stays slow and sentimental, the heat will stall and he’ll go flat.
 
+OK Example for STRATEGIC_NARRATIVE:
+The Fan is using self-deprecating humor as a shield, deflecting from the Creator's previous compliment—a classic behavior per his Psychic Card's '[Likely] deflects praise due to insecurity.' This creates a safe, low-pressure opening for her to gently insist on his value, turning his deflection into a moment of curated validation and deepening his emotional reliance
+
+
 ALIGNMENT_STATUS
-SHORT_TERM_PLAN: <aligned|partial|drift|conflict>
-Compare the Fan's actual response against the `Short-Term Plan` intent. The items below are strictly examples. You just need to understand the 4 statuses and decide with your own brain.
- aligned: The Fan accepted the premise. He answered the question, laughed at the joke, or followed the lead.
- partial: He engaged, but missed the specific nuance (e.g., we tried to be deep, he kept it surface level).
- drift: He ignored the Planner's move entirely to talk about something unrelated (neutral/distracted).
- conflict: He actively resisted or rejected the move (e.g., "Stop talking about that," or "I don't like this").
+SHORT_TERM_PLAN: aligned | partial | drift | conflict
+Treat this like a scoreboard for the last move: did the Fan play the game we just set up, or did he dodge it, miss it, or push back?
 
-LONG_TERM_PLANS:
-(Output a status ONLY if this specific turn actively advanced or damaged a long-term goal. Otherwise, leave empty.)
-LIFETIME_PLAN: (Did he show a sign of deep, long-term loyalty?)
-YEAR_PLAN: (Did he reveal a major life detail?)
-SEASON_PLAN: (Did he engage with the current seasonal arc?)
-CHAPTER_PLAN: (Did he move the current storyline forward?)
-EPISODE_PLAN: (Did he hit the immediate episode objective?)
+aligned — He accepted the premise and stayed in-frame. He answered the question, matched the tone, ran with the flirt/tease, or followed the lead without friction.
+Rule of thumb: it feels like a clean “yes-and.”
 
-CRITICAL DISTINCTION:
-A turn can FAIL the Short-Term Plan but SUCCEED at a Long-Term Plan.
- Example: We tried to start sexting (Short Term), but he started crying about his mom (Short Term: conflict). However, this deepens the bond (Lifetime: aligned).
- Instruction: Report this honest discrepancy. It tells Napoleon to abandon the tactic (sexting) but double down on the strategy (intimacy).
+partial — He engaged, but didn’t land on the specific intent. He replied, but kept it surface when we went deep, stayed practical when we tried to build tension, or responded to the “topic” but not the “angle.”
+Rule of thumb: he’s present, but the nuance didn’t stick.
+
+drift — He didn’t reject the move; he just didn’t pick it up. He changes subject, answers something else, or follows his own thread (neutral/distracted), like the Plan never happened.
+Rule of thumb: it’s a “no-sell,” not a fight.
+
+conflict — He actively resists. He says no, sets a boundary, expresses annoyance, calls it weird, or refuses to engage with the frame.
+Rule of thumb: it’s an explicit “stop / no / lets talk about something else”...stuff like that
+
+Short-Term examples:
+aligned: Short-Term Plan was playful escalation (tease + bait a chase), and he mirrors it—laughs, teases back, and adds a detail that keeps the same game going instead of resetting the vibe.
+partial: Short-Term Plan was emotional depth (“tell me what’s really going on”), and he responds politely but stays on the surface (“just tired lol”), using humor to keep it light rather than stepping into vulnerability.
+drift: Short-Term Plan was to steer into a specific fantasy thread, and he completely pivots into a neutral topic (“btw how was your day / did you see that game?”) without acknowledging the setup.
+conflict: Short-Term Plan was to push a more intimate lane (voice note / explicit talk / jealousy bait), and he shuts it down (“nah don’t do that,” “I’m not into that,” “stop,” “too much”).
+
+LONG_TERM_PLANS (when to fill / when to leave blank)
+
+Only output a status for a long-term plan if THIS exact turn clearly advanced it or clearly damaged it. If it didn’t move the needle, leave it empty. This prevents “false progress” where every turn looks important.
+
+LIFETIME_PLAN: Did he show real loyalty/attachment signals (exclusive language, emotional dependence, “I trust you,” “you’re the only one,” protective/possessive bonding)?
+YEAR_PLAN: Did he reveal a major personal detail (identity, family, relationship status, job shift, relocation, big life stressor/goal)?
+SEASON_PLAN: Did he engage with the current seasonal arc/theme (ongoing motif, challenge, emotional season, recurring tension loop)?
+CHAPTER_PLAN: Did he move the ongoing storyline forward (resolved a conflict, introduced a new stake, progressed a recurring plot thread)?
+EPISODE_PLAN: Did he hit the immediate episode objective (the specific thing this mini-arc is trying to accomplish right now)?
+
+Long-Term examples (only when it actually matters)
+LIFETIME_PLAN: aligned — He drops an “exclusive” or “dependence” marker (“I only talk to you like this,” “you’re the only one who gets me,” “I missed you all day”) that deepens long-term bond.
+YEAR_PLAN: aligned — He reveals something substantial (“I’m getting divorced,” “I just moved,” “my dad’s sick,” “I start a new job Monday”).
+EPISODE_PLAN: conflict — He refuses the core objective of the episode (“I’m not buying anything,” “I don’t want pics,” “stop trying to turn this sexual”).
+
+CRITICAL DISTINCTION (make this a feature, not a bug)
+
+A turn can miss the Short-Term Plan and still win strategically on a long-term goal. You must report that honestly, because it tells Napoleon: “drop the tactic, keep the direction.”
+Better discrepancy example (clean + vivid):
+Short-Term Plan was to escalate sexting, but he interrupts it with something vulnerable (“I can’t do that right now… I’m actually not okay”). That’s Short-Term: conflict (he rejected the move), but Lifetime: aligned (he’s choosing emotional disclosure and trust, which is a stronger bond signal than horny compliance).
+If you want one extra “brain shortcut” to prevent mislabels:
+Ask one question: Did he engage the frame we set, or did he rewrite the frame?
+Engage = aligned/partial
+Rewrite without resistance = drift
+Rewrite with resistance = conflict
 
 CONVERSATION_CRITICALITY
 LABEL: <Low|Medium|High|Critical>
@@ -428,6 +459,7 @@ END ANALYST INPUT TEMPLATE
 ────────────────────────────────────────────────────────────────────────
 
 Based on the input above, immediately generate the response using the required headers.
+
 
 
 
