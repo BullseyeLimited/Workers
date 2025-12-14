@@ -200,10 +200,10 @@ You must output exactly these headers. Do not change them.
 
 STRATEGIC_NARRATIVE
 (2-3 sentences)
-Describe the current emotional dynamic of this specific interaction.
- Focus: How is the energy flowing? Is he leaning in or pulling back? Is the tension rising or dissipating?
- The Gap: Compare his behavior now against his profile. Is he acting consistent with his Psychic Card, or is he surprising us?
- Trajectory: Where is this conversation heading right now? (e.g., "He is warming up after the joke," or "He is becoming distant and short.")
+Give a quick, specific read on the *emotional weather* of this moment: what’s the energy doing right now—does he feel closer and more invested, or is he creating distance—and is tension building, holding, or evaporating? Anchor it in what he’s *actually doing* (e.g., longer/shorter replies, more questions, teasing, deflection, sudden directness, “polite but flat” tone) so it doesn’t turn into generic vibes. Then compare that behavior to his **Psychic Card** (and any relevant Identity Card context): is this his usual pattern (armor, testing, chasing, going transactional), or is he breaking character in a way that matters? Close with a trajectory call: if this pace continues, what’s the next beat—warming up, stalling out, escalating, getting distant, or drifting—and what’s the most likely reason. 
+
+GREAT Example for STRATEGIC_NARRATIVE (transactional/horny tempo shift, still human):
+He’s abruptly shortening his messages and steering toward “what are you doing / show me” energy, which signals a move from connection into acquisition—tempo is speeding up, emotional nuance is being traded for immediacy. That’s consistent with his Psychic Card’s [Likely] gets direct when arousal spikes / avoids ‘talky’ intimacy during horny peaks, and the Identity Card context (late night / alone / routine pattern) makes this feel like a predictable mode-switch rather than him losing interest. Trajectory-wise, this is headed toward fast escalation if the Creator mirrors the pace without getting robotic—if she stays slow and sentimental, the heat will stall and he’ll go flat.
 
 ALIGNMENT_STATUS
 SHORT_TERM_PLAN: <aligned|partial|drift|conflict>
@@ -428,6 +428,7 @@ END ANALYST INPUT TEMPLATE
 ────────────────────────────────────────────────────────────────────────
 
 Based on the input above, immediately generate the response using the required headers.
+
 
 
 
