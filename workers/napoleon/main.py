@@ -20,11 +20,12 @@ SB = create_client(
     SUPABASE_KEY,
     options=ClientOptions(
         headers={
-            "Authorization": f"Bearer {SUPABASE_KEY}",
+        "Authorization": f"Bearer {SUPABASE_KEY}",
         }
     ),
 )
 QUEUE = "napoleon.reply"
+WRITER_QUEUE = "napoleon.compose"
 HORIZONS = ["EPISODE", "CHAPTER", "SEASON", "YEAR", "LIFETIME"]
 HEADER_PATTERN = re.compile(
     r"^[\s>*#-]*\**\s*(?:SECTION\s*\d+\s*[:\-–—]?\s*)?(?P<header>"
@@ -313,13 +314,15 @@ def upsert_napoleon_details(
     raw_text: str,
     raw_hash: str,
     analysis: dict,
-    creator_message_id: int,
+    creator_message_id: int | None = None,
 ) -> None:
     """
     Persist Napoleon planning fields for the fan turn.
-    The creator reply message already got inserted separately.
+    The creator reply message will be produced by a downstream writer worker.
     """
     rethink = analysis.get("RETHINK_HORIZONS") or {}
+    voice_logic = analysis.get("VOICE_ENGINEERING_LOGIC") or {}
+    final_message = analysis.get("FINAL_MESSAGE") or ""
 
     # Fetch existing row so we can preserve all Kairos fields and satisfy constraints.
     existing_row = (
@@ -342,7 +345,6 @@ def upsert_napoleon_details(
             "napoleon_raw_text_preview": (raw_text or "")[:2000],
             "napoleon_prompt_preview": (prompt or "")[:2000],
             "napoleon_rethink_horizons": rethink,
-            "creator_reply_message_id": creator_message_id,
             "napoleon_save_note": "Merged with Kairos",
             "kairos_check": "found" if existing_row.get("strategic_narrative") else "missing",
         }
@@ -363,8 +365,8 @@ def upsert_napoleon_details(
         "plan_year": analysis["MULTI_HORIZON_PLAN"]["YEAR"],
         "plan_lifetime": analysis["MULTI_HORIZON_PLAN"]["LIFETIME"],
         "rethink_horizons": rethink,
-        "napoleon_final_message": analysis["FINAL_MESSAGE"],
-        "napoleon_voice_engine": analysis["VOICE_ENGINEERING_LOGIC"],
+        "napoleon_final_message": final_message,
+        "napoleon_voice_engine": voice_logic,
         "extras": merged_extras,
         "historian_entry": analysis.get("HISTORIAN_ENTRY", {}),
     }
@@ -375,10 +377,6 @@ def upsert_napoleon_details(
         .eq("message_id", fan_message_id)
         .execute()
     )
-
-    SB.table("messages").update({"napoleon_output": analysis}).eq(
-        "id", creator_message_id
-    ).execute()
 
 
 def insert_creator_reply(thread_id: int, final_text: str) -> int:
@@ -779,10 +777,7 @@ def parse_napoleon_headers(raw_text: str) -> tuple[dict | None, str | None]:
 
     required = [
         "TACTICAL_PLAN_3TURNS",
-        # MULTI_HORIZON_PLAN is now optional; can be provided only on rethink/seeding.
         "RETHINK_HORIZONS",
-        "VOICE_ENGINEERING_LOGIC",
-        "FINAL_MESSAGE",
     ]
     missing = [hdr for hdr in required if hdr not in sections]
     if missing:
@@ -796,10 +791,6 @@ def parse_napoleon_headers(raw_text: str) -> tuple[dict | None, str | None]:
         except Exception:
             multi_plan = {}
         rethink = _parse_rethink_section(sections["RETHINK_HORIZONS"])
-        voice_logic = _parse_voice_section(sections["VOICE_ENGINEERING_LOGIC"])
-        final_message = sections["FINAL_MESSAGE"].strip()
-        if not final_message:
-            raise ValueError("empty_final_message")
     except ValueError as exc:  # noqa: BLE001
         return None, str(exc)
 
@@ -807,8 +798,9 @@ def parse_napoleon_headers(raw_text: str) -> tuple[dict | None, str | None]:
         "TACTICAL_PLAN_3TURNS": tactical,
         "MULTI_HORIZON_PLAN": multi_plan,
         "RETHINK_HORIZONS": rethink,
-        "VOICE_ENGINEERING_LOGIC": voice_logic,
-        "FINAL_MESSAGE": final_message,
+        # Voice/final are optional in the new contract; seed empty for compatibility.
+        "VOICE_ENGINEERING_LOGIC": {},
+        "FINAL_MESSAGE": "",
     }
     return analysis, None
 
@@ -1067,18 +1059,6 @@ def _missing_required_fields(analysis: dict | None) -> list[str]:
     for k in ["TURN1_DIRECTIVE", "TURN2A_FAN_PATH", "TURN2B_FAN_PATH", "TURN3A_DIRECTIVE", "TURN3B_DIRECTIVE"]:
         check_present(tactical, k, f"TACTICAL_PLAN_3TURNS.{k}")
 
-    multi = analysis.get("MULTI_HORIZON_PLAN") or {}
-    for hz in ["EPISODE", "CHAPTER", "SEASON", "YEAR", "LIFETIME"]:
-        hz_data = multi.get(hz) or {}
-        check_present(hz_data, "PLAN", f"MULTI_HORIZON_PLAN.{hz}.PLAN")
-
-    check_present(analysis, "FINAL_MESSAGE", "FINAL_MESSAGE")
-
-    # Voice Logic
-    voice = analysis.get("VOICE_ENGINEERING_LOGIC") or {}
-    check_present(voice, "INTENT", "VOICE_ENGINEERING_LOGIC.INTENT")
-    check_present(voice, "DRAFTING", "VOICE_ENGINEERING_LOGIC.DRAFTING")
-
     return missing
 
 
@@ -1138,7 +1118,9 @@ def process_job(payload):
     thread_row = (
         SB.table("threads")
         .select(
-            "episode_plan,chapter_plan,season_plan,year_plan,lifetime_plan"
+            "episode_plan,chapter_plan,season_plan,year_plan,lifetime_plan,"
+            "creator_identity_card,creator_psychic_card,"
+            "fan_identity_card,fan_psychic_card,creator_id"
         )
         .eq("id", thread_id)
         .single()
@@ -1389,8 +1371,6 @@ def process_job(payload):
                 analysis["MULTI_HORIZON_PLAN"][hz]["END_STATE"] = ""
                 analysis["MULTI_HORIZON_PLAN"][hz]["PLAN"] = new_plan_text
 
-    creator_msg_id = insert_creator_reply(thread_id, analysis["FINAL_MESSAGE"])
-
     upsert_napoleon_details(
         fan_message_id=fan_message_id,
         thread_id=thread_id,
@@ -1398,8 +1378,37 @@ def process_job(payload):
         raw_text=raw_text,
         raw_hash=raw_hash,
         analysis=analysis,
-        creator_message_id=creator_msg_id,
+        creator_message_id=None,
     )
+
+    def _recent_fan_messages(limit: int = 20) -> list[str]:
+        rows = (
+            SB.table("messages")
+            .select("id,message_text,turn_index")
+            .eq("thread_id", thread_id)
+            .eq("sender", "fan")
+            .order("turn_index", desc=True)
+            .limit(limit)
+            .execute()
+            .data
+            or []
+        )
+        return [row.get("message_text") or "" for row in reversed(rows)]
+
+    writer_payload = {
+        "fan_message_id": fan_message_id,
+        "thread_id": thread_id,
+        "turn_directive": analysis.get("TACTICAL_PLAN_3TURNS") or {},
+        "message_directive": None,
+        "latest_fan_message": msg.get("message_text") or "",
+        "last_20_fan_messages": _recent_fan_messages(),
+        "thread_history": raw_turns,
+        "creator_identity_card": thread_row.get("creator_identity_card") or "",
+        "creator_psychic_card": thread_row.get("creator_psychic_card") or {},
+        "fan_identity_card": thread_row.get("fan_identity_card") or "",
+        "fan_psychic_card": thread_row.get("fan_psychic_card") or {},
+    }
+    send(WRITER_QUEUE, writer_payload)
     return True
 
 

@@ -238,7 +238,8 @@ def _load_cards(thread_id: int, *, client=None, worker_tier=None) -> Dict[str, s
         sb.table("threads")
         .select(
             "fan_identity_card,fan_psychic_card,"
-            "creator_identity_card,creator_psychic_card"
+            "creator_identity_card,creator_psychic_card,"
+            "creator_id"
         )
         .eq("id", thread_id)
         .single()
@@ -246,6 +247,22 @@ def _load_cards(thread_id: int, *, client=None, worker_tier=None) -> Dict[str, s
         .data
         or {}
     )
+
+    creator_row = {}
+    creator_id = row.get("creator_id")
+    if creator_id:
+        try:
+            creator_row = (
+                sb.table("creators")
+                .select("creator_identity_card,creator_psychic_card")
+                .eq("id", creator_id)
+                .single()
+                .execute()
+                .data
+                or {}
+            )
+        except Exception:
+            creator_row = {}
 
     fan_psychic = row.get("fan_psychic_card") or "[Fan Psychic Card unavailable]"
     if worker_tier is not None and isinstance(fan_psychic, dict):
@@ -256,11 +273,21 @@ def _load_cards(thread_id: int, *, client=None, worker_tier=None) -> Dict[str, s
             # Fall back to the unfiltered card if tier parsing fails
             pass
 
+    creator_identity_card = (
+        row.get("creator_identity_card")
+        or creator_row.get("creator_identity_card")
+        or "Identity card: empty"
+    )
+    creator_psychic_card = (
+        row.get("creator_psychic_card")
+        or creator_row.get("creator_psychic_card")
+    )
+
     return {
         "FAN_IDENTITY_CARD": row.get("fan_identity_card") or "Identity card: empty",
         "FAN_PSYCHIC_CARD": _format_psychic_card(fan_psychic),
-        "CREATOR_IDENTITY_CARD": row.get("creator_identity_card") or "Identity card: empty",
-        "CREATOR_PSYCHIC_CARD": _format_psychic_card(row.get("creator_psychic_card")),
+        "CREATOR_IDENTITY_CARD": creator_identity_card,
+        "CREATOR_PSYCHIC_CARD": _format_psychic_card(creator_psychic_card),
     }
 
 
