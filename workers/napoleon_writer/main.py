@@ -169,14 +169,15 @@ def record_writer_failure(
     merged_extras.update(
         {
             "napoleon_writer_raw_preview": (raw_text or "")[:2000],
+            "napoleon_writer_raw": raw_text,
+            "napoleon_writer_prompt_raw": prompt,
         }
     )
     SB.table("message_ai_details").update(
         {
+            # Do not clobber planner fields; mark status/error and stash writer data in extras.
             "napoleon_status": "failed",
             "extract_error": error_message,
-            "napoleon_prompt_raw": prompt,
-            "napoleon_output_raw": raw_text,
             "extras": merged_extras,
         }
     ).eq("message_id", fan_message_id).execute()
@@ -204,16 +205,17 @@ def upsert_writer_details(
         {
             "napoleon_writer_chunks": chunks,
             "napoleon_writer_raw_preview": (raw_text or "")[:2000],
+            "napoleon_writer_raw": raw_text,
+            "napoleon_writer_prompt_raw": prompt_log,
             "napoleon_prompt_preview": (prompt_log or "")[:2000],
             "creator_reply_message_id": creator_message_id,
         }
     )
     SB.table("message_ai_details").update(
         {
+            # Preserve planner fields; only add writer data via extras and status flip.
             "napoleon_status": "ok",
             "extract_error": None,
-            "napoleon_prompt_raw": prompt_log,
-            "napoleon_output_raw": raw_text,
             "extras": merged_extras,
         }
     ).eq("message_id", fan_message_id).execute()
