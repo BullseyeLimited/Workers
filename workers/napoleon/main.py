@@ -1129,6 +1129,23 @@ def process_job(payload):
         or {}
     )
 
+    details_row = (
+        SB.table("message_ai_details")
+        .select("extras")
+        .eq("message_id", fan_message_id)
+        .single()
+        .execute()
+        .data
+        or {}
+    )
+    extras = details_row.get("extras") or {}
+    web_blob = extras.get("web_research") or {}
+    facts_pack = (
+        web_blob.get("facts_pack")
+        or web_blob.get("raw_output")
+        or web_blob.get("brief")
+    )
+
     raw_turns = live_turn_window(
         thread_id,
         boundary_turn=msg.get("turn_index"),
@@ -1407,6 +1424,7 @@ def process_job(payload):
         "creator_psychic_card": thread_row.get("creator_psychic_card") or {},
         "fan_identity_card": thread_row.get("fan_identity_card") or "",
         "fan_psychic_card": thread_row.get("fan_psychic_card") or {},
+        "facts_pack": facts_pack,
     }
     send(WRITER_QUEUE, writer_payload)
     return True

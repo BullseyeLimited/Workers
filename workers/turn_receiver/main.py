@@ -39,6 +39,11 @@ def enqueue_kairos(mid:int):
     send("kairos.analyse", {"message_id": mid})
 
 
+def enqueue_hermes(mid: int):
+    # router that decides Kairos/Web research fork/join
+    send("hermes.route", {"message_id": mid})
+
+
 def enqueue_argus(mid: int):
     # media-aware worker that will eventually wake Kairos
     send("argus.analyse", {"message_id": mid})
@@ -222,7 +227,7 @@ async def receive(request: Request):
     if has_media:
         enqueue_argus(msg_id)
     else:
-        enqueue_kairos(msg_id)
+        enqueue_hermes(msg_id)
 
     _maybe_enqueue_episode_summary(thread_id, turn_index)
 

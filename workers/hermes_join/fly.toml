@@ -1,0 +1,12 @@
+app = "hermes-join-worker"
+primary_region = "fra"
+
+[build]
+  dockerfile = "../../base/Dockerfile"
+  context    = "../.."
+
+[processes]
+  app = "python -m workers.hermes_join.main"
+
+[deploy]
+  min_machines_running = 1
