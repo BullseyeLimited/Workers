@@ -106,6 +106,86 @@ def parse_writer_output(raw_text: str) -> List[str]:
     return chunks
 
 
+_TURN1_DIRECTIVE_KEY_CANDIDATES = (
+    "TURN1_DIRECTIVE",
+)
+
+
+def _extract_turn1_directive(value: Any) -> str:
+    """
+    Napoleon Writer only needs Turn 1.
+
+    The queue payload may contain:
+    - a plain string (preferred)
+    - a dict with keys for all 3 turns (legacy)
+    - a stringified JSON dict (legacy)
+    """
+
+    if value is None or value == "":
+        return ""
+
+    if isinstance(value, dict):
+        for key in _TURN1_DIRECTIVE_KEY_CANDIDATES:
+            candidate = value.get(key)
+            if isinstance(candidate, str) and candidate.strip():
+                return candidate.strip()
+            if candidate is not None and candidate != "":
+                return str(candidate).strip()
+
+        nested = (
+            value.get("TACTICAL_PLAN_3TURNS")
+            or value.get("tactical_plan_3turns")
+            or value.get("tactical_plan_3turn")
+        )
+        if nested is not None:
+            return _extract_turn1_directive(nested)
+        return ""
+
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return ""
+
+        if text.startswith("{") and text.endswith("}"):
+            try:
+                parsed = json.loads(text)
+            except Exception:
+                parsed = None
+            if isinstance(parsed, dict):
+                extracted = _extract_turn1_directive(parsed)
+                if extracted:
+                    return extracted
+
+        # Keep only Turn 1, stopping before Turn2/Turn3 markers (legacy payloads).
+        parts = re.split(
+            r"\n\s*(?:TURN2A|TURN2B|TURN2|TURN3A|TURN3B|TURN3)\b",
+            text,
+            maxsplit=1,
+            flags=re.IGNORECASE,
+        )
+        turn1_block = (parts[0] or "").strip()
+        if not turn1_block:
+            return ""
+
+        header_prefix = re.compile(
+            r"^\s*TURN1_DIRECTIVE\s*[:=-]\s*",
+            re.IGNORECASE,
+        )
+        turn1_block = header_prefix.sub("", turn1_block, count=1).strip()
+
+        lines = turn1_block.splitlines()
+        if lines and re.match(
+            r"^\s*TURN1_DIRECTIVE\s*$",
+            lines[0],
+            flags=re.IGNORECASE,
+        ):
+            turn1_block = "\n".join(lines[1:]).strip()
+
+        return turn1_block
+
+    return str(value).strip()
+
+
 def build_writer_user_block(payload: Dict[str, Any]) -> str:
     # Keep it readable for the model; JSON with context markers.
     block = {
@@ -113,7 +193,7 @@ def build_writer_user_block(payload: Dict[str, Any]) -> str:
         "fan_psychic_card": payload.get("fan_psychic_card") or {},
         "thread_history": payload.get("thread_history") or "",
         "latest_fan_message": payload.get("latest_fan_message") or "",
-        "turn_directive": payload.get("turn_directive") or "",
+        "turn_directive": _extract_turn1_directive(payload.get("turn_directive")),
     }
     return f"<NAPOLEON_INPUT>\n{json.dumps(block, ensure_ascii=False, indent=2)}\n</NAPOLEON_INPUT>"
 
