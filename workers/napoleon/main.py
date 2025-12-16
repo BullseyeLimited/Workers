@@ -1395,18 +1395,21 @@ def process_job(payload):
         )
         return [row.get("message_text") or "" for row in reversed(rows)]
 
+    tactical_plan = analysis.get("TACTICAL_PLAN_3TURNS") or {}
+    if isinstance(tactical_plan, dict):
+        turn1_directive = tactical_plan.get("TURN1_DIRECTIVE") or ""
+    else:
+        turn1_directive = str(tactical_plan or "")
+
     writer_payload = {
         "fan_message_id": fan_message_id,
         "thread_id": thread_id,
-        "turn_directive": analysis.get("TACTICAL_PLAN_3TURNS") or {},
-        "message_directive": None,
-        "latest_fan_message": msg.get("message_text") or "",
-        "last_20_fan_messages": _recent_fan_messages(),
-        "thread_history": raw_turns,
+        # Minimal context for the message composer (Napoleon Writer).
         "creator_identity_card": thread_row.get("creator_identity_card") or "",
-        "creator_psychic_card": thread_row.get("creator_psychic_card") or {},
-        "fan_identity_card": thread_row.get("fan_identity_card") or "",
         "fan_psychic_card": thread_row.get("fan_psychic_card") or {},
+        "thread_history": raw_turns,
+        "latest_fan_message": msg.get("message_text") or "",
+        "turn_directive": turn1_directive,
     }
     send(WRITER_QUEUE, writer_payload)
     return True

@@ -110,17 +110,10 @@ def build_writer_user_block(payload: Dict[str, Any]) -> str:
     # Keep it readable for the model; JSON with context markers.
     block = {
         "creator_identity_card": payload.get("creator_identity_card") or "",
-        "creator_psychic_card": payload.get("creator_psychic_card") or {},
-        "fan_identity_card": payload.get("fan_identity_card") or "",
         "fan_psychic_card": payload.get("fan_psychic_card") or {},
         "thread_history": payload.get("thread_history") or "",
-        "last_20_fan_messages": payload.get("last_20_fan_messages") or [],
         "latest_fan_message": payload.get("latest_fan_message") or "",
-        "turn_directive": payload.get("turn_directive") or {},
-        "message_directive": payload.get("message_directive"),
-        "facts_pack": payload.get("facts_pack"),
-        "commerce_state": payload.get("commerce_state"),
-        "safety_flags": payload.get("safety_flags"),
+        "turn_directive": payload.get("turn_directive") or "",
     }
     return f"<NAPOLEON_INPUT>\n{json.dumps(block, ensure_ascii=False, indent=2)}\n</NAPOLEON_INPUT>"
 
