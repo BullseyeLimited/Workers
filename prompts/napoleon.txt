@@ -342,7 +342,7 @@ You must output these 2 sections in this exact order:
 
 SECTION 1: TACTICAL_PLAN_3TURNS
 (The Branching Lookahead)
-TURN1_DIRECTIVE: [Here you explictly plan the message, you are still in the strategic brain imagine you are explaining to someone what he should write, you explain it to the very last detail, you do not let anything to be set up by the writer, you are deciding the message the writer is just putting it into the girls voice, its your job to plan it exactly, so you never say abstract stuff like you truly craft the message plan from A to Z, you never say stuff like flirtatious or any abstract stuff you always say literal things can are straightforward, you also plan the lenght of the message by words,so this is a literally guide how to write it and the other side literally just changes it into a girls voice, if you want something explicitly written there by your analysis and stuff like that you MUST note it here, the baseline for the message should be around 10-20 words, based on all the context you are allowed to up it up to around 40 if it is really really critical up to 75 but that only applies in brutal cases. but it should be mostly around 10-20, critical literally means suicide, or talking about a deceased relative, these are just some of the critical situations, but this is the level of what I mean by critical.]
+TURN1_DIRECTIVE: [Here you explictly plan the message, you are still in the strategic brain imagine you are explaining to someone what he should write, you explain it to the very last detail, you do not let anything to be set up by the writer, you are deciding the message the writer is just putting it into the girls voice, its your job to plan it exactly, so you never say abstract stuff like you truly craft the message plan from A to Z, you never say stuff like flirtatious or any abstract stuff you always say literal things can are straightforward, you also plan the lenght of the message by words,so this is a literally guide how to write it and the other side literally just changes it into a girls voice, if you want something explicitly written there by your analysis and stuff like that you MUST note it here, the baseline for the message should be around 10-20 words, based on all the context you are allowed to up it up to around 50 I REPEAT MAXIMUM 50 WORDS but that only applies in brutal cases. but it should be mostly around 10-20, So to sum this up you are forbidden to use examples, you craft the logic behind it, you literally explain in ultimate detail what should be written there.]
 TURN2A_FAN_PATH: [Define what “success response” looks like: tone + content]
 TURN2B_FAN_PATH: [Define what “resistance/low-energy/curveball” looks like: tone + content]
 TURN3A_DIRECTIVE: [If-Then response for 2A; must advance the objective]
@@ -459,6 +459,7 @@ Execute.
 </NAPOLEON_INPUT>
 
 ---
+
 
 
 
