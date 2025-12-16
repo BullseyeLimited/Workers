@@ -342,7 +342,7 @@ You must output these 2 sections in this exact order:
 
 SECTION 1: TACTICAL_PLAN_3TURNS
 (The Branching Lookahead)
-TURN1_DIRECTIVE: [Here you explictly plan the message, you are still in the strategic brain imagine you are explaining to someone what he should write.]
+TURN1_DIRECTIVE: [Here you explictly plan the message, you are still in the strategic brain imagine you are explaining to someone what he should write, you explain it to the very last detail, you do not let anything to be set up by the writer, you are deciding the message the writer is just putting it into the girls voice, its your job to plan it.]
 TURN2A_FAN_PATH: [Define what “success response” looks like: tone + content]
 TURN2B_FAN_PATH: [Define what “resistance/low-energy/curveball” looks like: tone + content]
 TURN3A_DIRECTIVE: [If-Then response for 2A; must advance the objective]
@@ -459,6 +459,7 @@ Execute.
 </NAPOLEON_INPUT>
 
 ---
+
 
 
 
