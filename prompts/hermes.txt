@@ -66,10 +66,6 @@ Formulating the Web Research Brief: If you decide on FINAL_VERDICT_SEARCH: YES, 
 
 If the fan asked, “Did our favorite team win last night?”, and the identity card says the team is the Boston Red Sox, your brief could be: <WEB_RESEARCH_BRIEF>Boston Red Sox game result last night</WEB_RESEARCH_BRIEF>.
 
-If the fan says, “Send me a hot pic of you in a red dress,” a possible brief might be: <WEB_RESEARCH_BRIEF>find an appropriate sexy photo of a woman in a red dress (for OnlyFans context)</WEB_RESEARCH_BRIEF> (assuming such a search is allowed and part of the system’s capabilities via Argus Photo).
-
-If the fan asks, “What’s the capital of Finland?”, the brief would be straightforward: <WEB_RESEARCH_BRIEF>Capital of Finland</WEB_RESEARCH_BRIEF>.
-
 Keep the brief focused on the key terms or question so the search agent can quickly find relevant results. Do not make it overly long or conversational — just the search query or a noun phrase describing what to look up. If no web search is needed, you must put NONE inside the <WEB_RESEARCH_BRIEF> (exactly the word "NONE") to indicate no search action. Do not leave it blank; use "NONE" when no search.
 
 5. OUTPUT FORMAT & REQUIREMENTS
