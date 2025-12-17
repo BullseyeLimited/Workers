@@ -4,6 +4,7 @@ Web research worker — calls a web-capable model and stores findings on message
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import time
@@ -108,16 +109,36 @@ def process_job(payload: Dict[str, Any]) -> bool:
         raise ValueError(f"Message {fan_msg_id} not found")
 
     thread_id = msg_row["thread_id"]
-    existing_details = (
+    details_rows = (
         SB.table("message_ai_details")
         .select("extras")
         .eq("message_id", fan_msg_id)
-        .single()
+        .limit(1)
         .execute()
         .data
-        or {}
+        or []
     )
-    existing_extras = existing_details.get("extras") or {}
+    existing_extras = {}
+    if details_rows:
+        existing_extras = details_rows[0].get("extras") or {}
+    else:
+        # Create a minimal row so we can store web research output without
+        # violating NOT NULL constraints (raw_hash, kairos_status).
+        try:
+            SB.table("message_ai_details").insert(
+                {
+                    "message_id": fan_msg_id,
+                    "thread_id": thread_id,
+                    "sender": "fan",
+                    "raw_hash": hashlib.sha256(
+                        f"web_research_seed:{thread_id}:{fan_msg_id}".encode("utf-8")
+                    ).hexdigest(),
+                    "kairos_status": "pending",
+                    "extras": existing_extras,
+                }
+            ).execute()
+        except Exception:
+            pass
 
     system_prompt = _load_prompt()
     user_payload = {
@@ -156,14 +177,8 @@ def process_job(payload: Dict[str, Any]) -> bool:
         web_blob["error"] = error
 
     merged_extras = _merge_extras(existing_extras, {"web_research": web_blob})
-    SB.table("message_ai_details").upsert(
-        {
-            "message_id": fan_msg_id,
-            "thread_id": thread_id,
-            "sender": "fan",
-            "extras": merged_extras,
-        },
-        on_conflict="message_id",
+    SB.table("message_ai_details").update({"extras": merged_extras}).eq(
+        "message_id", fan_msg_id
     ).execute()
 
     if not job_exists(JOIN_QUEUE, fan_msg_id, client=SB):

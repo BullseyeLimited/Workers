@@ -4,6 +4,7 @@ Hermes router worker — decides Kairos mode, web research need, and orchestrate
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -237,28 +238,37 @@ def process_job(payload: Dict[str, Any]) -> bool:
     thread_id = msg_row["thread_id"]
     turn_index = msg_row.get("turn_index")
 
-    existing_details = (
+    details_rows = (
         SB.table("message_ai_details")
         .select("extras")
         .eq("message_id", fan_msg_id)
-        .single()
+        .limit(1)
         .execute()
         .data
-        or {}
+        or []
     )
-    existing_extras = existing_details.get("extras") or {}
-
-    # Ensure a minimal row exists for downstream workers.
-    if not existing_details:
-        SB.table("message_ai_details").upsert(
-            {
-                "message_id": fan_msg_id,
-                "thread_id": thread_id,
-                "sender": "fan",
-                "extras": existing_extras,
-            },
-            on_conflict="message_id",
-        ).execute()
+    existing_extras = {}
+    if details_rows:
+        existing_extras = details_rows[0].get("extras") or {}
+    else:
+        # Create a minimal row so we can store Hermes decisions without violating
+        # NOT NULL constraints (raw_hash, kairos_status) on message_ai_details.
+        try:
+            SB.table("message_ai_details").insert(
+                {
+                    "message_id": fan_msg_id,
+                    "thread_id": thread_id,
+                    "sender": "fan",
+                    "raw_hash": hashlib.sha256(
+                        f"hermes_seed:{thread_id}:{fan_msg_id}".encode("utf-8")
+                    ).hexdigest(),
+                    "kairos_status": "pending",
+                    "extras": existing_extras,
+                }
+            ).execute()
+        except Exception:
+            # Another worker may have inserted the row concurrently.
+            pass
 
     # Reuse prior decision if already stored.
     hermes_blob = existing_extras.get("hermes") if isinstance(existing_extras, dict) else None
@@ -336,14 +346,8 @@ def process_job(payload: Dict[str, Any]) -> bool:
             "created_at": datetime.now(timezone.utc).isoformat(),
         }
         merged_extras = _merge_extras(existing_extras, {"hermes": hermes_blob})
-        SB.table("message_ai_details").upsert(
-            {
-                "message_id": fan_msg_id,
-                "thread_id": thread_id,
-                "sender": "fan",
-                "extras": merged_extras,
-            },
-            on_conflict="message_id",
+        SB.table("message_ai_details").update({"extras": merged_extras}).eq(
+            "message_id", fan_msg_id
         ).execute()
     parsed = hermes_blob["parsed"]
 
