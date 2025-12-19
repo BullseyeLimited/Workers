@@ -63,16 +63,55 @@ def _merge_extras(existing: dict, patch: dict) -> dict:
     return merged
 
 
+def _extract_response_text(resp) -> str:
+    if hasattr(resp, "output_text") and resp.output_text:
+        return resp.output_text
+    output = getattr(resp, "output", None) or []
+    for item in output:
+        content = getattr(item, "content", None) or []
+        for part in content:
+            if getattr(part, "type", None) == "output_text":
+                text = getattr(part, "text", None)
+                if text:
+                    return text
+    return ""
+
+
 def _call_model(system_prompt: str, user_payload: dict) -> str:
     if not OPENAI_CLIENT:
         raise RuntimeError("WEB_RESEARCH_OPENAI_API_KEY or OPENAI_API_KEY is not set")
 
+    prompt_block = (
+        f"<WEB_RESEARCH_INPUT>\n"
+        f"{json.dumps(user_payload, ensure_ascii=False, indent=2)}\n"
+        f"</WEB_RESEARCH_INPUT>"
+    )
+    use_web_search = os.getenv("WEB_RESEARCH_USE_WEB_SEARCH", "true").lower() in {
+        "1",
+        "true",
+        "yes",
+    }
+    if use_web_search:
+        try:
+            resp = OPENAI_CLIENT.responses.create(
+                model=WEB_RESEARCH_MODEL,
+                tools=[{"type": "web_search"}],
+                temperature=float(os.getenv("WEB_RESEARCH_TEMPERATURE", "0.2")),
+                max_output_tokens=int(os.getenv("WEB_RESEARCH_MAX_TOKENS", "1200")),
+                input=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": prompt_block},
+                ],
+            )
+            raw_text = _extract_response_text(resp)
+            if raw_text:
+                return raw_text
+        except Exception:
+            pass
+
     messages = [
         {"role": "system", "content": system_prompt},
-        {
-            "role": "user",
-            "content": f"<WEB_RESEARCH_INPUT>\n{json.dumps(user_payload, ensure_ascii=False, indent=2)}\n</WEB_RESEARCH_INPUT>",
-        },
+        {"role": "user", "content": prompt_block},
     ]
     resp = OPENAI_CLIENT.chat.completions.create(
         model=WEB_RESEARCH_MODEL,
@@ -94,6 +133,7 @@ def process_job(payload: Dict[str, Any]) -> bool:
 
     fan_msg_id = payload["message_id"]
     brief = payload.get("brief") or "NONE"
+    attempt = int(payload.get("web_retry", 0))
 
     msg_row = (
         SB.table("messages")
@@ -155,10 +195,36 @@ def process_job(payload: Dict[str, Any]) -> bool:
 
     try:
         raw_text = _call_model(system_prompt, user_payload)
+        if not raw_text.strip():
+            raise RuntimeError("empty_output")
         status = "ok"
     except Exception as exc:  # noqa: BLE001
         status = "failed"
         error = str(exc)
+
+    if status == "failed" and attempt < 1:
+        retry_payload = {
+            "message_id": fan_msg_id,
+            "brief": brief,
+            "web_retry": attempt + 1,
+        }
+        send(QUEUE, retry_payload)
+        web_blob = {
+            "status": "retrying",
+            "brief": brief,
+            "raw_output": raw_text,
+            "facts_pack": None,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "error": error,
+        }
+        merged_extras = _merge_extras(existing_extras, {"web_research": web_blob})
+        SB.table("message_ai_details").update(
+            {
+                "extras": merged_extras,
+                "web_research_status": "retrying",
+            }
+        ).eq("message_id", fan_msg_id).execute()
+        return True
 
     if raw_text:
         try:
@@ -177,9 +243,14 @@ def process_job(payload: Dict[str, Any]) -> bool:
         web_blob["error"] = error
 
     merged_extras = _merge_extras(existing_extras, {"web_research": web_blob})
-    SB.table("message_ai_details").update({"extras": merged_extras}).eq(
-        "message_id", fan_msg_id
-    ).execute()
+    SB.table("message_ai_details").update(
+        {
+            "extras": merged_extras,
+            "web_research_status": status,
+            "web_research_output_raw": raw_text,
+            "web_research_facts_pack": facts_pack,
+        }
+    ).eq("message_id", fan_msg_id).execute()
 
     if not job_exists(JOIN_QUEUE, fan_msg_id, client=SB):
         send(JOIN_QUEUE, {"message_id": fan_msg_id})

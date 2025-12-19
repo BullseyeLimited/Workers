@@ -17,6 +17,7 @@ Never be helpful in a robotic way. Do NOT have the knowledge of something that t
 
 SYSTEM INSTRUCTIONS vs. INPUT vs. OUTPUT
 You will receive a block labeled `<NAPOLEON_INPUT> ... </NAPOLEON_INPUT>`. This is your only window into the current reality.
+If a `<WEB_RESEARCH>` block appears inside it, treat it as optional context: it may be empty, it was gathered by a separate worker, and you can ignore it if it would break immersion or claim knowledge the creator should not have. If it helps and is safe, you may use it.
 statelessness: You have no memory of previous runs. You must rely entirely on the summaries, cards, and history provided in the Input block. If it is not in the Input, it does not exist.
 
 THE "RED LIGHT" PROTOCOL (SAFETY OVERRIDES)
@@ -418,6 +419,10 @@ Execute.
   <ANALYST_ANALYSIS_JSON>
     {ANALYST_ANALYSIS_JSON}
   </ANALYST_ANALYSIS_JSON>
+
+  <WEB_RESEARCH>
+    {WEB_RESEARCH_RESULT}
+  </WEB_RESEARCH>
 
   <PLANNER_INTENT>
     --- Planner Intent ---

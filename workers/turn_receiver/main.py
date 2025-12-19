@@ -34,9 +34,9 @@ def get_creator_id(handle: str) -> int:
         raise HTTPException(404, f"unknown creator_handle {handle}")
     return data[0]["id"]
 
-def enqueue_kairos(mid:int):
-    # put the message id on the queue so kairos-worker processes it
-    send("kairos.analyse", {"message_id": mid})
+def enqueue_hermes(mid: int):
+    # route every fan turn through Hermes for routing decisions
+    send("hermes.route", {"message_id": mid})
 
 def enqueue_argus(mid: int):
     # media-aware worker that will eventually wake Kairos
@@ -221,7 +221,7 @@ async def receive(request: Request):
     if has_media:
         enqueue_argus(msg_id)
     else:
-        enqueue_kairos(msg_id)
+        enqueue_hermes(msg_id)
 
     _maybe_enqueue_episode_summary(thread_id, turn_index)
 

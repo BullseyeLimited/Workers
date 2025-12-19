@@ -1131,7 +1131,9 @@ def process_job(payload):
 
     details_row = (
         SB.table("message_ai_details")
-        .select("extras")
+        .select(
+            "extras,web_research_facts_pack,web_research_output_raw"
+        )
         .eq("message_id", fan_message_id)
         .single()
         .execute()
@@ -1144,7 +1146,20 @@ def process_job(payload):
         web_blob.get("facts_pack")
         or web_blob.get("raw_output")
         or web_blob.get("brief")
+        or details_row.get("web_research_facts_pack")
+        or details_row.get("web_research_output_raw")
     )
+    def _format_web_research(value) -> str:
+        if value is None:
+            return ""
+        if isinstance(value, (dict, list)):
+            try:
+                return json.dumps(value, ensure_ascii=False)
+            except Exception:
+                return str(value)
+        return str(value)
+
+    web_research_text = _format_web_research(facts_pack)
 
     raw_turns = live_turn_window(
         thread_id,
@@ -1158,6 +1173,7 @@ def process_job(payload):
         raw_turns,
         latest_fan_text=_format_fan_turn(msg),
         client=SB,
+        extra_context={"WEB_RESEARCH_RESULT": web_research_text},
     )
     full_prompt_log = json.dumps(
         {"system": system_prompt, "user": user_prompt},

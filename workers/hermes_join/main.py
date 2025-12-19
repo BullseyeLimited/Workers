@@ -66,7 +66,7 @@ def process_job(payload: Dict[str, Any]) -> bool:
     fan_msg_id = payload["message_id"]
     details = (
         SB.table("message_ai_details")
-        .select("thread_id,kairos_status,extras")
+        .select("thread_id,kairos_status,web_research_status,extras")
         .eq("message_id", fan_msg_id)
         .single()
         .execute()
@@ -88,7 +88,7 @@ def process_job(payload: Dict[str, Any]) -> bool:
         return True
 
     web_blob = extras.get("web_research") or {}
-    web_status = web_blob.get("status")
+    web_status = web_blob.get("status") or details.get("web_research_status")
 
     need_kairos, need_web, done = completion_state(
         hermes_parsed,

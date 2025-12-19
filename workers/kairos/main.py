@@ -38,7 +38,7 @@ SB = create_client(
     ),
 )
 QUEUE = "kairos.analyse"
-NAPOLEON_QUEUE = "napoleon.reply"
+JOIN_QUEUE = "hermes.join"
 
 TRANSLATOR_MODEL = os.getenv("TRANSLATOR_MODEL", "gpt-4o-mini")
 TRANSLATOR_BASE_URL = os.getenv("TRANSLATOR_BASE_URL", "https://api.openai.com/v1")
@@ -641,8 +641,8 @@ def upsert_kairos_details(
     )
 
 
-def enqueue_napoleon_job(message_id: int) -> None:
-    send(NAPOLEON_QUEUE, {"message_id": message_id})
+def enqueue_join_job(message_id: int) -> None:
+    send(JOIN_QUEUE, {"message_id": message_id})
 
 
 def process_job(payload: Dict[str, Any], row_id: int) -> bool:
@@ -681,7 +681,7 @@ def process_job(payload: Dict[str, Any], row_id: int) -> bool:
     )
 
     kairos_mode = (payload.get("kairos_mode") or "full").lower()
-    template_name = "kairos_lite" if kairos_mode == "lite" else "kairos"
+    template_name = "kairos"
     try:
         system_prompt, user_prompt = build_prompt_sections(
             template_name,
@@ -804,8 +804,8 @@ def process_job(payload: Dict[str, Any], row_id: int) -> bool:
             f"[Kairos] Parse/validation error after retries for message {fan_msg_id}: "
             f"missing={missing_fields}, parse_error={parse_error}"
         )
-        # Even if Kairos failed, hand off to Napoleon so the pipeline can continue.
-        enqueue_napoleon_job(fan_msg_id)
+        # Even if Kairos failed, hand off to Hermes Join so the pipeline can continue.
+        enqueue_join_job(fan_msg_id)
         return True
 
     upsert_kairos_details(
@@ -825,7 +825,7 @@ def process_job(payload: Dict[str, Any], row_id: int) -> bool:
         "id", fan_msg_id
     ).execute()
 
-    enqueue_napoleon_job(fan_msg_id)
+    enqueue_join_job(fan_msg_id)
     return True
 
 

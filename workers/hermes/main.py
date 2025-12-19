@@ -222,6 +222,7 @@ def process_job(payload: Dict[str, Any]) -> bool:
         raise ValueError(f"Malformed job payload: {payload}")
 
     fan_msg_id = payload["message_id"]
+    attempt = int(payload.get("hermes_retry", 0))
     msg_row = (
         SB.table("messages")
         .select(
@@ -270,6 +271,7 @@ def process_job(payload: Dict[str, Any]) -> bool:
             # Another worker may have inserted the row concurrently.
             pass
 
+    new_decision = False
     # Reuse prior decision if already stored.
     hermes_blob = existing_extras.get("hermes") if isinstance(existing_extras, dict) else None
     if _has_valid_decision(hermes_blob):
@@ -278,6 +280,7 @@ def process_job(payload: Dict[str, Any]) -> bool:
         status = hermes_blob.get("status") or "ok"
         error = hermes_blob.get("error")
     else:
+        new_decision = True
         raw_turns = live_turn_window(
             thread_id,
             boundary_turn=turn_index,
@@ -285,6 +288,7 @@ def process_job(payload: Dict[str, Any]) -> bool:
             exclude_message_id=fan_msg_id,
             client=SB,
         )
+        raw_turns = raw_turns or "[No raw turns provided]"
         latest_fan_text = _format_fan_turn(msg_row)
 
         # Identity cards (fan + creator)
@@ -315,13 +319,19 @@ def process_job(payload: Dict[str, Any]) -> bool:
             except Exception:
                 creator_card = None
 
-        user_payload = {
-            "LATEST_FAN_MESSAGE": latest_fan_text,
-            "RAW_TURNS": raw_turns,
-            "FAN_IDENTITY_CARD": thread_row.get("fan_identity_card") or "Identity card: empty",
-            "CREATOR_IDENTITY_CARD": creator_card or "Identity card: empty",
-        }
-        user_block = f"<HERMES_INPUT>\n{json.dumps(user_payload, ensure_ascii=False, indent=2)}\n</HERMES_INPUT>"
+        fan_card = thread_row.get("fan_identity_card") or "Identity card: empty"
+        creator_card = creator_card or "Identity card: empty"
+        user_block = (
+            "<HERMES_INPUT>\n"
+            f"{raw_turns}\n\n"
+            "LATEST_FAN_MESSAGE:\n"
+            f"{latest_fan_text}\n\n"
+            "FAN_IDENTITY_CARD:\n"
+            f"{fan_card}\n\n"
+            "CREATOR_IDENTITY_CARD:\n"
+            f"{creator_card}\n"
+            "</HERMES_INPUT>"
+        )
 
         system_prompt = _load_prompt()
 
@@ -335,6 +345,10 @@ def process_job(payload: Dict[str, Any]) -> bool:
         else:
             status = "ok" if parsed else "failed"
 
+        if not parsed and attempt < 1:
+            send(QUEUE, {"message_id": fan_msg_id, "hermes_retry": attempt + 1})
+            return True
+
         if not parsed:
             parsed = _fail_closed_defaults()
 
@@ -346,27 +360,39 @@ def process_job(payload: Dict[str, Any]) -> bool:
             "created_at": datetime.now(timezone.utc).isoformat(),
         }
         merged_extras = _merge_extras(existing_extras, {"hermes": hermes_blob})
-        SB.table("message_ai_details").update({"extras": merged_extras}).eq(
-            "message_id", fan_msg_id
-        ).execute()
+        SB.table("message_ai_details").update(
+            {
+                "extras": merged_extras,
+                "hermes_status": status,
+                "hermes_output_raw": raw_text,
+            }
+        ).eq("message_id", fan_msg_id).execute()
+    if (not new_decision) and _has_valid_decision(hermes_blob):
+        SB.table("message_ai_details").update(
+            {
+                "hermes_status": hermes_blob.get("status") or "ok",
+                "hermes_output_raw": hermes_blob.get("raw_output", ""),
+            }
+        ).eq("message_id", fan_msg_id).execute()
     parsed = hermes_blob["parsed"]
 
     verdict_search = (parsed.get("final_verdict_search") or "NO").upper()
     verdict_kairos = (parsed.get("final_verdict_kairos") or "FULL").upper()
-    join_requirements = (parsed.get("join_requirements") or "KAIROS_ONLY").upper()
     research_brief = parsed.get("web_research_brief") or "NONE"
+    need_kairos = verdict_kairos != "SKIP"
+    need_web = verdict_search == "YES"
 
     # Idempotent forks
-    if verdict_kairos != "SKIP":
+    if need_kairos:
         kairos_mode = "lite" if verdict_kairos == "LITE" else "full"
         if not job_exists(KAIROS_QUEUE, fan_msg_id, client=SB):
             send(KAIROS_QUEUE, {"message_id": fan_msg_id, "kairos_mode": kairos_mode})
 
-    if verdict_search == "YES":
+    if need_web:
         if not job_exists(WEB_QUEUE, fan_msg_id, client=SB):
             send(WEB_QUEUE, {"message_id": fan_msg_id, "brief": research_brief})
 
-    if join_requirements == "NONE":
+    if not need_kairos and not need_web:
         if not job_exists(JOIN_QUEUE, fan_msg_id, client=SB):
             send(JOIN_QUEUE, {"message_id": fan_msg_id})
 

@@ -838,8 +838,8 @@ def process_job(payload: Dict[str, Any]) -> bool:
         media_error=media_error,
     )
 
-    # Proceed to Kairos regardless of Argus status to avoid blocking the pipeline.
-    send("kairos.analyse", {"message_id": msg_id})
+    # Proceed to Hermes regardless of Argus status to avoid blocking the pipeline.
+    send("hermes.route", {"message_id": msg_id})
     return True
 
 
