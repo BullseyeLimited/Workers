@@ -673,15 +673,24 @@ def process_job(payload: Dict[str, Any], row_id: int) -> bool:
     thread_id = message_row["thread_id"]
     turn_index = message_row.get("turn_index")
     latest_fan_text = _format_fan_turn(message_row)
-    raw_turns = live_turn_window(
-        thread_id,
-        boundary_turn=turn_index,
-        client=SB,
-        exclude_message_id=fan_msg_id,
-    )
-
     kairos_mode = (payload.get("kairos_mode") or "full").lower()
-    template_name = "kairos"
+    if kairos_mode == "lite":
+        raw_turns = live_turn_window(
+            thread_id,
+            boundary_turn=turn_index,
+            limit=10,
+            client=SB,
+            exclude_message_id=fan_msg_id,
+        )
+    else:
+        raw_turns = live_turn_window(
+            thread_id,
+            boundary_turn=turn_index,
+            client=SB,
+            exclude_message_id=fan_msg_id,
+        )
+
+    template_name = "kairos_lite" if kairos_mode == "lite" else "kairos"
     try:
         system_prompt, user_prompt = build_prompt_sections(
             template_name,
