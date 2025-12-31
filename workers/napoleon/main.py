@@ -1159,7 +1159,22 @@ def process_job(payload):
                 return str(value)
         return str(value)
 
-    web_research_text = _format_web_research(facts_pack)
+    web_research_text = _format_web_research(facts_pack).strip()
+    if web_research_text:
+        web_research_section = (
+            "  <WEB_RESEARCH>\n"
+            f"    {web_research_text}\n"
+            "  </WEB_RESEARCH>"
+        )
+        web_research_note = (
+            "If a `<WEB_RESEARCH>` block appears inside it, treat it as optional context: "
+            "it was gathered by a separate worker, and you can ignore it if it would "
+            "break immersion or claim knowledge the creator should not have. If it helps "
+            "and is safe, you may use it."
+        )
+    else:
+        web_research_section = ""
+        web_research_note = ""
 
     raw_turns = live_turn_window(
         thread_id,
@@ -1173,7 +1188,10 @@ def process_job(payload):
         raw_turns,
         latest_fan_text=_format_fan_turn(msg),
         client=SB,
-        extra_context={"WEB_RESEARCH_RESULT": web_research_text},
+        extra_context={
+            "WEB_RESEARCH_SECTION": web_research_section,
+            "WEB_RESEARCH_NOTE": web_research_note,
+        },
     )
     full_prompt_log = json.dumps(
         {"system": system_prompt, "user": user_prompt},

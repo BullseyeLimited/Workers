@@ -243,6 +243,28 @@ def translate_kairos_output(raw_text: str) -> Tuple[dict | None, str | None]:
     return parsed, None
 
 
+def _merge_extras(existing: dict, patch: dict) -> dict:
+    merged: dict = {}
+    merged.update(existing or {})
+    merged.update(patch or {})
+    return merged
+
+
+def _load_existing_extras(message_id: int) -> dict:
+    rows = (
+        SB.table("message_ai_details")
+        .select("extras")
+        .eq("message_id", message_id)
+        .limit(1)
+        .execute()
+        .data
+        or []
+    )
+    if not rows:
+        return {}
+    return rows[0].get("extras") or {}
+
+
 def _missing_required_fields(analysis: dict | None) -> list[str]:
     """
     Check for empty critical fields in Kairos output.
@@ -557,6 +579,11 @@ def record_kairos_failure(
     Upsert a message_ai_details row that marks this analysis as failed,
     and keep a snippet of the raw model output for debugging.
     """
+    existing_extras = _load_existing_extras(message_id)
+    extras_patch = {
+        "kairos_raw_text_preview": (raw_text or "")[:2000],
+    }
+
     row = {
         "message_id": message_id,
         "thread_id": thread_id,
@@ -568,13 +595,15 @@ def record_kairos_failure(
         "kairos_prompt_raw": prompt,
         "kairos_output_raw": raw_text,
         "translator_error": translator_error,
-        "extras": {
-            "kairos_raw_text_preview": (raw_text or "")[:2000],
-        },
+        "extras": _merge_extras(existing_extras, extras_patch),
     }
 
     # If we have partial analysis, keep what we have (without marking ok)
     if partial:
+        extras_patch = {
+            "kairos_raw_json": partial,
+            "kairos_raw_text_preview": (raw_text or "")[:2000],
+        }
         row.update(
             {
                 "strategic_narrative": partial.get("STRATEGIC_NARRATIVE"),
@@ -584,10 +613,7 @@ def record_kairos_failure(
                 "psychological_levers": partial.get("PSYCHOLOGICAL_LEVERS"),
                 "risks": partial.get("RISKS"),
                 "kairos_summary": (partial.get("TURN_MICRO_NOTE") or {}).get("SUMMARY"),
-                "extras": {
-                    "kairos_raw_json": partial,
-                    "kairos_raw_text_preview": (raw_text or "")[:2000],
-                },
+                "extras": _merge_extras(existing_extras, extras_patch),
             }
         )
 
@@ -609,6 +635,12 @@ def upsert_kairos_details(
     Persist a successful Kairos analysis into message_ai_details.
     Assumes `analysis` is the dict parsed from the model JSON.
     """
+    existing_extras = _load_existing_extras(message_id)
+    extras_patch = {
+        "kairos_raw_json": analysis,
+        "kairos_raw_text_preview": (raw_text or "")[:2000],
+    }
+
     row = {
         "message_id": message_id,
         "thread_id": thread_id,
@@ -629,10 +661,7 @@ def upsert_kairos_details(
         "risks": analysis["RISKS"],
         "kairos_summary": analysis["TURN_MICRO_NOTE"]["SUMMARY"],
         "turn_micro_note": analysis["TURN_MICRO_NOTE"],
-        "extras": {
-            "kairos_raw_json": analysis,
-            "kairos_raw_text_preview": (raw_text or "")[:2000],
-        },
+        "extras": _merge_extras(existing_extras, extras_patch),
     }
     (
         SB.table("message_ai_details")

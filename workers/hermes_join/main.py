@@ -5,6 +5,7 @@ Hermes join gate — enqueues Napoleon once required upstream results are presen
 from __future__ import annotations
 
 import os
+import re
 import time
 import traceback
 from datetime import datetime, timezone
@@ -33,6 +34,67 @@ SB = create_client(
 
 QUEUE = "hermes.join"
 NAPOLEON_QUEUE = "napoleon.reply"
+
+HEADER_PATTERNS = {
+    "search": re.compile(r"FINAL_VERDICT_SEARCH\s*:\s*(YES|NO)", re.IGNORECASE),
+    "kairos": re.compile(
+        r"FINAL_VERDICT_KAIROS\s*:\s*(FULL|LITE|SKIP)", re.IGNORECASE
+    ),
+    "join": re.compile(
+        r"JOIN_REQUIREMENTS\s*:\s*(KAIROS_ONLY|WEB_ONLY|BOTH|NONE)",
+        re.IGNORECASE,
+    ),
+}
+BRIEF_PATTERN = re.compile(
+    r"<WEB_RESEARCH_BRIEF>(.*?)</WEB_RESEARCH_BRIEF>", re.IGNORECASE | re.DOTALL
+)
+
+
+def _fail_closed_defaults() -> dict:
+    return {
+        "final_verdict_search": "NO",
+        "final_verdict_kairos": "FULL",
+        "join_requirements": "KAIROS_ONLY",
+        "web_research_brief": "NONE",
+    }
+
+
+def _parse_hermes_output(raw_text: str) -> dict | None:
+    if not raw_text or not raw_text.strip():
+        return None
+
+    parsed: dict[str, str] = {}
+    missing: list[str] = []
+
+    search_match = HEADER_PATTERNS["search"].search(raw_text)
+    kairos_match = HEADER_PATTERNS["kairos"].search(raw_text)
+    join_match = HEADER_PATTERNS["join"].search(raw_text)
+
+    if search_match:
+        parsed["final_verdict_search"] = search_match.group(1).upper()
+    else:
+        missing.append("FINAL_VERDICT_SEARCH")
+
+    if kairos_match:
+        parsed["final_verdict_kairos"] = kairos_match.group(1).upper()
+    else:
+        missing.append("FINAL_VERDICT_KAIROS")
+
+    if join_match:
+        parsed["join_requirements"] = join_match.group(1).upper()
+    else:
+        missing.append("JOIN_REQUIREMENTS")
+
+    brief_match = BRIEF_PATTERN.search(raw_text)
+    if brief_match:
+        parsed["web_research_brief"] = brief_match.group(1).strip() or "NONE"
+    else:
+        parsed["web_research_brief"] = "NONE"
+
+    if missing:
+        return None
+
+    return parsed
 
 
 def _merge_extras(existing: dict, patch: dict) -> dict:
@@ -66,7 +128,9 @@ def process_job(payload: Dict[str, Any]) -> bool:
     fan_msg_id = payload["message_id"]
     details = (
         SB.table("message_ai_details")
-        .select("thread_id,kairos_status,web_research_status,extras")
+        .select(
+            "thread_id,kairos_status,web_research_status,extras,hermes_status,hermes_output_raw"
+        )
         .eq("message_id", fan_msg_id)
         .single()
         .execute()
@@ -76,12 +140,22 @@ def process_job(payload: Dict[str, Any]) -> bool:
         return True
 
     extras = details.get("extras") or {}
+    hermes_status = details.get("hermes_status")
+    hermes_output_raw = details.get("hermes_output_raw") or ""
     hermes_parsed = None
     hermes_blob = extras.get("hermes")
     if isinstance(hermes_blob, dict):
         parsed = hermes_blob.get("parsed")
         if isinstance(parsed, dict):
             hermes_parsed = parsed
+
+    if not hermes_parsed:
+        if hermes_output_raw.strip():
+            hermes_parsed = _parse_hermes_output(hermes_output_raw)
+            if not hermes_parsed and hermes_status:
+                hermes_parsed = _fail_closed_defaults()
+        elif hermes_status:
+            hermes_parsed = _fail_closed_defaults()
 
     if not hermes_parsed:
         # Hermes decision missing; nothing to do yet.
