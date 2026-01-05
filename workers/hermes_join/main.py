@@ -20,6 +20,12 @@ from workers.lib.simple_queue import ack, receive, send
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+CONTENT_PACK_ENABLED = os.getenv("CONTENT_PACK_ENABLED", "").lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
 
 if not SUPABASE_URL or not SUPABASE_KEY:
     raise RuntimeError("Missing Supabase configuration for Hermes Join")
@@ -218,7 +224,7 @@ def process_job(payload: Dict[str, Any]) -> bool:
         return True
 
     content_request = _extract_content_request(details.get("content_request"))
-    if content_request and not details.get("content_pack"):
+    if CONTENT_PACK_ENABLED and content_request and not details.get("content_pack"):
         try:
             content_pack = _build_content_pack_from_request(
                 content_request, details["thread_id"], client=SB

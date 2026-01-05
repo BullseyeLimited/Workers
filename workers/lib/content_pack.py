@@ -45,6 +45,75 @@ def _safe_int(value, default=None):
         return default
 
 
+def _fetch_rows(
+    client,
+    *,
+    creator_id: int,
+    time_of_day: List[str] | None = None,
+    location_primary: str | None = None,
+    outfit_category: str | None = None,
+    body_focus: List[str] | None = None,
+    limit: int | None = None,
+) -> List[Dict[str, Any]]:
+    base_query = (
+        client.table("content_items")
+        .select(
+            "id,media_type,explicitness,desc_short,desc_long,voice_transcript,"
+            "duration_seconds,time_of_day,location_primary,outfit_category,"
+            "outfit_layers,location_tags,mood_tags,action_tags,body_focus,"
+            "camera_angle,shot_type,lighting,set_id,shoot_id,sequence_position"
+        )
+        .eq("creator_id", creator_id)
+    )
+    if time_of_day:
+        if len(time_of_day) == 1:
+            base_query = base_query.eq("time_of_day", time_of_day[0])
+        else:
+            base_query = base_query.in_("time_of_day", time_of_day)
+    if location_primary:
+        base_query = base_query.eq("location_primary", location_primary)
+    if outfit_category:
+        base_query = base_query.eq("outfit_category", outfit_category)
+    if body_focus:
+        base_query = _apply_array_filter(base_query, "body_focus", body_focus)
+    if limit:
+        base_query = base_query.limit(int(limit))
+
+    return base_query.execute().data or []
+
+
+def build_content_index(
+    client,
+    *,
+    creator_id: int,
+    time_of_day: str | List[str] | None = None,
+    body_focus: List[str] | str | None = None,
+    include_relations: bool = False,
+    limit: int | None = None,
+) -> Dict[str, Any]:
+    """
+    Build a combined group + item index for Hermes.
+    Returns zoom 1 items plus zoom 0 group summaries.
+    """
+    time_values = _normalize_list(time_of_day)
+    body_values = _normalize_list(body_focus)
+    rows = _fetch_rows(
+        client,
+        creator_id=creator_id,
+        time_of_day=time_values,
+        body_focus=body_values,
+        limit=limit,
+    )
+    groups = _build_group_pack(rows, time_values)
+    items = _build_item_pack(rows, [], include_relations, client)
+    return {
+        "zoom": 1,
+        "filters": {"time_of_day": time_values, "body_focus": body_values},
+        "groups": groups.get("groups", []),
+        "items": items,
+    }
+
+
 def build_content_pack(
     client,
     *,
@@ -70,31 +139,15 @@ def build_content_pack(
     body_values = _normalize_list(body_focus)
     expand_media = _normalize_list(media_expand)
 
-    base_query = (
-        client.table("content_items")
-        .select(
-            "id,media_type,explicitness,desc_short,desc_long,voice_transcript,"
-            "duration_seconds,time_of_day,location_primary,outfit_category,"
-            "outfit_layers,location_tags,mood_tags,action_tags,body_focus,"
-            "camera_angle,shot_type,lighting,set_id,shoot_id,sequence_position"
-        )
-        .eq("creator_id", creator_id)
+    rows = _fetch_rows(
+        client,
+        creator_id=creator_id,
+        time_of_day=time_values,
+        location_primary=location_primary,
+        outfit_category=outfit_category,
+        body_focus=body_values,
+        limit=limit,
     )
-    if time_values:
-        if len(time_values) == 1:
-            base_query = base_query.eq("time_of_day", time_values[0])
-        else:
-            base_query = base_query.in_("time_of_day", time_values)
-    if location_primary:
-        base_query = base_query.eq("location_primary", location_primary)
-    if outfit_category:
-        base_query = base_query.eq("outfit_category", outfit_category)
-    if body_values:
-        base_query = _apply_array_filter(base_query, "body_focus", body_values)
-    if limit:
-        base_query = base_query.limit(int(limit))
-
-    rows = base_query.execute().data or []
 
     if zoom_level <= 0:
         return _build_group_pack(rows, time_values)
@@ -232,4 +285,3 @@ def format_content_pack(pack: Dict[str, Any]) -> str:
     if not pack:
         return ""
     return json.dumps(pack, ensure_ascii=False)
-

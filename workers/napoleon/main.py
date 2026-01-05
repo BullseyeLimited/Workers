@@ -15,6 +15,12 @@ from workers.lib.simple_queue import receive, ack, send
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+CONTENT_PACK_ENABLED = os.getenv("CONTENT_PACK_ENABLED", "").lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
 
 SB = create_client(
     SUPABASE_URL,
@@ -1186,7 +1192,9 @@ def process_job(payload):
         web_research_section = ""
         web_research_note = ""
 
-    content_pack_block = _build_content_pack_block(details_row.get("content_pack"))
+    content_pack_block = ""
+    if CONTENT_PACK_ENABLED:
+        content_pack_block = _build_content_pack_block(details_row.get("content_pack"))
 
     raw_turns = live_turn_window(
         thread_id,

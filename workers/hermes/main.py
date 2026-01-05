@@ -17,6 +17,7 @@ from typing import Any, Dict, Tuple
 import requests
 from supabase import ClientOptions, create_client
 
+from workers.lib.content_pack import build_content_index, format_content_pack
 from workers.lib.job_utils import job_exists
 from workers.lib.prompt_builder import live_turn_window
 from workers.lib.json_utils import safe_parse_model_json
@@ -24,6 +25,13 @@ from workers.lib.simple_queue import ack, receive, send
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+HERMES_CONTENT_INDEX_LIMIT = os.getenv("HERMES_CONTENT_INDEX_LIMIT")
+CONTENT_PACK_ENABLED = os.getenv("CONTENT_PACK_ENABLED", "").lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
 
 if not SUPABASE_URL or not SUPABASE_KEY:
     raise RuntimeError("Missing Supabase configuration for Hermes")
@@ -340,6 +348,31 @@ def process_job(payload: Dict[str, Any]) -> bool:
 
         fan_card = thread_row.get("fan_identity_card") or "Identity card: empty"
         creator_card = creator_card or "Identity card: empty"
+        content_index_block = ""
+        creator_id = thread_row.get("creator_id")
+        if CONTENT_PACK_ENABLED and creator_id:
+            limit = None
+            if HERMES_CONTENT_INDEX_LIMIT:
+                try:
+                    limit = int(HERMES_CONTENT_INDEX_LIMIT)
+                except ValueError:
+                    limit = None
+            try:
+                content_index = build_content_index(
+                    SB,
+                    creator_id=creator_id,
+                    include_relations=False,
+                    limit=limit,
+                )
+                packed_index = format_content_pack(content_index)
+                if packed_index:
+                    content_index_block = (
+                        "\n\n<CONTENT_INDEX>\n"
+                        f"{packed_index}\n"
+                        "</CONTENT_INDEX>"
+                    )
+            except Exception:
+                content_index_block = ""
         user_block = (
             "<HERMES_INPUT>\n"
             f"{raw_turns}\n\n"
@@ -348,7 +381,8 @@ def process_job(payload: Dict[str, Any]) -> bool:
             "FAN_IDENTITY_CARD:\n"
             f"{fan_card}\n\n"
             "CREATOR_IDENTITY_CARD:\n"
-            f"{creator_card}\n"
+            f"{creator_card}"
+            f"{content_index_block}\n"
             "</HERMES_INPUT>"
         )
 
@@ -371,7 +405,7 @@ def process_job(payload: Dict[str, Any]) -> bool:
         if not parsed:
             parsed = _fail_closed_defaults()
 
-        content_request = parse_content_request(raw_text)
+        content_request = parse_content_request(raw_text) if CONTENT_PACK_ENABLED else None
         hermes_blob = {
             "status": status,
             "raw_output": raw_text,
@@ -385,7 +419,7 @@ def process_job(payload: Dict[str, Any]) -> bool:
             "hermes_status": status,
             "hermes_output_raw": raw_text,
         }
-        if content_request:
+        if content_request and CONTENT_PACK_ENABLED:
             update_payload.update(
                 {
                     "content_request": content_request,
