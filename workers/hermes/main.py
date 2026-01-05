@@ -19,6 +19,7 @@ from supabase import ClientOptions, create_client
 
 from workers.lib.job_utils import job_exists
 from workers.lib.prompt_builder import live_turn_window
+from workers.lib.json_utils import safe_parse_model_json
 from workers.lib.simple_queue import ack, receive, send
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
@@ -63,6 +64,9 @@ HEADER_PATTERNS = {
 }
 BRIEF_PATTERN = re.compile(
     r"<WEB_RESEARCH_BRIEF>(.*?)</WEB_RESEARCH_BRIEF>", re.IGNORECASE | re.DOTALL
+)
+CONTENT_REQUEST_PATTERN = re.compile(
+    r"<CONTENT_REQUEST>(.*?)</CONTENT_REQUEST>", re.IGNORECASE | re.DOTALL
 )
 
 
@@ -160,6 +164,21 @@ def parse_hermes_output(raw_text: str) -> Tuple[dict | None, str | None]:
         return None, f"missing_sections: {', '.join(missing)}"
 
     return parsed, None
+
+
+def parse_content_request(raw_text: str) -> dict | None:
+    if not raw_text:
+        return None
+    match = CONTENT_REQUEST_PATTERN.search(raw_text)
+    if not match:
+        return None
+    payload = match.group(1).strip()
+    if not payload:
+        return None
+    data, error = safe_parse_model_json(payload)
+    if error or not isinstance(data, dict):
+        return None
+    return data
 
 
 def _runpod_call(system_prompt: str, user_message: str) -> tuple[str, dict]:
@@ -352,6 +371,7 @@ def process_job(payload: Dict[str, Any]) -> bool:
         if not parsed:
             parsed = _fail_closed_defaults()
 
+        content_request = parse_content_request(raw_text)
         hermes_blob = {
             "status": status,
             "raw_output": raw_text,
@@ -360,13 +380,24 @@ def process_job(payload: Dict[str, Any]) -> bool:
             "created_at": datetime.now(timezone.utc).isoformat(),
         }
         merged_extras = _merge_extras(existing_extras, {"hermes": hermes_blob})
-        SB.table("message_ai_details").update(
-            {
-                "extras": merged_extras,
-                "hermes_status": status,
-                "hermes_output_raw": raw_text,
-            }
-        ).eq("message_id", fan_msg_id).execute()
+        update_payload = {
+            "extras": merged_extras,
+            "hermes_status": status,
+            "hermes_output_raw": raw_text,
+        }
+        if content_request:
+            update_payload.update(
+                {
+                    "content_request": content_request,
+                    "content_pack_status": "pending",
+                    "content_pack_error": None,
+                    "content_pack": None,
+                    "content_pack_created_at": None,
+                }
+            )
+        SB.table("message_ai_details").update(update_payload).eq(
+            "message_id", fan_msg_id
+        ).execute()
     if (not new_decision) and _has_valid_decision(hermes_blob):
         SB.table("message_ai_details").update(
             {

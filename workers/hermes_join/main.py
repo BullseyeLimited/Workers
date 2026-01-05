@@ -4,6 +4,7 @@ Hermes join gate — enqueues Napoleon once required upstream results are presen
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import time
@@ -13,6 +14,7 @@ from typing import Any, Dict
 
 from supabase import ClientOptions, create_client
 
+from workers.lib.content_pack import build_content_pack
 from workers.lib.job_utils import job_exists
 from workers.lib.simple_queue import ack, receive, send
 
@@ -104,6 +106,59 @@ def _merge_extras(existing: dict, patch: dict) -> dict:
     return merged
 
 
+def _extract_content_request(value) -> dict | None:
+    if not value:
+        return None
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+            return parsed if isinstance(parsed, dict) else None
+        except Exception:
+            return None
+    return None
+
+
+def _build_content_pack_from_request(
+    request: dict, thread_id: int, *, client
+) -> dict:
+    allowed_keys = {
+        "zoom",
+        "time_of_day",
+        "location_primary",
+        "outfit_category",
+        "body_focus",
+        "media_expand",
+        "include_relations",
+        "limit",
+        "creator_id",
+    }
+    params = {k: request.get(k) for k in allowed_keys if k in request}
+    group = request.get("group")
+    if isinstance(group, dict):
+        params.setdefault(
+            "location_primary",
+            group.get("location_primary") or group.get("location"),
+        )
+        params.setdefault(
+            "outfit_category",
+            group.get("outfit_category") or group.get("outfit"),
+        )
+    if not params.get("creator_id"):
+        thread_row = (
+            client.table("threads")
+            .select("creator_id")
+            .eq("id", thread_id)
+            .single()
+            .execute()
+            .data
+            or {}
+        )
+        params["creator_id"] = thread_row.get("creator_id")
+    return build_content_pack(client, **params)
+
+
 def compute_requirements(hermes_parsed: dict) -> tuple[bool, bool]:
     verdict_search = (hermes_parsed.get("final_verdict_search") or "NO").upper()
     verdict_kairos = (hermes_parsed.get("final_verdict_kairos") or "FULL").upper()
@@ -129,7 +184,8 @@ def process_job(payload: Dict[str, Any]) -> bool:
     details = (
         SB.table("message_ai_details")
         .select(
-            "thread_id,kairos_status,web_research_status,extras,hermes_status,hermes_output_raw"
+            "thread_id,kairos_status,web_research_status,extras,hermes_status,"
+            "hermes_output_raw,content_request,content_pack,content_pack_status"
         )
         .eq("message_id", fan_msg_id)
         .single()
@@ -160,6 +216,28 @@ def process_job(payload: Dict[str, Any]) -> bool:
     if not hermes_parsed:
         # Hermes decision missing; nothing to do yet.
         return True
+
+    content_request = _extract_content_request(details.get("content_request"))
+    if content_request and not details.get("content_pack"):
+        try:
+            content_pack = _build_content_pack_from_request(
+                content_request, details["thread_id"], client=SB
+            )
+            SB.table("message_ai_details").update(
+                {
+                    "content_pack": content_pack,
+                    "content_pack_status": "ok",
+                    "content_pack_error": None,
+                    "content_pack_created_at": datetime.now(timezone.utc).isoformat(),
+                }
+            ).eq("message_id", fan_msg_id).execute()
+        except Exception as exc:  # noqa: BLE001
+            SB.table("message_ai_details").update(
+                {
+                    "content_pack_status": "failed",
+                    "content_pack_error": str(exc),
+                }
+            ).eq("message_id", fan_msg_id).execute()
 
     web_blob = extras.get("web_research") or {}
     web_status = web_blob.get("status") or details.get("web_research_status")

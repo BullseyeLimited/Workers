@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 import requests
 from supabase import create_client, ClientOptions
 
-from workers.lib.content_pack import build_content_pack, format_content_pack
+from workers.lib.content_pack import format_content_pack
 from workers.lib.prompt_builder import build_prompt_sections, live_turn_window
 from workers.lib.simple_queue import receive, ack, send
 
@@ -115,26 +115,6 @@ def _format_fan_turn(row: dict) -> str:
         parts.append(f"(media): {media_analysis}")
 
     return "\n".join(parts) if parts else text
-
-
-def _extract_content_request(extras: dict) -> dict | None:
-    if not isinstance(extras, dict):
-        return None
-    candidate = extras.get("content_request") or extras.get("content_pack_request")
-    if not candidate:
-        hermes_blob = extras.get("hermes")
-        if isinstance(hermes_blob, dict):
-            candidate = hermes_blob.get("content_request") or hermes_blob.get("content")
-    if not candidate:
-        return None
-    if isinstance(candidate, str):
-        try:
-            candidate = json.loads(candidate)
-        except Exception:
-            return None
-    if not isinstance(candidate, dict):
-        return None
-    return candidate
 
 
 def _build_content_pack_block(content_pack: dict | None) -> str:
@@ -1162,7 +1142,7 @@ def process_job(payload):
     details_row = (
         SB.table("message_ai_details")
         .select(
-            "extras,web_research_facts_pack,web_research_output_raw"
+            "extras,web_research_facts_pack,web_research_output_raw,content_pack"
         )
         .eq("message_id", fan_message_id)
         .single()
@@ -1206,38 +1186,7 @@ def process_job(payload):
         web_research_section = ""
         web_research_note = ""
 
-    content_pack_block = ""
-    content_request = _extract_content_request(extras)
-    if content_request:
-        allowed_keys = {
-            "zoom",
-            "time_of_day",
-            "location_primary",
-            "outfit_category",
-            "body_focus",
-            "media_expand",
-            "include_relations",
-            "limit",
-            "creator_id",
-        }
-        params = {k: content_request.get(k) for k in allowed_keys if k in content_request}
-        group = content_request.get("group")
-        if isinstance(group, dict):
-            params.setdefault(
-                "location_primary",
-                group.get("location_primary") or group.get("location"),
-            )
-            params.setdefault(
-                "outfit_category",
-                group.get("outfit_category") or group.get("outfit"),
-            )
-        if not params.get("creator_id"):
-            params["creator_id"] = thread_row.get("creator_id")
-        try:
-            content_pack = build_content_pack(SB, **params)
-            content_pack_block = _build_content_pack_block(content_pack)
-        except Exception:
-            content_pack_block = ""
+    content_pack_block = _build_content_pack_block(details_row.get("content_pack"))
 
     raw_turns = live_turn_window(
         thread_id,
