@@ -182,7 +182,6 @@ def _build_group_pack(rows: List[Dict[str, Any]], time_values: List[str]) -> Dic
                 "location_primary": location,
                 "outfit_category": outfit,
                 "counts": {},
-                "flavor_tags": [],
             }
             groups[key] = group
 
@@ -191,14 +190,6 @@ def _build_group_pack(rows: List[Dict[str, Any]], time_values: List[str]) -> Dic
         media_counts = group["counts"].setdefault(media_type, {})
         media_counts[explicitness] = media_counts.get(explicitness, 0) + 1
         media_counts["total"] = media_counts.get("total", 0) + 1
-
-        if len(group["flavor_tags"]) < 2:
-            candidates = row.get("outfit_layers") or row.get("location_tags") or []
-            for tag in candidates:
-                if tag and tag not in group["flavor_tags"]:
-                    group["flavor_tags"].append(tag)
-                if len(group["flavor_tags"]) >= 2:
-                    break
 
     # Preserve input order for stability
     ordered_groups = [groups[k] for k in groups.keys()]
