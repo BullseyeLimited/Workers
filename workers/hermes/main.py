@@ -25,7 +25,6 @@ from workers.lib.simple_queue import ack, receive, send
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
-HERMES_CONTENT_INDEX_LIMIT = os.getenv("HERMES_CONTENT_INDEX_LIMIT")
 CONTENT_PACK_ENABLED = os.getenv("CONTENT_PACK_ENABLED", "").lower() in {
     "1",
     "true",
@@ -351,18 +350,11 @@ def process_job(payload: Dict[str, Any]) -> bool:
         content_index_block = ""
         creator_id = thread_row.get("creator_id")
         if CONTENT_PACK_ENABLED and creator_id:
-            limit = None
-            if HERMES_CONTENT_INDEX_LIMIT:
-                try:
-                    limit = int(HERMES_CONTENT_INDEX_LIMIT)
-                except ValueError:
-                    limit = None
             try:
                 content_index = build_content_index(
                     SB,
                     creator_id=creator_id,
                     include_relations=False,
-                    limit=limit,
                 )
                 packed_index = format_content_pack(content_index)
                 if packed_index:
