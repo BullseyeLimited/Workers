@@ -91,15 +91,17 @@ def _apply_array_filter(query, column: str, values: List[str], mode: str = "any"
     return query.filter(column, operator, _pg_array_literal(values))
 
 
-def _apply_time_filter(query, time_values: List[str]):
+def _apply_time_filter(query, time_values: List[str], mode: str | None = None):
     if not time_values:
         return query
+    mode_value = (mode or "loose").lower()
     values = list(time_values)
-    if "anytime" not in values:
-        values.append("anytime")
-    if hasattr(query, "or_"):
-        in_list = _pg_in_list(values)
-        return query.or_(f"time_of_day.in.({in_list}),time_of_day.is.null")
+    if mode_value != "strict":
+        if "anytime" not in values:
+            values.append("anytime")
+        if hasattr(query, "or_"):
+            in_list = _pg_in_list(values)
+            return query.or_(f"time_of_day.in.({in_list}),time_of_day.is.null")
     return query.in_("time_of_day", values)
 
 
@@ -146,10 +148,17 @@ def _fetch_rows(
     *,
     creator_id: int,
     time_of_day: List[str] | None = None,
+    time_mode: str | None = None,
     location_primary: str | None = None,
     outfit_category: str | None = None,
+    outfit_layers: List[str] | None = None,
+    outfit_layers_mode: str | None = None,
     body_focus: List[str] | None = None,
     body_focus_mode: str | None = None,
+    mood_tags: List[str] | None = None,
+    mood_tags_mode: str | None = None,
+    action_tags: List[str] | None = None,
+    action_tags_mode: str | None = None,
     limit: int | None = None,
 ) -> List[Dict[str, Any]]:
     base_query = (
@@ -164,14 +173,25 @@ def _fetch_rows(
         .eq("creator_id", creator_id)
     )
     if time_of_day:
-        base_query = _apply_time_filter(base_query, time_of_day)
+        base_query = _apply_time_filter(base_query, time_of_day, mode=time_mode)
     if location_primary:
         base_query = base_query.eq("location_primary", location_primary)
     if outfit_category:
         base_query = base_query.eq("outfit_category", outfit_category)
+    if outfit_layers:
+        mode = outfit_layers_mode or "any"
+        base_query = _apply_array_filter(
+            base_query, "outfit_layers", outfit_layers, mode=mode
+        )
     if body_focus:
         mode = body_focus_mode or "any"
         base_query = _apply_array_filter(base_query, "body_focus", body_focus, mode=mode)
+    if mood_tags:
+        mode = mood_tags_mode or "any"
+        base_query = _apply_array_filter(base_query, "mood_tags", mood_tags, mode=mode)
+    if action_tags:
+        mode = action_tags_mode or "any"
+        base_query = _apply_array_filter(base_query, "action_tags", action_tags, mode=mode)
     if limit:
         base_query = base_query.limit(int(limit))
 
@@ -184,6 +204,7 @@ def build_content_index(
     *,
     creator_id: int,
     time_of_day: str | List[str] | None = None,
+    time_mode: str | None = None,
     body_focus: List[str] | str | None = None,
     body_focus_mode: str | None = None,
     include_relations: bool = False,
@@ -199,6 +220,7 @@ def build_content_index(
         client,
         creator_id=creator_id,
         time_of_day=time_values,
+        time_mode=time_mode,
         body_focus=body_values,
         body_focus_mode=body_focus_mode,
         limit=limit,
@@ -207,7 +229,12 @@ def build_content_index(
     items = _build_item_pack(rows, [], include_relations, client)
     return {
         "zoom": 1,
-        "filters": {"time_of_day": time_values, "body_focus": body_values},
+        "filters": {
+            "time_of_day": time_values,
+            "time_mode": time_mode or "loose",
+            "body_focus": body_values,
+            "body_focus_mode": body_focus_mode or "any",
+        },
         "groups": groups.get("groups", []),
         "items": items,
     }
@@ -219,11 +246,18 @@ def build_content_pack(
     creator_id: int,
     zoom: int | str = 0,
     time_of_day: str | List[str] | None = None,
+    time_mode: str | None = None,
     location_primary: str | None = None,
     outfit_category: str | None = None,
+    outfit_layers: List[str] | str | None = None,
+    outfit_layers_mode: str | None = None,
     group_key: str | None = None,
     body_focus: List[str] | str | None = None,
     body_focus_mode: str | None = None,
+    mood_tags: List[str] | str | None = None,
+    mood_tags_mode: str | None = None,
+    action_tags: List[str] | str | None = None,
+    action_tags_mode: str | None = None,
     media_expand: List[str] | str | None = None,
     include_relations: bool = False,
     limit: int | None = None,
@@ -239,6 +273,9 @@ def build_content_pack(
     time_values = _normalize_time_values(time_of_day)
     body_values = _normalize_list(body_focus)
     expand_media = _normalize_media_types(_normalize_list(media_expand))
+    outfit_values = _normalize_list(outfit_layers)
+    mood_values = _normalize_list(mood_tags)
+    action_values = _normalize_list(action_tags)
 
     if group_key:
         parsed = _parse_group_key(group_key)
@@ -255,10 +292,17 @@ def build_content_pack(
         client,
         creator_id=creator_id,
         time_of_day=time_values,
+        time_mode=time_mode,
         location_primary=location_primary,
         outfit_category=outfit_category,
+        outfit_layers=outfit_values,
+        outfit_layers_mode=outfit_layers_mode,
         body_focus=body_values,
         body_focus_mode=body_focus_mode,
+        mood_tags=mood_values,
+        mood_tags_mode=mood_tags_mode,
+        action_tags=action_values,
+        action_tags_mode=action_tags_mode,
         limit=limit,
     )
 
@@ -270,11 +314,18 @@ def build_content_pack(
         "zoom": zoom_level,
         "filters": {
             "time_of_day": time_values,
+            "time_mode": time_mode or "loose",
             "location_primary": location_primary,
             "outfit_category": outfit_category,
+            "outfit_layers": outfit_values,
+            "outfit_layers_mode": outfit_layers_mode or "any",
             "body_focus": body_values,
             "media_expand": expand_media,
             "body_focus_mode": body_focus_mode or "any",
+            "mood_tags": mood_values,
+            "mood_tags_mode": mood_tags_mode or "any",
+            "action_tags": action_values,
+            "action_tags_mode": action_tags_mode or "any",
         },
         "items": items,
     }
