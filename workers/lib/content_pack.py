@@ -1,3 +1,4 @@
+import hashlib
 import json
 from typing import Any, Dict, Iterable, List, Optional
 
@@ -266,6 +267,163 @@ def _count_by_stage(rows: List[Dict[str, Any]]) -> Dict[str, int]:
     return counts
 
 
+def _make_pack_ref(value: str | None) -> str | None:
+    if not value:
+        return None
+    seed = str(value).strip()
+    if not seed:
+        return None
+    digest = hashlib.blake2s(seed.encode("utf-8"), digest_size=5).hexdigest()
+    return f"pack_{digest}"
+
+
+def _totals_by_media(counts: Any) -> Dict[str, int]:
+    """
+    Reduce nested {media_type: {explicitness: n, total: n}} into {media_type: total}.
+    """
+    totals: Dict[str, int] = {}
+    if not isinstance(counts, dict):
+        return totals
+    for media_type, bucket in counts.items():
+        if not isinstance(bucket, dict):
+            continue
+        total = bucket.get("total")
+        if isinstance(total, int) and total > 0:
+            totals[str(media_type)] = total
+    return totals
+
+
+def _totals_by_explicitness(counts: Any) -> Dict[str, int]:
+    """
+    Reduce nested {media_type: {explicitness: n}} into {explicitness: total}.
+    """
+    totals: Dict[str, int] = {}
+    if not isinstance(counts, dict):
+        return totals
+    for bucket in counts.values():
+        if not isinstance(bucket, dict):
+            continue
+        for explicitness, value in bucket.items():
+            if explicitness == "total":
+                continue
+            if isinstance(value, int) and value > 0:
+                totals[str(explicitness)] = totals.get(str(explicitness), 0) + value
+    if totals:
+        totals["total"] = sum(totals.values())
+    return totals
+
+
+def _stages_present(stage_counts: Any) -> List[str]:
+    if not isinstance(stage_counts, dict):
+        return []
+    order = ["setup", "tease", "build", "climax", "after"]
+    seen: set[str] = set()
+    stages: List[str] = []
+    for stage in order:
+        val = stage_counts.get(stage)
+        if isinstance(val, int) and val > 0:
+            stages.append(stage)
+            seen.add(stage)
+    extras = sorted(
+        str(k)
+        for k, v in stage_counts.items()
+        if k not in seen and isinstance(v, int) and v > 0
+    )
+    stages.extend(extras)
+    return stages
+
+
+def _format_inventory(counts: Any) -> str:
+    """
+    Render nested counts like:
+      "photo: 4 (sfw 2, tease 1, nsfw 1); video: 2 (nsfw 2); voice: 1 (tease 1)"
+    """
+    if not isinstance(counts, dict) or not counts:
+        return "none"
+
+    media_order = ["photo", "video", "voice", "text"]
+    tier_order = ["sfw", "tease", "nsfw", "unknown"]
+
+    def media_sort_key(media_type: str) -> tuple[int, str]:
+        try:
+            return (media_order.index(media_type), "")
+        except ValueError:
+            return (len(media_order), media_type)
+
+    def tier_sort_key(tier: str) -> tuple[int, str]:
+        try:
+            return (tier_order.index(tier), "")
+        except ValueError:
+            return (len(tier_order), tier)
+
+    parts: List[str] = []
+    for media_type in sorted((str(k) for k in counts.keys()), key=media_sort_key):
+        bucket = counts.get(media_type)
+        if not isinstance(bucket, dict) or not bucket:
+            continue
+
+        total = bucket.get("total")
+        if not isinstance(total, int):
+            computed_total = 0
+            for key, value in bucket.items():
+                if key == "total":
+                    continue
+                if isinstance(value, int) and value > 0:
+                    computed_total += value
+            total = computed_total
+        if not isinstance(total, int) or total <= 0:
+            continue
+
+        tiers_present = [
+            str(k)
+            for k, v in bucket.items()
+            if k != "total" and isinstance(v, int) and v > 0
+        ]
+        tier_bits: List[str] = []
+        for tier in sorted(tiers_present, key=tier_sort_key):
+            value = bucket.get(tier)
+            if isinstance(value, int) and value > 0:
+                tier_bits.append(f"{tier} {value}")
+
+        if tier_bits:
+            parts.append(f"{media_type}: {total} ({', '.join(tier_bits)})")
+        else:
+            parts.append(f"{media_type}: {total}")
+
+    return "; ".join(parts) if parts else "none"
+
+
+def _extract_day_theme(title: Optional[str]) -> str:
+    if not title:
+        return ""
+    text = str(title).strip()
+    if not text:
+        return ""
+    for sep in ("→", "->"):
+        if sep in text:
+            return text.split(sep, 1)[0].strip()
+    return ""
+
+
+def _auto_ammo_summary(
+    *,
+    title: Optional[str],
+    ammo_inventory: str,
+    core_scene_time_of_day: Optional[str],
+) -> str:
+    theme = _extract_day_theme(title)
+    anchor = core_scene_time_of_day or "later"
+    if theme:
+        return (
+            f"All-day arc: {theme}. Use the ammo as natural check-ins to build continuity "
+            f"before the {anchor} core scene offer. Inventory: {ammo_inventory}."
+        )
+    return (
+        f"All-day arc: casual check-ins that build continuity before the {anchor} core scene offer. "
+        f"Inventory: {ammo_inventory}."
+    )
+
+
 def _build_script_index(
     scripts: List[Dict[str, Any]],
     items: List[Dict[str, Any]],
@@ -364,11 +522,66 @@ def build_content_pack(
     if zoom_level <= 0 or not script_id:
         # We still need item rows to compute counts; fetch once.
         items_rows = _fetch_rows(client, creator_id=creator_id)
+        meta_by_script_id: Dict[str, Dict[str, Any]] = {}
+        for script in scripts:
+            sid = script.get("id")
+            if not sid:
+                continue
+            meta_val = script.get("meta")
+            meta: Dict[str, Any] = {}
+            if isinstance(meta_val, dict):
+                meta = meta_val
+            elif isinstance(meta_val, str) and meta_val.strip():
+                try:
+                    parsed = json.loads(meta_val)
+                    if isinstance(parsed, dict):
+                        meta = parsed
+                except Exception:
+                    meta = {}
+            meta_by_script_id[str(sid)] = meta
+        scripts_index = _build_script_index(
+            scripts, items_rows, include_focus_tags=False
+        )
+        for entry in scripts_index:
+            script_id_value = entry.get("script_id")
+            shoot_id_value = entry.get("shoot_id")
+            meta = meta_by_script_id.get(str(script_id_value), {}) if script_id_value else {}
+
+            entry["ref"] = _make_pack_ref(script_id_value) or _make_pack_ref(shoot_id_value)
+            entry.pop("script_id", None)
+            entry.pop("shoot_id", None)
+            core_scene_time_of_day = entry.pop("time_of_day", None)
+            entry["core_scene_time_of_day"] = core_scene_time_of_day
+
+            script_summary = entry.pop("summary", None)
+            entry["script_summary"] = (
+                meta.get("script_summary")
+                or meta.get("core_scene_summary")
+                or meta.get("core_summary")
+                or script_summary
+                or ""
+            )
+
+            core_counts = entry.pop("counts", {})
+            ammo_counts = entry.pop("extras_counts", {})
+            entry["core_inventory"] = _format_inventory(core_counts)
+            ammo_inventory = _format_inventory(ammo_counts)
+            entry["ammo_inventory"] = ammo_inventory
+
+            stage_counts = entry.pop("stage_counts", {})
+            entry["stages"] = _stages_present(stage_counts)
+            entry["ammo_summary"] = (
+                meta.get("ammo_summary")
+                or meta.get("ammo_blurb")
+                or _auto_ammo_summary(
+                    title=entry.get("title"),
+                    ammo_inventory=ammo_inventory,
+                    core_scene_time_of_day=core_scene_time_of_day,
+                )
+            )
         return {
             "zoom": 0,
-            "scripts": _build_script_index(
-                scripts, items_rows, include_focus_tags=False
-            ),
+            "scripts": scripts_index,
         }
 
     # Fetch the chosen script header.
