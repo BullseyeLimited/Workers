@@ -568,8 +568,8 @@ def build_content_pack(
             ammo_inventory = _format_inventory(ammo_counts)
             entry["ammo_inventory"] = ammo_inventory
 
-            stage_counts = entry.pop("stage_counts", {})
-            entry["stages"] = _stages_present(stage_counts)
+            entry.pop("stage_counts", None)
+            entry.pop("total_steps", None)
             entry["ammo_summary"] = (
                 meta.get("ammo_summary")
                 or meta.get("ammo_blurb")
