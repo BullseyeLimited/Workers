@@ -267,7 +267,10 @@ def _count_by_stage(rows: List[Dict[str, Any]]) -> Dict[str, int]:
 
 
 def _build_script_index(
-    scripts: List[Dict[str, Any]], items: List[Dict[str, Any]]
+    scripts: List[Dict[str, Any]],
+    items: List[Dict[str, Any]],
+    *,
+    include_focus_tags: bool = True,
 ) -> List[Dict[str, Any]]:
     items_by_script: Dict[str, List[Dict[str, Any]]] = {}
     items_by_shoot_extras: Dict[str, List[Dict[str, Any]]] = {}
@@ -286,25 +289,25 @@ def _build_script_index(
         shoot_id = script.get("shoot_id")
         script_items = items_by_script.get(sid, []) if sid else []
         extras = items_by_shoot_extras.get(shoot_id, []) if shoot_id else []
-        index.append(
-            {
-                "script_id": sid,
-                "shoot_id": shoot_id,
-                "title": script.get("title"),
-                "summary": script.get("summary"),
-                "time_of_day": script.get("time_of_day"),
-                "location_primary": script.get("location_primary"),
-                "outfit_category": script.get("outfit_category"),
-                "focus_tags": script.get("focus_tags") or [],
-                "created_at": script.get("created_at"),
-                "counts": _count_by_media_and_explicitness(script_items),
-                "stage_counts": _count_by_stage(script_items),
-                "extras_counts": _count_by_media_and_explicitness(extras),
-                "total_steps": max(
-                    [r.get("sequence_position") or 0 for r in script_items] or [0]
-                ),
-            }
-        )
+        entry = {
+            "script_id": sid,
+            "shoot_id": shoot_id,
+            "title": script.get("title"),
+            "summary": script.get("summary"),
+            "time_of_day": script.get("time_of_day"),
+            "location_primary": script.get("location_primary"),
+            "outfit_category": script.get("outfit_category"),
+            "created_at": script.get("created_at"),
+            "counts": _count_by_media_and_explicitness(script_items),
+            "stage_counts": _count_by_stage(script_items),
+            "extras_counts": _count_by_media_and_explicitness(extras),
+            "total_steps": max(
+                [r.get("sequence_position") or 0 for r in script_items] or [0]
+            ),
+        }
+        if include_focus_tags:
+            entry["focus_tags"] = script.get("focus_tags") or []
+        index.append(entry)
 
     # Stable order: by created_at then script_id (so UI doesn't jump).
     def sort_key(row: Dict[str, Any]):
@@ -331,7 +334,7 @@ def build_content_index(
 
     return {
         "zoom": 1,
-        "scripts": _build_script_index(scripts, items_rows),
+        "scripts": _build_script_index(scripts, items_rows, include_focus_tags=True),
         "items": _build_item_pack(items_rows, expand_media=[]),
     }
 
@@ -363,7 +366,9 @@ def build_content_pack(
         items_rows = _fetch_rows(client, creator_id=creator_id)
         return {
             "zoom": 0,
-            "scripts": _build_script_index(scripts, items_rows),
+            "scripts": _build_script_index(
+                scripts, items_rows, include_focus_tags=False
+            ),
         }
 
     # Fetch the chosen script header.
