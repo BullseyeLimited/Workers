@@ -1,5 +1,5 @@
 import json
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Optional
 
 
 def _normalize_list(value) -> List[str]:
@@ -20,6 +20,8 @@ MEDIA_TYPE_ALIASES = {
     "photos": "photo",
     "picture": "photo",
     "pictures": "photo",
+    "pic": "photo",
+    "pics": "photo",
     "video": "video",
     "videos": "video",
     "audio": "voice",
@@ -29,6 +31,7 @@ MEDIA_TYPE_ALIASES = {
     "voicenote": "voice",
     "voicenotes": "voice",
     "sound": "voice",
+    "sounds": "voice",
     "text": "text",
 }
 
@@ -121,18 +124,14 @@ def _safe_int(value, default=None):
         return default
 
 
-def _parse_group_key(group_key: Optional[str]) -> Optional[Tuple[str, str, str]]:
-    if not group_key:
-        return None
-    if not isinstance(group_key, str):
-        group_key = str(group_key)
-    parts = group_key.split("|", 2)
-    if len(parts) != 3:
-        return None
-    return parts[0] or None, parts[1] or None, parts[2] or None
+def _sort_items(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """
+    Stable ordering:
+    - sequence_position (ascending, missing last)
+    - created_at (ascending, missing last)
+    - id (ascending)
+    """
 
-
-def _sort_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     def sort_key(row: Dict[str, Any]):
         seq = row.get("sequence_position")
         seq_key = seq if isinstance(seq, int) else float("inf")
@@ -143,10 +142,18 @@ def _sort_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return sorted(rows, key=sort_key)
 
 
+def _is_nullish(value) -> bool:
+    return value is None or value == ""
+
+
 def _fetch_rows(
     client,
     *,
     creator_id: int,
+    script_id: str | None = None,
+    script_id_is_null: bool = False,
+    shoot_id: str | None = None,
+    include_long: bool = False,
     time_of_day: List[str] | None = None,
     time_mode: str | None = None,
     location_primary: str | None = None,
@@ -161,17 +168,43 @@ def _fetch_rows(
     action_tags_mode: str | None = None,
     limit: int | None = None,
 ) -> List[Dict[str, Any]]:
+    select_fields = [
+        "id",
+        "creator_id",
+        "media_type",
+        "explicitness",
+        "desc_short",
+        "duration_seconds",
+        "time_of_day",
+        "location_primary",
+        "outfit_category",
+        "outfit_layers",
+        "location_tags",
+        "mood_tags",
+        "action_tags",
+        "body_focus",
+        "camera_angle",
+        "shot_type",
+        "lighting",
+        "script_id",
+        "shoot_id",
+        "stage",
+        "sequence_position",
+        "created_at",
+    ]
+    if include_long:
+        select_fields.extend(["desc_long", "voice_transcript"])
     base_query = (
         client.table("content_items")
-        .select(
-            "id,media_type,explicitness,desc_short,desc_long,voice_transcript,"
-            "duration_seconds,time_of_day,location_primary,outfit_category,"
-            "outfit_layers,location_tags,mood_tags,action_tags,body_focus,"
-            "camera_angle,shot_type,lighting,set_id,shoot_id,sequence_position,"
-            "created_at"
-        )
+        .select(",".join(select_fields))
         .eq("creator_id", creator_id)
     )
+    if script_id is not None:
+        base_query = base_query.eq("script_id", script_id)
+    if script_id_is_null:
+        base_query = base_query.filter("script_id", "is", "null")
+    if shoot_id is not None:
+        base_query = base_query.eq("shoot_id", shoot_id)
     if time_of_day:
         base_query = _apply_time_filter(base_query, time_of_day, mode=time_mode)
     if location_primary:
@@ -196,47 +229,110 @@ def _fetch_rows(
         base_query = base_query.limit(int(limit))
 
     rows = base_query.execute().data or []
-    return _sort_rows(rows)
+    return _sort_items(rows)
+
+
+def _fetch_scripts(client, *, creator_id: int, script_id: str | None = None) -> List[Dict[str, Any]]:
+    query = (
+        client.table("content_scripts")
+        .select(
+            "id,creator_id,shoot_id,title,summary,time_of_day,location_primary,"
+            "outfit_category,focus_tags,created_at,meta"
+        )
+        .eq("creator_id", creator_id)
+    )
+    if script_id is not None:
+        query = query.eq("id", script_id)
+    # Keep a stable order: newest scripts last is fine; Hermes can decide.
+    return query.execute().data or []
+
+
+def _count_by_media_and_explicitness(rows: List[Dict[str, Any]]) -> Dict[str, Dict[str, int]]:
+    counts: Dict[str, Dict[str, int]] = {}
+    for row in rows:
+        media_type = _normalize_media_type(row.get("media_type")) or "unknown"
+        explicitness = (row.get("explicitness") or "unknown").strip() or "unknown"
+        bucket = counts.setdefault(media_type, {})
+        bucket[explicitness] = bucket.get(explicitness, 0) + 1
+        bucket["total"] = bucket.get("total", 0) + 1
+    return counts
+
+
+def _count_by_stage(rows: List[Dict[str, Any]]) -> Dict[str, int]:
+    counts: Dict[str, int] = {}
+    for row in rows:
+        stage = (row.get("stage") or "").strip().lower() or "unknown"
+        counts[stage] = counts.get(stage, 0) + 1
+    return counts
+
+
+def _build_script_index(
+    scripts: List[Dict[str, Any]], items: List[Dict[str, Any]]
+) -> List[Dict[str, Any]]:
+    items_by_script: Dict[str, List[Dict[str, Any]]] = {}
+    items_by_shoot_extras: Dict[str, List[Dict[str, Any]]] = {}
+
+    for row in items:
+        script_id = row.get("script_id")
+        shoot_id = row.get("shoot_id")
+        if script_id:
+            items_by_script.setdefault(script_id, []).append(row)
+        elif shoot_id:
+            items_by_shoot_extras.setdefault(shoot_id, []).append(row)
+
+    index: List[Dict[str, Any]] = []
+    for script in scripts:
+        sid = script.get("id")
+        shoot_id = script.get("shoot_id")
+        script_items = items_by_script.get(sid, []) if sid else []
+        extras = items_by_shoot_extras.get(shoot_id, []) if shoot_id else []
+        index.append(
+            {
+                "script_id": sid,
+                "shoot_id": shoot_id,
+                "title": script.get("title"),
+                "summary": script.get("summary"),
+                "time_of_day": script.get("time_of_day"),
+                "location_primary": script.get("location_primary"),
+                "outfit_category": script.get("outfit_category"),
+                "focus_tags": script.get("focus_tags") or [],
+                "created_at": script.get("created_at"),
+                "counts": _count_by_media_and_explicitness(script_items),
+                "stage_counts": _count_by_stage(script_items),
+                "extras_counts": _count_by_media_and_explicitness(extras),
+                "total_steps": max(
+                    [r.get("sequence_position") or 0 for r in script_items] or [0]
+                ),
+            }
+        )
+
+    # Stable order: by created_at then script_id (so UI doesn't jump).
+    def sort_key(row: Dict[str, Any]):
+        return (row.get("created_at") or "", row.get("script_id") or "")
+
+    return sorted(index, key=sort_key)
 
 
 def build_content_index(
     client,
     *,
     creator_id: int,
-    time_of_day: str | List[str] | None = None,
-    time_mode: str | None = None,
-    body_focus: List[str] | str | None = None,
-    body_focus_mode: str | None = None,
-    include_relations: bool = False,
-    limit: int | None = None,
+    include_items: bool = True,
 ) -> Dict[str, Any]:
     """
-    Build a combined group + item index for Hermes.
-    Returns zoom 1 items plus zoom 0 group summaries.
+    Script-first index for Hermes:
+    - scripts: list of script summaries + counts
+    - items: full compact list of content_items (so Hermes is all-knowing)
     """
-    time_values = _normalize_time_values(time_of_day)
-    body_values = _normalize_list(body_focus)
-    rows = _fetch_rows(
-        client,
-        creator_id=creator_id,
-        time_of_day=time_values,
-        time_mode=time_mode,
-        body_focus=body_values,
-        body_focus_mode=body_focus_mode,
-        limit=limit,
-    )
-    groups = _build_group_pack(rows, time_values)
-    items = _build_item_pack(rows, [], include_relations, client)
+    scripts = _fetch_scripts(client, creator_id=creator_id)
+    items_rows: List[Dict[str, Any]] = []
+    if include_items:
+        items_rows = _fetch_rows(client, creator_id=creator_id)
+
     return {
         "zoom": 1,
-        "filters": {
-            "time_of_day": time_values,
-            "time_mode": time_mode or "loose",
-            "body_focus": body_values,
-            "body_focus_mode": body_focus_mode or "any",
-        },
-        "groups": groups.get("groups", []),
-        "items": items,
+        "scripts": _build_script_index(scripts, items_rows),
+        "items": _build_item_pack(items_rows, expand_media=[]),
     }
 
 
@@ -245,137 +341,92 @@ def build_content_pack(
     *,
     creator_id: int,
     zoom: int | str = 0,
-    time_of_day: str | List[str] | None = None,
-    time_mode: str | None = None,
-    location_primary: str | None = None,
-    outfit_category: str | None = None,
-    outfit_layers: List[str] | str | None = None,
-    outfit_layers_mode: str | None = None,
-    group_key: str | None = None,
-    body_focus: List[str] | str | None = None,
-    body_focus_mode: str | None = None,
-    mood_tags: List[str] | str | None = None,
-    mood_tags_mode: str | None = None,
-    action_tags: List[str] | str | None = None,
-    action_tags_mode: str | None = None,
+    script_id: str | None = None,
+    include_shoot_extras: bool = True,
     media_expand: List[str] | str | None = None,
-    include_relations: bool = False,
     limit: int | None = None,
 ) -> Dict[str, Any]:
     """
-    Build a content pack for the given zoom level.
-    Zoom 0: group counts
-    Zoom 1: all items in a group (compact)
-    Zoom 2: requested media expanded (others compact)
+    Script-first content pack for Napoleon.
+    Zoom 0: list all scripts (summaries + counts)
+    Zoom 1: script header + all script items (compact) + same-shoot extras (compact)
+    Zoom 2: expand requested media types (others stay compact)
     """
 
     zoom_level = _safe_int(zoom, 0) or 0
-    time_values = _normalize_time_values(time_of_day)
-    body_values = _normalize_list(body_focus)
     expand_media = _normalize_media_types(_normalize_list(media_expand))
-    outfit_values = _normalize_list(outfit_layers)
-    mood_values = _normalize_list(mood_tags)
-    action_values = _normalize_list(action_tags)
+    effective_expand_media = expand_media if zoom_level >= 2 else []
+    scripts = _fetch_scripts(client, creator_id=creator_id)
+    # For Zoom 0 we return script list only (no items).
+    if zoom_level <= 0 or not script_id:
+        # We still need item rows to compute counts; fetch once.
+        items_rows = _fetch_rows(client, creator_id=creator_id)
+        return {
+            "zoom": 0,
+            "scripts": _build_script_index(scripts, items_rows),
+        }
 
-    if group_key:
-        parsed = _parse_group_key(group_key)
-        if parsed:
-            group_time, group_location, group_outfit = parsed
-            if not time_values and group_time:
-                time_values = [group_time]
-            if not location_primary and group_location:
-                location_primary = group_location
-            if not outfit_category and group_outfit:
-                outfit_category = group_outfit
+    # Fetch the chosen script header.
+    chosen_script_rows = _fetch_scripts(client, creator_id=creator_id, script_id=script_id)
+    script_header = chosen_script_rows[0] if chosen_script_rows else None
 
-    rows = _fetch_rows(
+    script_items_rows = _fetch_rows(
         client,
         creator_id=creator_id,
-        time_of_day=time_values,
-        time_mode=time_mode,
-        location_primary=location_primary,
-        outfit_category=outfit_category,
-        outfit_layers=outfit_values,
-        outfit_layers_mode=outfit_layers_mode,
-        body_focus=body_values,
-        body_focus_mode=body_focus_mode,
-        mood_tags=mood_values,
-        mood_tags_mode=mood_tags_mode,
-        action_tags=action_values,
-        action_tags_mode=action_tags_mode,
+        script_id=script_id,
+        include_long=zoom_level >= 2,
         limit=limit,
     )
+    shoot_extras_rows: List[Dict[str, Any]] = []
+    shoot_id = None
+    if script_header:
+        shoot_id = script_header.get("shoot_id")
+    if include_shoot_extras and shoot_id:
+        shoot_extras_rows = _fetch_rows(
+            client,
+            creator_id=creator_id,
+            shoot_id=shoot_id,
+            script_id_is_null=True,
+            include_long=zoom_level >= 2,
+        )
 
-    if zoom_level <= 0:
-        return _build_group_pack(rows, time_values)
-
-    items = _build_item_pack(rows, expand_media, include_relations, client)
     return {
         "zoom": zoom_level,
-        "filters": {
-            "time_of_day": time_values,
-            "time_mode": time_mode or "loose",
-            "location_primary": location_primary,
-            "outfit_category": outfit_category,
-            "outfit_layers": outfit_values,
-            "outfit_layers_mode": outfit_layers_mode or "any",
-            "body_focus": body_values,
-            "media_expand": expand_media,
-            "body_focus_mode": body_focus_mode or "any",
-            "mood_tags": mood_values,
-            "mood_tags_mode": mood_tags_mode or "any",
-            "action_tags": action_values,
-            "action_tags_mode": action_tags_mode or "any",
+        "script": {
+            "script_id": script_id,
+            "shoot_id": shoot_id,
+            "title": (script_header or {}).get("title") if script_header else None,
+            "summary": (script_header or {}).get("summary") if script_header else None,
+            "time_of_day": (script_header or {}).get("time_of_day") if script_header else None,
+            "location_primary": (script_header or {}).get("location_primary") if script_header else None,
+            "outfit_category": (script_header or {}).get("outfit_category") if script_header else None,
+            "focus_tags": (script_header or {}).get("focus_tags") if script_header else [],
+            "created_at": (script_header or {}).get("created_at") if script_header else None,
         },
-        "items": items,
+        "filters": {
+            "script_id": script_id,
+            "media_expand": expand_media,
+            "include_shoot_extras": bool(include_shoot_extras),
+        },
+        "script_items": _build_item_pack(
+            script_items_rows, expand_media=effective_expand_media
+        ),
+        "shoot_extras": _build_item_pack(
+            shoot_extras_rows, expand_media=effective_expand_media
+        ),
     }
 
 
-def _build_group_pack(rows: List[Dict[str, Any]], time_values: List[str]) -> Dict[str, Any]:
-    groups: Dict[str, Dict[str, Any]] = {}
-    for row in rows:
-        time_of_day = row.get("time_of_day") or "anytime"
-        location = row.get("location_primary") or "unknown"
-        outfit = row.get("outfit_category") or "unknown"
-        key = f"{time_of_day}|{location}|{outfit}"
-
-        group = groups.get(key)
-        if group is None:
-            group = {
-                "group_key": key,
-                "time_of_day": time_of_day,
-                "location_primary": location,
-                "outfit_category": outfit,
-                "counts": {},
-            }
-            groups[key] = group
-
-        media_type = row.get("media_type") or "unknown"
-        media_type = _normalize_media_type(media_type) or "unknown"
-        explicitness = row.get("explicitness") or "unknown"
-        media_counts = group["counts"].setdefault(media_type, {})
-        media_counts[explicitness] = media_counts.get(explicitness, 0) + 1
-        media_counts["total"] = media_counts.get("total", 0) + 1
-
-    # Preserve input order for stability
-    ordered_groups = [groups[k] for k in groups.keys()]
-    return {
-        "zoom": 0,
-        "filters": {"time_of_day": time_values},
-        "groups": ordered_groups,
-    }
-
-
-def _build_item_pack(
-    rows: List[Dict[str, Any]],
-    expand_media: List[str],
-    include_relations: bool,
-    client,
-) -> List[Dict[str, Any]]:
+def _build_item_pack(rows: List[Dict[str, Any]], expand_media: List[str]) -> List[Dict[str, Any]]:
     items: List[Dict[str, Any]] = []
     for row in rows:
         media_type = _normalize_media_type(row.get("media_type")) or "unknown"
         detail = media_type in expand_media
+        voice_excerpt = ""
+        if media_type == "voice":
+            voice_excerpt = _voice_excerpt(
+                row.get("voice_transcript") or row.get("desc_short")
+            )
         item = {
             "id": row.get("id"),
             "media_type": media_type,
@@ -384,7 +435,7 @@ def _build_item_pack(
             "desc_short": row.get("desc_short"),
             "desc_long": row.get("desc_long") if detail else None,
             "voice_transcript": row.get("voice_transcript") if detail else None,
-            "voice_excerpt": _voice_excerpt(row.get("voice_transcript")),
+            "voice_excerpt": voice_excerpt,
             "time_of_day": row.get("time_of_day"),
             "location_primary": row.get("location_primary"),
             "outfit_category": row.get("outfit_category"),
@@ -395,47 +446,15 @@ def _build_item_pack(
             "camera_angle": row.get("camera_angle"),
             "shot_type": row.get("shot_type"),
             "lighting": row.get("lighting"),
-            "set_id": row.get("set_id"),
+            "script_id": row.get("script_id"),
             "shoot_id": row.get("shoot_id"),
+            "stage": row.get("stage"),
             "sequence_position": row.get("sequence_position"),
             "detail_level": "full" if detail else "compact",
         }
         items.append(item)
 
-    if include_relations and items:
-        _attach_relation_counts(items, client)
-
     return items
-
-
-def _attach_relation_counts(items: List[Dict[str, Any]], client) -> None:
-    ids = [item.get("id") for item in items if item.get("id") is not None]
-    if not ids:
-        return
-
-    rel_rows = (
-        client.table("content_relations")
-        .select("from_content_id,relation")
-        .in_("from_content_id", ids)
-        .execute()
-        .data
-        or []
-    )
-
-    counts: Dict[int, Dict[str, int]] = {}
-    for row in rel_rows:
-        from_id = row.get("from_content_id")
-        rel = row.get("relation") or "unknown"
-        if from_id is None:
-            continue
-        bucket = counts.setdefault(from_id, {})
-        bucket[rel] = bucket.get(rel, 0) + 1
-
-    for item in items:
-        item_id = item.get("id")
-        if item_id is None:
-            continue
-        item["relation_counts"] = counts.get(item_id, {})
 
 
 def format_content_pack(pack: Dict[str, Any]) -> str:

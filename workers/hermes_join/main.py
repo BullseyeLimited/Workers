@@ -131,35 +131,13 @@ def _build_content_pack_from_request(
 ) -> dict:
     allowed_keys = {
         "zoom",
-        "time_of_day",
-        "time_mode",
-        "location_primary",
-        "outfit_category",
-        "outfit_layers",
-        "outfit_layers_mode",
-        "group_key",
-        "body_focus",
-        "body_focus_mode",
-        "mood_tags",
-        "mood_tags_mode",
-        "action_tags",
-        "action_tags_mode",
+        "script_id",
+        "include_shoot_extras",
         "media_expand",
-        "include_relations",
         "limit",
         "creator_id",
     }
     params = {k: request.get(k) for k in allowed_keys if k in request}
-    group = request.get("group")
-    if isinstance(group, dict):
-        params.setdefault(
-            "location_primary",
-            group.get("location_primary") or group.get("location"),
-        )
-        params.setdefault(
-            "outfit_category",
-            group.get("outfit_category") or group.get("outfit"),
-        )
     if not params.get("creator_id"):
         thread_row = (
             client.table("threads")
@@ -196,12 +174,16 @@ def process_job(payload: Dict[str, Any]) -> bool:
         raise ValueError(f"Malformed job payload: {payload}")
 
     fan_msg_id = payload["message_id"]
+    select_fields = (
+        "thread_id,kairos_status,web_research_status,extras,hermes_status,hermes_output_raw"
+    )
+    if CONTENT_PACK_ENABLED:
+        select_fields += (
+            ",content_request,content_pack,content_pack_status,content_pack_error,content_pack_created_at"
+        )
     details = (
         SB.table("message_ai_details")
-        .select(
-            "thread_id,kairos_status,web_research_status,extras,hermes_status,"
-            "hermes_output_raw,content_request,content_pack,content_pack_status"
-        )
+        .select(select_fields)
         .eq("message_id", fan_msg_id)
         .single()
         .execute()

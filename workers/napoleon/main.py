@@ -1145,11 +1145,12 @@ def process_job(payload):
         or {}
     )
 
+    details_select = "extras,web_research_facts_pack,web_research_output_raw"
+    if CONTENT_PACK_ENABLED:
+        details_select += ",content_pack"
     details_row = (
         SB.table("message_ai_details")
-        .select(
-            "extras,web_research_facts_pack,web_research_output_raw,content_pack"
-        )
+        .select(details_select)
         .eq("message_id", fan_message_id)
         .single()
         .execute()

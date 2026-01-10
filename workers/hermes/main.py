@@ -354,7 +354,6 @@ def process_job(payload: Dict[str, Any]) -> bool:
                 content_index = build_content_index(
                     SB,
                     creator_id=creator_id,
-                    include_relations=False,
                 )
                 packed_index = format_content_pack(content_index)
                 if packed_index:
