@@ -149,7 +149,7 @@ def _build_content_pack_from_request(
             or {}
         )
         params["creator_id"] = thread_row.get("creator_id")
-    return build_content_pack(client, **params)
+    return build_content_pack(client, thread_id=thread_id, **params)
 
 
 def compute_requirements(hermes_parsed: dict) -> tuple[bool, bool]:

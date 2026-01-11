@@ -36,8 +36,6 @@ MEDIA_TYPE_ALIASES = {
     "text": "text",
 }
 
-TIME_ANY_ALIASES = {"any", "anytime", "all", "any_time"}
-
 
 def _normalize_media_type(value: Optional[str]) -> Optional[str]:
     if not value:
@@ -52,20 +50,6 @@ def _normalize_media_types(values: Iterable[str]) -> List[str]:
         mapped = _normalize_media_type(val)
         if mapped and mapped not in normalized:
             normalized.append(mapped)
-    return normalized
-
-
-def _normalize_time_values(value) -> List[str]:
-    raw = _normalize_list(value)
-    normalized: List[str] = []
-    for item in raw:
-        lowered = item.strip().lower()
-        if lowered in TIME_ANY_ALIASES:
-            token = "anytime"
-        else:
-            token = item.strip()
-        if token and token not in normalized:
-            normalized.append(token)
     return normalized
 
 
@@ -125,6 +109,79 @@ def _safe_int(value, default=None):
         return default
 
 
+def _fetch_thread_used_content_ids(client, *, thread_id: int) -> set[int]:
+    """
+    Return content_ids already delivered in this thread (messages.content_id).
+    """
+    if not thread_id:
+        return set()
+    try:
+        rows = (
+            client.table("messages")
+            .select("content_id")
+            .eq("thread_id", thread_id)
+            .execute()
+            .data
+            or []
+        )
+    except Exception:
+        return set()
+
+    used: set[int] = set()
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        content_id = _safe_int(row.get("content_id"))
+        if content_id is not None:
+            used.add(content_id)
+    return used
+
+
+def _fetch_thread_offer_rows(client, *, thread_id: int) -> List[Dict[str, Any]]:
+    """
+    Return content offers made in this thread (content_offers rows).
+
+    Note: this table may not exist in all environments; fail open.
+    """
+    if not thread_id:
+        return []
+    try:
+        return (
+            client.table("content_offers")
+            .select(
+                "id,thread_id,message_id,content_id,offered_price,purchased,"
+                "purchased_amount,purchased_at,created_at"
+            )
+            .eq("thread_id", thread_id)
+            .order("created_at", desc=False)
+            .execute()
+            .data
+            or []
+        )
+    except Exception:
+        return []
+
+
+def _thread_excluded_content_ids(
+    client, *, thread_id: int
+) -> tuple[set[int], set[int], List[Dict[str, Any]]]:
+    """
+    Return (excluded_content_ids, used_content_ids, offer_rows) for a thread.
+
+    Excluded = delivered (messages.content_id) ∪ offered (content_offers.content_id).
+    """
+    used_ids = _fetch_thread_used_content_ids(client, thread_id=thread_id)
+    offer_rows = _fetch_thread_offer_rows(client, thread_id=thread_id)
+    offered_ids: set[int] = set()
+    for row in offer_rows:
+        if not isinstance(row, dict):
+            continue
+        content_id = _safe_int(row.get("content_id"))
+        if content_id is not None:
+            offered_ids.add(content_id)
+    return (used_ids | offered_ids), used_ids, offer_rows
+
+
 def _sort_items(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """
     Stable ordering:
@@ -141,10 +198,6 @@ def _sort_items(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         return (seq_key, created, item_id)
 
     return sorted(rows, key=sort_key)
-
-
-def _is_nullish(value) -> bool:
-    return value is None or value == ""
 
 
 def _fetch_rows(
@@ -259,14 +312,6 @@ def _count_by_media_and_explicitness(rows: List[Dict[str, Any]]) -> Dict[str, Di
     return counts
 
 
-def _count_by_stage(rows: List[Dict[str, Any]]) -> Dict[str, int]:
-    counts: Dict[str, int] = {}
-    for row in rows:
-        stage = (row.get("stage") or "").strip().lower() or "unknown"
-        counts[stage] = counts.get(stage, 0) + 1
-    return counts
-
-
 def _make_pack_ref(value: str | None) -> str | None:
     if not value:
         return None
@@ -275,62 +320,6 @@ def _make_pack_ref(value: str | None) -> str | None:
         return None
     digest = hashlib.blake2s(seed.encode("utf-8"), digest_size=5).hexdigest()
     return f"pack_{digest}"
-
-
-def _totals_by_media(counts: Any) -> Dict[str, int]:
-    """
-    Reduce nested {media_type: {explicitness: n, total: n}} into {media_type: total}.
-    """
-    totals: Dict[str, int] = {}
-    if not isinstance(counts, dict):
-        return totals
-    for media_type, bucket in counts.items():
-        if not isinstance(bucket, dict):
-            continue
-        total = bucket.get("total")
-        if isinstance(total, int) and total > 0:
-            totals[str(media_type)] = total
-    return totals
-
-
-def _totals_by_explicitness(counts: Any) -> Dict[str, int]:
-    """
-    Reduce nested {media_type: {explicitness: n}} into {explicitness: total}.
-    """
-    totals: Dict[str, int] = {}
-    if not isinstance(counts, dict):
-        return totals
-    for bucket in counts.values():
-        if not isinstance(bucket, dict):
-            continue
-        for explicitness, value in bucket.items():
-            if explicitness == "total":
-                continue
-            if isinstance(value, int) and value > 0:
-                totals[str(explicitness)] = totals.get(str(explicitness), 0) + value
-    if totals:
-        totals["total"] = sum(totals.values())
-    return totals
-
-
-def _stages_present(stage_counts: Any) -> List[str]:
-    if not isinstance(stage_counts, dict):
-        return []
-    order = ["setup", "tease", "build", "climax", "after"]
-    seen: set[str] = set()
-    stages: List[str] = []
-    for stage in order:
-        val = stage_counts.get(stage)
-        if isinstance(val, int) and val > 0:
-            stages.append(stage)
-            seen.add(stage)
-    extras = sorted(
-        str(k)
-        for k, v in stage_counts.items()
-        if k not in seen and isinstance(v, int) and v > 0
-    )
-    stages.extend(extras)
-    return stages
 
 
 def _format_inventory(counts: Any) -> str:
@@ -457,11 +446,7 @@ def _build_script_index(
             "outfit_category": script.get("outfit_category"),
             "created_at": script.get("created_at"),
             "counts": _count_by_media_and_explicitness(script_items),
-            "stage_counts": _count_by_stage(script_items),
             "extras_counts": _count_by_media_and_explicitness(extras),
-            "total_steps": max(
-                [r.get("sequence_position") or 0 for r in script_items] or [0]
-            ),
         }
         if include_focus_tags:
             entry["focus_tags"] = script.get("focus_tags") or []
@@ -474,26 +459,199 @@ def _build_script_index(
     return sorted(index, key=sort_key)
 
 
+def _sort_newest_first(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """
+    Stable newest-first ordering:
+    - created_at (descending, missing last)
+    - id (descending)
+    """
+
+    def sort_key(row: Dict[str, Any]):
+        created = row.get("created_at") or ""
+        item_id = row.get("id") or 0
+        return (created, item_id)
+
+    return sorted(rows, key=sort_key, reverse=True)
+
+
 def build_content_index(
     client,
     *,
     creator_id: int,
-    include_items: bool = True,
+    thread_id: int | None = None,
+    global_ammo_limit: int = 60,
+    thread_activity_limit: int = 60,
 ) -> Dict[str, Any]:
     """
-    Script-first index for Hermes:
-    - scripts: list of script summaries + counts
-    - items: full compact list of content_items (so Hermes is all-knowing)
+    Structured Hermes-only content context in 3 "bubbles":
+      1) Scripts + per-script pack ammo (shoot extras)
+      2) Global (scriptless) ammo, newest-first
+      3) Thread content activity (sent + PPV offers)
     """
+
+    ammo_limit = int(global_ammo_limit or 0)
+    activity_limit = int(thread_activity_limit or 0)
+
     scripts = _fetch_scripts(client, creator_id=creator_id)
-    items_rows: List[Dict[str, Any]] = []
-    if include_items:
-        items_rows = _fetch_rows(client, creator_id=creator_id)
+    excluded_ids: set[int] = set()
+    offer_rows: List[Dict[str, Any]] = []
+    if thread_id:
+        excluded_ids, _used_ids, offer_rows = _thread_excluded_content_ids(
+            client, thread_id=int(thread_id)
+        )
+
+    all_items_rows = _fetch_rows(client, creator_id=creator_id)
+    available_items_rows = [
+        row
+        for row in all_items_rows
+        if _safe_int(row.get("id")) not in excluded_ids
+    ]
+
+    meta_by_script_id: Dict[str, Dict[str, Any]] = {}
+    for script in scripts:
+        sid = script.get("id")
+        if not sid:
+            continue
+        meta_val = script.get("meta")
+        meta: Dict[str, Any] = {}
+        if isinstance(meta_val, dict):
+            meta = meta_val
+        elif isinstance(meta_val, str) and meta_val.strip():
+            try:
+                parsed = json.loads(meta_val)
+                if isinstance(parsed, dict):
+                    meta = parsed
+            except Exception:
+                meta = {}
+        meta_by_script_id[str(sid)] = meta
+
+    script_index = _build_script_index(
+        scripts, available_items_rows, include_focus_tags=True
+    )
+    for entry in script_index:
+        sid = entry.get("script_id")
+        shoot_id = entry.get("shoot_id")
+        meta = meta_by_script_id.get(str(sid), {}) if sid else {}
+
+        entry["ref"] = _make_pack_ref(sid) or _make_pack_ref(shoot_id)
+        core_scene_time_of_day = entry.pop("time_of_day", None)
+        entry["core_scene_time_of_day"] = core_scene_time_of_day
+
+        script_summary = entry.pop("summary", None)
+        entry["script_summary"] = (
+            meta.get("script_summary")
+            or meta.get("core_scene_summary")
+            or meta.get("core_summary")
+            or script_summary
+            or ""
+        )
+
+        core_counts = entry.pop("counts", {})
+        ammo_counts = entry.pop("extras_counts", {})
+        entry["core_inventory"] = _format_inventory(core_counts)
+        ammo_inventory = _format_inventory(ammo_counts)
+        entry["ammo_inventory"] = ammo_inventory
+        entry["ammo_summary"] = (
+            meta.get("ammo_summary")
+            or meta.get("ammo_blurb")
+            or _auto_ammo_summary(
+                title=entry.get("title"),
+                ammo_inventory=ammo_inventory,
+                core_scene_time_of_day=core_scene_time_of_day,
+            )
+        )
+
+    script_shoot_ids = {
+        str(s.get("shoot_id"))
+        for s in scripts
+        if s.get("shoot_id") is not None and str(s.get("shoot_id")).strip()
+    }
+    global_ammo_rows = []
+    for row in available_items_rows:
+        if row.get("script_id"):
+            continue
+        shoot_id = row.get("shoot_id")
+        if shoot_id is not None and str(shoot_id) in script_shoot_ids:
+            continue  # pack ammo belongs in Bubble 1
+        global_ammo_rows.append(row)
+    global_ammo_rows = _sort_newest_first(global_ammo_rows)
+    if ammo_limit:
+        global_ammo_rows = global_ammo_rows[:ammo_limit]
+
+    global_ammo_inventory = _format_inventory(
+        _count_by_media_and_explicitness(global_ammo_rows)
+    )
+
+    sent_events: List[Dict[str, Any]] = []
+    if thread_id and activity_limit:
+        try:
+            sent_rows = (
+                client.table("messages")
+                .select("id,turn_index,created_at,content_id")
+                .eq("thread_id", int(thread_id))
+                .order("turn_index", desc=True)
+                .limit(activity_limit * 5)
+                .execute()
+                .data
+                or []
+            )
+        except Exception:
+            sent_rows = []
+        for row in sent_rows:
+            if not isinstance(row, dict):
+                continue
+            content_id = _safe_int(row.get("content_id"))
+            if content_id is None:
+                continue
+            sent_events.append(
+                {
+                    "message_id": row.get("id"),
+                    "turn_index": row.get("turn_index"),
+                    "created_at": row.get("created_at"),
+                    "content_id": content_id,
+                }
+            )
+            if len(sent_events) >= activity_limit:
+                break
+
+    offer_events: List[Dict[str, Any]] = []
+    if activity_limit:
+        for row in _sort_newest_first(offer_rows)[:activity_limit]:
+            if not isinstance(row, dict):
+                continue
+            content_id = _safe_int(row.get("content_id"))
+            if content_id is None:
+                continue
+            purchased = row.get("purchased")
+            offer_events.append(
+                {
+                    "message_id": row.get("message_id"),
+                    "created_at": row.get("created_at"),
+                    "content_id": content_id,
+                    "status": "bought" if purchased is True else "pending",
+                    "offered_price": row.get("offered_price"),
+                }
+            )
 
     return {
+        "type": "content_index",
         "zoom": 1,
-        "scripts": _build_script_index(scripts, items_rows, include_focus_tags=True),
-        "items": _build_item_pack(items_rows, expand_media=[]),
+        "creator_id": creator_id,
+        "thread_id": thread_id,
+        "bubble_1": {
+            "header": "BUBBLE 1: Scripts + Pack Ammo",
+            "scripts": script_index,
+        },
+        "bubble_2": {
+            "header": "BUBBLE 2: Global Ammo (scriptless, newest first)",
+            "inventory": global_ammo_inventory,
+            "items": _build_item_pack(global_ammo_rows, expand_media=[]),
+        },
+        "bubble_3": {
+            "header": "BUBBLE 3: Thread Content (sent + offers)",
+            "sent": sent_events,
+            "offers": offer_events,
+        },
     }
 
 
@@ -501,6 +659,7 @@ def build_content_pack(
     client,
     *,
     creator_id: int,
+    thread_id: int | None = None,
     zoom: int | str = 0,
     script_id: str | None = None,
     include_shoot_extras: bool = True,
@@ -517,11 +676,22 @@ def build_content_pack(
     zoom_level = _safe_int(zoom, 0) or 0
     expand_media = _normalize_media_types(_normalize_list(media_expand))
     effective_expand_media = expand_media if zoom_level >= 2 else []
+    excluded_ids: set[int] = set()
+    if thread_id:
+        excluded_ids, _used_ids, _offer_rows = _thread_excluded_content_ids(
+            client, thread_id=int(thread_id)
+        )
     scripts = _fetch_scripts(client, creator_id=creator_id)
     # For Zoom 0 we return script list only (no items).
     if zoom_level <= 0 or not script_id:
         # We still need item rows to compute counts; fetch once.
         items_rows = _fetch_rows(client, creator_id=creator_id)
+        if excluded_ids:
+            items_rows = [
+                row
+                for row in items_rows
+                if _safe_int(row.get("id")) not in excluded_ids
+            ]
         meta_by_script_id: Dict[str, Dict[str, Any]] = {}
         for script in scripts:
             sid = script.get("id")
@@ -568,8 +738,6 @@ def build_content_pack(
             ammo_inventory = _format_inventory(ammo_counts)
             entry["ammo_inventory"] = ammo_inventory
 
-            entry.pop("stage_counts", None)
-            entry.pop("total_steps", None)
             entry["ammo_summary"] = (
                 meta.get("ammo_summary")
                 or meta.get("ammo_blurb")
@@ -595,6 +763,12 @@ def build_content_pack(
         include_long=zoom_level >= 2,
         limit=limit,
     )
+    if excluded_ids:
+        script_items_rows = [
+            row
+            for row in script_items_rows
+            if _safe_int(row.get("id")) not in excluded_ids
+        ]
     shoot_extras_rows: List[Dict[str, Any]] = []
     shoot_id = None
     if script_header:
@@ -607,6 +781,12 @@ def build_content_pack(
             script_id_is_null=True,
             include_long=zoom_level >= 2,
         )
+        if excluded_ids:
+            shoot_extras_rows = [
+                row
+                for row in shoot_extras_rows
+                if _safe_int(row.get("id")) not in excluded_ids
+            ]
 
     return {
         "zoom": zoom_level,
