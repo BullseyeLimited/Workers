@@ -409,6 +409,74 @@ def _format_inventory(counts: Any) -> str:
     return "; ".join(parts) if parts else "none"
 
 
+def _normalize_tag(value: Optional[str]) -> str:
+    if not value:
+        return ""
+    cleaned = str(value).strip().lower().replace("_", " ")
+    cleaned = " ".join(cleaned.split())
+    return cleaned
+
+
+def _ammo_tags_for_row(row: Dict[str, Any]) -> List[str]:
+    tags: List[str] = []
+    for key in ("location_tags", "action_tags", "body_focus", "mood_tags"):
+        tags.extend(_normalize_list(row.get(key)))
+    if tags:
+        return tags
+    for key in ("camera_angle", "shot_type", "location_primary", "outfit_category"):
+        value = row.get(key)
+        if value:
+            tags.append(str(value))
+    return tags
+
+
+def _summarize_ammo_breakdown(
+    rows: List[Dict[str, Any]], max_tags: int = 8
+) -> Dict[str, str]:
+    counts_by_media: Dict[str, Dict[str, int]] = {}
+    for row in rows:
+        media_type = _normalize_media_type(row.get("media_type")) or "unknown"
+        if media_type == "unknown":
+            continue
+        tags = _ammo_tags_for_row(row)
+        if not tags:
+            tags = ["misc"]
+        bucket = counts_by_media.setdefault(media_type, {})
+        for tag in {t for t in tags if t}:
+            normalized = _normalize_tag(tag)
+            if not normalized:
+                continue
+            bucket[normalized] = bucket.get(normalized, 0) + 1
+
+    summary: Dict[str, str] = {}
+    for media_type, bucket in counts_by_media.items():
+        if not bucket:
+            continue
+        items = sorted(bucket.items(), key=lambda item: (-item[1], item[0]))
+        items = items[: max_tags or len(items)]
+        summary[media_type] = ", ".join(f"{tag} {count}" for tag, count in items)
+    return summary
+
+
+def _select_global_ammo_rows(
+    rows: List[Dict[str, Any]], scripts: List[Dict[str, Any]]
+) -> List[Dict[str, Any]]:
+    script_shoot_ids = {
+        str(s.get("shoot_id"))
+        for s in scripts
+        if s.get("shoot_id") is not None and str(s.get("shoot_id")).strip()
+    }
+    global_rows: List[Dict[str, Any]] = []
+    for row in rows:
+        if row.get("script_id"):
+            continue
+        shoot_id = row.get("shoot_id")
+        if shoot_id is not None and str(shoot_id) in script_shoot_ids:
+            continue
+        global_rows.append(row)
+    return global_rows
+
+
 def _extract_day_theme(title: Optional[str]) -> str:
     if not title:
         return ""
@@ -588,19 +656,7 @@ def build_content_index(
             )
         )
 
-    script_shoot_ids = {
-        str(s.get("shoot_id"))
-        for s in scripts
-        if s.get("shoot_id") is not None and str(s.get("shoot_id")).strip()
-    }
-    global_ammo_rows = []
-    for row in available_items_rows:
-        if row.get("script_id"):
-            continue
-        shoot_id = row.get("shoot_id")
-        if shoot_id is not None and str(shoot_id) in script_shoot_ids:
-            continue  # pack ammo belongs in Bubble 1
-        global_ammo_rows.append(row)
+    global_ammo_rows = _select_global_ammo_rows(available_items_rows, scripts)
     global_ammo_rows = _sort_newest_first(global_ammo_rows)
     if ammo_limit:
         global_ammo_rows = global_ammo_rows[:ammo_limit]
@@ -798,9 +854,20 @@ def build_content_pack(
                     core_scene_time_of_day=core_scene_time_of_day,
                 )
             )
+        global_ammo_rows = _select_global_ammo_rows(items_rows, scripts)
+        global_ammo_inventory = _format_inventory(
+            _count_by_media_and_explicitness(global_ammo_rows)
+        )
+        global_ammo_breakdown = _summarize_ammo_breakdown(global_ammo_rows)
         return {
             "zoom": 0,
+            "scripts_header": "SCRIPTS + PACK AMMO",
             "scripts": scripts_index,
+            "global_ammo": {
+                "header": "GLOBAL AMMO (scriptless, compact)",
+                "inventory": global_ammo_inventory,
+                "breakdown": global_ammo_breakdown,
+            },
         }
 
     # Fetch the chosen script header.
