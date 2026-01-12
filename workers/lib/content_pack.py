@@ -134,6 +134,12 @@ def _fetch_thread_used_content_ids(client, *, thread_id: int) -> set[int]:
         content_id = _safe_int(row.get("content_id"))
         if content_id is not None:
             used.add(content_id)
+    for row in _fetch_thread_delivery_rows(client, thread_id=thread_id):
+        if not isinstance(row, dict):
+            continue
+        content_id = _safe_int(row.get("content_id"))
+        if content_id is not None:
+            used.add(content_id)
     return used
 
 
@@ -161,6 +167,27 @@ def _fetch_thread_offer_rows(client, *, thread_id: int) -> List[Dict[str, Any]]:
     except Exception:
         return []
 
+
+def _fetch_thread_delivery_rows(client, *, thread_id: int) -> List[Dict[str, Any]]:
+    """
+    Return content deliveries made in this thread (content_deliveries rows).
+
+    Note: this table may not exist in all environments; fail open.
+    """
+    if not thread_id:
+        return []
+    try:
+        return (
+            client.table("content_deliveries")
+            .select("id,thread_id,message_id,content_id,created_at")
+            .eq("thread_id", thread_id)
+            .order("created_at", desc=False)
+            .execute()
+            .data
+            or []
+        )
+    except Exception:
+        return []
 
 def _thread_excluded_content_ids(
     client, *, thread_id: int
@@ -597,20 +624,44 @@ def build_content_index(
             )
         except Exception:
             sent_rows = []
-        for row in sent_rows:
-            if not isinstance(row, dict):
+        message_ids = [
+            row.get("id") for row in sent_rows if isinstance(row, dict) and row.get("id")
+        ]
+        message_id_set = {mid for mid in message_ids if mid is not None}
+        deliveries_by_message_id: Dict[int, List[int]] = {}
+        for row in _fetch_thread_delivery_rows(client, thread_id=int(thread_id)):
+            msg_id = row.get("message_id")
+            if msg_id is None or msg_id not in message_id_set:
                 continue
             content_id = _safe_int(row.get("content_id"))
             if content_id is None:
                 continue
-            sent_events.append(
-                {
-                    "message_id": row.get("id"),
-                    "turn_index": row.get("turn_index"),
-                    "created_at": row.get("created_at"),
-                    "content_id": content_id,
-                }
-            )
+            deliveries_by_message_id.setdefault(msg_id, []).append(content_id)
+        for row in sent_rows:
+            if not isinstance(row, dict):
+                continue
+            msg_id = row.get("id")
+            if msg_id is None:
+                continue
+            content_ids = deliveries_by_message_id.get(msg_id, [])
+            content_id = _safe_int(row.get("content_id"))
+            if content_id is not None:
+                content_ids.append(content_id)
+            seen: set[int] = set()
+            for cid in content_ids:
+                if cid in seen:
+                    continue
+                seen.add(cid)
+                sent_events.append(
+                    {
+                        "message_id": msg_id,
+                        "turn_index": row.get("turn_index"),
+                        "created_at": row.get("created_at"),
+                        "content_id": cid,
+                    }
+                )
+                if len(sent_events) >= activity_limit:
+                    break
             if len(sent_events) >= activity_limit:
                 break
 

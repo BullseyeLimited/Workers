@@ -367,12 +367,15 @@ UPDATE_1_NEW_PLAN_METHOD: […]
 UPDATE_1_NEW_PLAN_SUCCESS_SIGNAL: […]
 UPDATE_1_NEW_PLAN_GUARDRAILS: […]
 
+<CONTENT_ACTIONS>{...}</CONTENT_ACTIONS>
+
 (Repeat as UPDATE_2_… only if more horizons changed.)
 
 Hard rules:
 	Do NOT output any horizon plan text unless STATUS = yes.
 	Do NOT change Lifetime.
 	For Year/Season changes, END_EVIDENCE must reference a real structural reason (not vibes).
+
 
 
 

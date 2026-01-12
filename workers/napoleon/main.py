@@ -10,6 +10,7 @@ import requests
 from supabase import create_client, ClientOptions
 
 from workers.lib.content_pack import format_content_pack
+from workers.lib.json_utils import safe_parse_model_json
 from workers.lib.prompt_builder import build_prompt_sections, live_turn_window
 from workers.lib.simple_queue import receive, ack, send
 
@@ -57,6 +58,10 @@ TACTICAL_LINE_PATTERN = re.compile(
 )
 ANALYST_BLOCK_PATTERN = re.compile(
     r"<ANALYST_ANALYSIS_JSON>.*?</ANALYST_ANALYSIS_JSON>",
+    re.IGNORECASE | re.DOTALL,
+)
+CONTENT_ACTIONS_PATTERN = re.compile(
+    r"<CONTENT_ACTIONS>(.*?)</CONTENT_ACTIONS>",
     re.IGNORECASE | re.DOTALL,
 )
 PROGRESS_WINDOWS = {
@@ -330,6 +335,8 @@ def upsert_napoleon_details(
     raw_text: str,
     raw_hash: str,
     analysis: dict,
+    content_actions: dict | None = None,
+    content_actions_error: str | None = None,
     creator_message_id: int | None = None,
 ) -> None:
     """
@@ -365,6 +372,10 @@ def upsert_napoleon_details(
             "kairos_check": "found" if existing_row.get("strategic_narrative") else "missing",
         }
     )
+    if content_actions is not None:
+        merged_extras["content_actions"] = content_actions
+    if content_actions_error:
+        merged_extras["content_actions_error"] = content_actions_error
 
     update_fields = {
         # Do not overwrite Kairos columns; only add Napoleon fields + status flip.
@@ -819,6 +830,25 @@ def parse_napoleon_headers(raw_text: str) -> tuple[dict | None, str | None]:
         "FINAL_MESSAGE": "",
     }
     return analysis, None
+
+
+def parse_content_actions(raw_text: str) -> tuple[dict | None, str | None]:
+    if not raw_text:
+        return None, None
+    match = CONTENT_ACTIONS_PATTERN.search(raw_text)
+    if not match:
+        return None, None
+    payload = match.group(1).strip()
+    if not payload:
+        return {}, None
+    data, error = safe_parse_model_json(payload)
+    if error:
+        return None, error
+    if isinstance(data, list):
+        return {"sends": data}, None
+    if not isinstance(data, dict):
+        return None, "content_actions_not_object"
+    return data, None
 
 
 def parse_napoleon_partial(raw_text: str) -> dict:
@@ -1308,6 +1338,8 @@ def process_job(payload):
         )
         return True
 
+    content_actions, content_actions_error = parse_content_actions(raw_text)
+
     rethink = analysis.get("RETHINK_HORIZONS") or {}
     rethink_status = (
         rethink.get("STATUS")
@@ -1451,6 +1483,8 @@ def process_job(payload):
         raw_text=raw_text,
         raw_hash=raw_hash,
         analysis=analysis,
+        content_actions=content_actions,
+        content_actions_error=content_actions_error,
         creator_message_id=None,
     )
 
@@ -1483,6 +1517,7 @@ def process_job(payload):
         "thread_history": raw_turns,
         "latest_fan_message": msg.get("message_text") or "",
         "turn_directive": turn1_directive,
+        "content_actions": content_actions or {},
     }
     send(WRITER_QUEUE, writer_payload)
     return True

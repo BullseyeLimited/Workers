@@ -111,6 +111,140 @@ _TURN1_DIRECTIVE_KEY_CANDIDATES = (
 )
 
 
+def _coerce_int(value) -> int | None:
+    try:
+        return int(value)
+    except Exception:
+        return None
+
+
+def _as_list(value) -> list:
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return value
+    return [value]
+
+
+def _extract_action_list(data: dict, keys: tuple[str, ...]) -> list:
+    for key in keys:
+        if key in data:
+            return _as_list(data.get(key))
+    return []
+
+
+def _normalize_offer_items(items: list) -> list[dict]:
+    normalized: list[dict] = []
+    seen: set[int] = set()
+    for item in items:
+        if isinstance(item, dict):
+            content_id = _coerce_int(item.get("content_id") or item.get("id"))
+            price = (
+                item.get("price")
+                or item.get("offered_price")
+                or item.get("amount")
+            )
+            purchased = item.get("purchased")
+        else:
+            content_id = _coerce_int(item)
+            price = None
+            purchased = None
+        if content_id is None or content_id in seen:
+            continue
+        seen.add(content_id)
+        row = {"content_id": content_id}
+        if price not in (None, ""):
+            row["offered_price"] = price
+        if purchased is not None:
+            row["purchased"] = bool(purchased)
+        normalized.append(row)
+    return normalized
+
+
+def _normalize_send_items(items: list) -> list[int]:
+    normalized: list[int] = []
+    seen: set[int] = set()
+    for item in items:
+        if isinstance(item, dict):
+            content_id = _coerce_int(item.get("content_id") or item.get("id"))
+        else:
+            content_id = _coerce_int(item)
+        if content_id is None or content_id in seen:
+            continue
+        seen.add(content_id)
+        normalized.append(content_id)
+    return normalized
+
+
+def _apply_content_actions(
+    *,
+    thread_id: int,
+    creator_message_id: int,
+    content_actions: dict | None,
+) -> None:
+    if not content_actions or not isinstance(content_actions, dict):
+        return
+
+    offer_items = _extract_action_list(
+        content_actions,
+        ("offers", "offer", "ppv_offers", "ppv_offer"),
+    )
+    send_items = _extract_action_list(
+        content_actions,
+        ("sends", "send", "deliveries", "delivery", "deliver", "sent"),
+    )
+    offers = _normalize_offer_items(offer_items)
+    sends = _normalize_send_items(send_items)
+
+    if offers:
+        rows = []
+        for offer in offers:
+            row = {
+                "thread_id": thread_id,
+                "message_id": creator_message_id,
+                "content_id": offer["content_id"],
+            }
+            if "offered_price" in offer:
+                row["offered_price"] = offer["offered_price"]
+            if "purchased" in offer:
+                row["purchased"] = offer["purchased"]
+            rows.append(row)
+        try:
+            SB.table("content_offers").insert(rows).execute()
+        except Exception:
+            pass
+
+    if sends:
+        delivered_rows = [
+            {
+                "thread_id": thread_id,
+                "message_id": creator_message_id,
+                "content_id": content_id,
+            }
+            for content_id in sends
+        ]
+        inserted = False
+        try:
+            SB.table("content_deliveries").insert(delivered_rows).execute()
+            inserted = True
+        except Exception:
+            inserted = False
+        if len(sends) == 1:
+            try:
+                SB.table("messages").update(
+                    {"content_id": sends[0]}
+                ).eq("id", creator_message_id).execute()
+            except Exception:
+                pass
+        elif not inserted:
+            try:
+                SB.table("messages").update(
+                    {"content_id": sends[0]}
+                ).eq("id", creator_message_id).execute()
+            except Exception:
+                pass
+
+
 def _extract_turn1_directive(value: Any) -> str:
     """
     Napoleon Writer only needs Turn 1.
@@ -333,6 +467,11 @@ def process_job(payload: Dict[str, Any]) -> bool:
         return True
 
     creator_message_id = insert_creator_reply(thread_id, final_text)
+    _apply_content_actions(
+        thread_id=thread_id,
+        creator_message_id=creator_message_id,
+        content_actions=payload.get("content_actions"),
+    )
     upsert_writer_details(
         fan_message_id=fan_message_id,
         thread_id=thread_id,

@@ -354,7 +354,7 @@ def live_turn_window(
 
     query = (
         sb.table("messages")
-        .select("id,turn_index,sender,message_text,media_analysis_text,created_at")
+        .select("id,turn_index,sender,message_text,media_analysis_text,created_at,content_id")
         .eq("thread_id", thread_id)
         .gt("turn_index", cutoff_turn)
         .order("turn_index", desc=True)
@@ -370,6 +370,104 @@ def live_turn_window(
 
     if not rows:
         return ""
+
+    message_ids = [
+        row.get("id") for row in rows if isinstance(row, dict) and row.get("id")
+    ]
+    message_id_set = {mid for mid in message_ids if mid is not None}
+    offers_by_message: dict[int, list[dict]] = {}
+    deliveries_by_message: dict[int, list[int]] = {}
+    if message_id_set:
+        try:
+            offer_rows = (
+                sb.table("content_offers")
+                .select("message_id,content_id,offered_price,purchased")
+                .in_("message_id", list(message_id_set))
+                .execute()
+                .data
+                or []
+            )
+        except Exception:
+            offer_rows = []
+        for row in offer_rows:
+            msg_id = row.get("message_id")
+            if msg_id is None:
+                continue
+            offers_by_message.setdefault(msg_id, []).append(row)
+
+        try:
+            delivery_rows = (
+                sb.table("content_deliveries")
+                .select("message_id,content_id")
+                .in_("message_id", list(message_id_set))
+                .execute()
+                .data
+                or []
+            )
+        except Exception:
+            delivery_rows = []
+        for row in delivery_rows:
+            msg_id = row.get("message_id")
+            if msg_id is None:
+                continue
+            content_id = row.get("content_id")
+            if content_id is None:
+                continue
+            deliveries_by_message.setdefault(msg_id, []).append(content_id)
+
+    for row in rows:
+        msg_id = row.get("id")
+        if msg_id is None:
+            continue
+        content_id = row.get("content_id")
+        if content_id is None:
+            continue
+        deliveries_by_message.setdefault(msg_id, []).append(content_id)
+
+    content_ids: set[int] = set()
+    for content_list in deliveries_by_message.values():
+        for content_id in content_list:
+            try:
+                content_ids.add(int(content_id))
+            except Exception:
+                continue
+    for offer_list in offers_by_message.values():
+        for offer in offer_list:
+            try:
+                content_ids.add(int(offer.get("content_id")))
+            except Exception:
+                continue
+
+    item_lookup: dict[int, dict] = {}
+    if content_ids:
+        try:
+            content_rows = (
+                sb.table("content_items")
+                .select("id,media_type,explicitness,desc_short")
+                .in_("id", list(content_ids))
+                .execute()
+                .data
+                or []
+            )
+        except Exception:
+            content_rows = []
+        for row in content_rows:
+            try:
+                item_lookup[int(row.get("id"))] = row
+            except Exception:
+                continue
+
+    def _format_content_label(item: dict | None, content_id: int) -> str:
+        if not isinstance(item, dict):
+            return f"content_id {content_id}"
+        media_type = (item.get("media_type") or "").strip()
+        explicitness = (item.get("explicitness") or "").strip()
+        desc = (item.get("desc_short") or "").strip()
+        prefix_parts = [p for p in (media_type, explicitness) if p]
+        prefix = " ".join(prefix_parts) if prefix_parts else "content"
+        if desc:
+            return f"{prefix}: {desc}"
+        return f"{prefix}: content_id {content_id}"
 
     # Present oldest -> newest (top to bottom), numbering by recency (newest = 1).
     lines: list[str] = []
@@ -389,6 +487,32 @@ def live_turn_window(
         if media_analysis:
             cleaned_media = _clean_turn_text(media_analysis)
             text = f"{text}\n[MEDIA ANALYSIS]\n{cleaned_media}".strip()
+        content_lines: list[str] = []
+        msg_id = row.get("id")
+        if msg_id in deliveries_by_message:
+            seen: set[int] = set()
+            for content_id in deliveries_by_message.get(msg_id, []):
+                try:
+                    cid = int(content_id)
+                except Exception:
+                    continue
+                if cid in seen:
+                    continue
+                seen.add(cid)
+                label = _format_content_label(item_lookup.get(cid), cid)
+                content_lines.append(f"[CONTENT_SENT] {label}")
+        for offer in offers_by_message.get(msg_id, []):
+            try:
+                cid = int(offer.get("content_id"))
+            except Exception:
+                continue
+            status = "bought" if offer.get("purchased") is True else "pending"
+            price = offer.get("offered_price")
+            price_label = f" ${price}" if price is not None else ""
+            label = _format_content_label(item_lookup.get(cid), cid)
+            content_lines.append(f"[CONTENT_OFFER {status}{price_label}] {label}")
+        if content_lines:
+            text = f"{text}\n" + "\n".join(content_lines)
         ts = _format_turn_timestamp(row.get("created_at"))
         lines.append(f"{turn_label} @ {ts} ({sender_label}): {text}")
 
