@@ -417,17 +417,21 @@ def _normalize_tag(value: Optional[str]) -> str:
     return cleaned
 
 
-def _ammo_tags_for_row(row: Dict[str, Any]) -> List[str]:
-    tags: List[str] = []
-    for key in ("location_tags", "action_tags", "body_focus", "mood_tags"):
-        tags.extend(_normalize_list(row.get(key)))
-    if tags:
-        return tags
-    for key in ("camera_angle", "shot_type", "location_primary", "outfit_category"):
-        value = row.get(key)
-        if value:
-            tags.append(str(value))
-    return tags
+def _ammo_primary_tag_for_row(row: Dict[str, Any]) -> str:
+    for key in (
+        "action_tags",
+        "location_tags",
+        "shot_type",
+        "camera_angle",
+        "location_primary",
+        "outfit_category",
+        "mood_tags",
+        "body_focus",
+    ):
+        values = _normalize_list(row.get(key))
+        if values:
+            return values[0]
+    return ""
 
 
 def _summarize_ammo_breakdown(
@@ -438,15 +442,12 @@ def _summarize_ammo_breakdown(
         media_type = _normalize_media_type(row.get("media_type")) or "unknown"
         if media_type == "unknown":
             continue
-        tags = _ammo_tags_for_row(row)
-        if not tags:
-            tags = ["misc"]
+        tag = _ammo_primary_tag_for_row(row) or "misc"
         bucket = counts_by_media.setdefault(media_type, {})
-        for tag in {t for t in tags if t}:
-            normalized = _normalize_tag(tag)
-            if not normalized:
-                continue
-            bucket[normalized] = bucket.get(normalized, 0) + 1
+        normalized = _normalize_tag(tag)
+        if not normalized:
+            continue
+        bucket[normalized] = bucket.get(normalized, 0) + 1
 
     summary: Dict[str, str] = {}
     for media_type, bucket in counts_by_media.items():
