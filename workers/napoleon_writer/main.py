@@ -245,6 +245,73 @@ def _apply_content_actions(
                 pass
 
 
+def _format_content_label(item: dict | None, content_id: int) -> str:
+    if not isinstance(item, dict):
+        return f"content_id {content_id}"
+    media_type = (item.get("media_type") or "").strip()
+    explicitness = (item.get("explicitness") or "").strip()
+    desc = (item.get("desc_short") or "").strip()
+    prefix_parts = [p for p in (media_type, explicitness) if p]
+    prefix = " ".join(prefix_parts) if prefix_parts else "content"
+    if desc:
+        return f"{prefix}: {desc}"
+    return f"{prefix}: content_id {content_id}"
+
+
+def _render_content_placeholders(content_actions: dict | None) -> list[str]:
+    if not content_actions or not isinstance(content_actions, dict):
+        return []
+
+    offer_items = _extract_action_list(
+        content_actions,
+        ("offers", "offer", "ppv_offers", "ppv_offer"),
+    )
+    send_items = _extract_action_list(
+        content_actions,
+        ("sends", "send", "deliveries", "delivery", "deliver", "sent"),
+    )
+    offers = _normalize_offer_items(offer_items)
+    sends = _normalize_send_items(send_items)
+
+    content_ids: set[int] = set(sends)
+    for offer in offers:
+        content_ids.add(offer["content_id"])
+
+    item_lookup: dict[int, dict] = {}
+    if content_ids:
+        try:
+            rows = (
+                SB.table("content_items")
+                .select("id,media_type,explicitness,desc_short")
+                .in_("id", list(content_ids))
+                .execute()
+                .data
+                or []
+            )
+        except Exception:
+            rows = []
+        for row in rows:
+            try:
+                item_lookup[int(row.get("id"))] = row
+            except Exception:
+                continue
+
+    lines: list[str] = []
+    for content_id in sends:
+        label = _format_content_label(item_lookup.get(content_id), content_id)
+        lines.append(f"[CONTENT_SENT] {label}")
+
+    for offer in offers:
+        content_id = offer["content_id"]
+        label = _format_content_label(item_lookup.get(content_id), content_id)
+        status = "bought" if offer.get("purchased") is True else "pending"
+        price = offer.get("offered_price")
+        price_label = f" ${price}" if price is not None else ""
+        lines.append(f"[CONTENT_OFFER {status}{price_label}] {label}")
+
+    return lines
+
+
 def _extract_turn1_directive(value: Any) -> str:
     """
     Napoleon Writer only needs Turn 1.
@@ -456,6 +523,12 @@ def process_job(payload: Dict[str, Any]) -> bool:
 
     chunks = parse_writer_output(raw_text)
     final_text = "\n".join(chunks).strip()
+    content_lines = _render_content_placeholders(payload.get("content_actions"))
+    if content_lines and "[CONTENT_SENT]" not in final_text and "[CONTENT_OFFER" not in final_text:
+        if final_text:
+            final_text = f"{final_text}\n" + "\n".join(content_lines)
+        else:
+            final_text = "\n".join(content_lines)
     if not final_text:
         record_writer_failure(
             fan_message_id=fan_message_id,

@@ -488,29 +488,30 @@ def live_turn_window(
             cleaned_media = _clean_turn_text(media_analysis)
             text = f"{text}\n[MEDIA ANALYSIS]\n{cleaned_media}".strip()
         content_lines: list[str] = []
-        msg_id = row.get("id")
-        if msg_id in deliveries_by_message:
-            seen: set[int] = set()
-            for content_id in deliveries_by_message.get(msg_id, []):
+        if "[CONTENT_SENT]" not in text and "[CONTENT_OFFER" not in text:
+            msg_id = row.get("id")
+            if msg_id in deliveries_by_message:
+                seen: set[int] = set()
+                for content_id in deliveries_by_message.get(msg_id, []):
+                    try:
+                        cid = int(content_id)
+                    except Exception:
+                        continue
+                    if cid in seen:
+                        continue
+                    seen.add(cid)
+                    label = _format_content_label(item_lookup.get(cid), cid)
+                    content_lines.append(f"[CONTENT_SENT] {label}")
+            for offer in offers_by_message.get(msg_id, []):
                 try:
-                    cid = int(content_id)
+                    cid = int(offer.get("content_id"))
                 except Exception:
                     continue
-                if cid in seen:
-                    continue
-                seen.add(cid)
+                status = "bought" if offer.get("purchased") is True else "pending"
+                price = offer.get("offered_price")
+                price_label = f" ${price}" if price is not None else ""
                 label = _format_content_label(item_lookup.get(cid), cid)
-                content_lines.append(f"[CONTENT_SENT] {label}")
-        for offer in offers_by_message.get(msg_id, []):
-            try:
-                cid = int(offer.get("content_id"))
-            except Exception:
-                continue
-            status = "bought" if offer.get("purchased") is True else "pending"
-            price = offer.get("offered_price")
-            price_label = f" ${price}" if price is not None else ""
-            label = _format_content_label(item_lookup.get(cid), cid)
-            content_lines.append(f"[CONTENT_OFFER {status}{price_label}] {label}")
+                content_lines.append(f"[CONTENT_OFFER {status}{price_label}] {label}")
         if content_lines:
             text = f"{text}\n" + "\n".join(content_lines)
         ts = _format_turn_timestamp(row.get("created_at"))
