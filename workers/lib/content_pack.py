@@ -318,7 +318,7 @@ def _fetch_scripts(client, *, creator_id: int, script_id: str | None = None) -> 
         client.table("content_scripts")
         .select(
             "id,creator_id,shoot_id,title,summary,time_of_day,location_primary,"
-            "outfit_category,focus_tags,created_at,meta"
+            "outfit_category,focus_tags,created_at,meta,script_summary,ammo_summary"
         )
         .eq("creator_id", creator_id)
     )
@@ -415,6 +415,14 @@ def _normalize_tag(value: Optional[str]) -> str:
     cleaned = str(value).strip().lower().replace("_", " ")
     cleaned = " ".join(cleaned.split())
     return cleaned
+
+
+def _clean_text(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value.strip()
+    return str(value).strip()
 
 
 def _ammo_primary_tag_for_row(row: Dict[str, Any]) -> str:
@@ -604,10 +612,12 @@ def build_content_index(
     ]
 
     meta_by_script_id: Dict[str, Dict[str, Any]] = {}
+    script_by_id: Dict[str, Dict[str, Any]] = {}
     for script in scripts:
         sid = script.get("id")
         if not sid:
             continue
+        script_by_id[str(sid)] = script
         meta_val = script.get("meta")
         meta: Dict[str, Any] = {}
         if isinstance(meta_val, dict):
@@ -628,6 +638,9 @@ def build_content_index(
         sid = entry.get("script_id")
         shoot_id = entry.get("shoot_id")
         meta = meta_by_script_id.get(str(sid), {}) if sid else {}
+        script_row = script_by_id.get(str(sid), {}) if sid else {}
+        script_summary_column = _clean_text(script_row.get("script_summary"))
+        ammo_summary_column = _clean_text(script_row.get("ammo_summary"))
 
         entry["ref"] = _make_pack_ref(sid) or _make_pack_ref(shoot_id)
         core_scene_time_of_day = entry.pop("time_of_day", None)
@@ -635,7 +648,8 @@ def build_content_index(
 
         script_summary = entry.pop("summary", None)
         entry["script_summary"] = (
-            meta.get("script_summary")
+            script_summary_column
+            or meta.get("script_summary")
             or meta.get("core_scene_summary")
             or meta.get("core_summary")
             or script_summary
@@ -648,7 +662,8 @@ def build_content_index(
         ammo_inventory = _format_inventory(ammo_counts)
         entry["ammo_inventory"] = ammo_inventory
         entry["ammo_summary"] = (
-            meta.get("ammo_summary")
+            ammo_summary_column
+            or meta.get("ammo_summary")
             or meta.get("ammo_blurb")
             or _auto_ammo_summary(
                 title=entry.get("title"),
@@ -801,10 +816,12 @@ def build_content_pack(
                 if _safe_int(row.get("id")) not in excluded_ids
             ]
         meta_by_script_id: Dict[str, Dict[str, Any]] = {}
+        script_by_id: Dict[str, Dict[str, Any]] = {}
         for script in scripts:
             sid = script.get("id")
             if not sid:
                 continue
+            script_by_id[str(sid)] = script
             meta_val = script.get("meta")
             meta: Dict[str, Any] = {}
             if isinstance(meta_val, dict):
@@ -824,6 +841,9 @@ def build_content_pack(
             script_id_value = entry.get("script_id")
             shoot_id_value = entry.get("shoot_id")
             meta = meta_by_script_id.get(str(script_id_value), {}) if script_id_value else {}
+            script_row = script_by_id.get(str(script_id_value), {}) if script_id_value else {}
+            script_summary_column = _clean_text(script_row.get("script_summary"))
+            ammo_summary_column = _clean_text(script_row.get("ammo_summary"))
 
             entry["ref"] = _make_pack_ref(script_id_value) or _make_pack_ref(shoot_id_value)
             entry.pop("script_id", None)
@@ -833,7 +853,8 @@ def build_content_pack(
 
             script_summary = entry.pop("summary", None)
             entry["script_summary"] = (
-                meta.get("script_summary")
+                script_summary_column
+                or meta.get("script_summary")
                 or meta.get("core_scene_summary")
                 or meta.get("core_summary")
                 or script_summary
@@ -847,7 +868,8 @@ def build_content_pack(
             entry["ammo_inventory"] = ammo_inventory
 
             entry["ammo_summary"] = (
-                meta.get("ammo_summary")
+                ammo_summary_column
+                or meta.get("ammo_summary")
                 or meta.get("ammo_blurb")
                 or _auto_ammo_summary(
                     title=entry.get("title"),
