@@ -1328,11 +1328,8 @@ def build_content_pack(
                 if _safe_int(row.get("id")) not in excluded_ids
             ]
 
-    return {
-        "zoom": zoom_level,
-        "script": {
-            "script_id": script_id,
-            "shoot_id": shoot_id,
+    script_payload = _strip_empty_fields(
+        {
             "title": (script_header or {}).get("title") if script_header else None,
             "summary": (script_header or {}).get("summary") if script_header else None,
             "time_of_day": (script_header or {}).get("time_of_day") if script_header else None,
@@ -1340,12 +1337,11 @@ def build_content_pack(
             "outfit_category": (script_header or {}).get("outfit_category") if script_header else None,
             "focus_tags": (script_header or {}).get("focus_tags") if script_header else [],
             "created_at": (script_header or {}).get("created_at") if script_header else None,
-        },
-        "filters": {
-            "script_id": script_id,
-            "media_expand": expand_media,
-            "include_shoot_extras": bool(include_shoot_extras),
-        },
+        }
+    )
+    return {
+        "zoom": zoom_level,
+        "script": script_payload,
         "script_items": _build_item_pack(
             script_items_rows, expand_media=effective_expand_media
         ),
@@ -1360,20 +1356,11 @@ def _build_item_pack(rows: List[Dict[str, Any]], expand_media: List[str]) -> Lis
     for row in rows:
         media_type = _normalize_media_type(row.get("media_type")) or "unknown"
         detail = media_type in expand_media
-        voice_excerpt = ""
-        if media_type == "voice":
-            voice_excerpt = _voice_excerpt(
-                row.get("voice_transcript") or row.get("desc_short")
-            )
-        item = {
+        item: Dict[str, Any] = {
             "id": row.get("id"),
             "media_type": media_type,
             "explicitness": row.get("explicitness"),
-            "duration_seconds": row.get("duration_seconds"),
             "desc_short": row.get("desc_short"),
-            "desc_long": row.get("desc_long") if detail else None,
-            "voice_transcript": row.get("voice_transcript") if detail else None,
-            "voice_excerpt": voice_excerpt,
             "time_of_day": row.get("time_of_day"),
             "location_primary": row.get("location_primary"),
             "outfit_category": row.get("outfit_category"),
@@ -1384,13 +1371,23 @@ def _build_item_pack(rows: List[Dict[str, Any]], expand_media: List[str]) -> Lis
             "camera_angle": row.get("camera_angle"),
             "shot_type": row.get("shot_type"),
             "lighting": row.get("lighting"),
-            "script_id": row.get("script_id"),
-            "shoot_id": row.get("shoot_id"),
             "stage": row.get("stage"),
             "sequence_position": row.get("sequence_position"),
             "detail_level": "full" if detail else "compact",
         }
-        items.append(item)
+        if media_type in {"video", "voice"}:
+            item["duration_seconds"] = row.get("duration_seconds")
+        if detail:
+            item["desc_long"] = row.get("desc_long")
+        if media_type == "voice":
+            if detail:
+                item["voice_transcript"] = row.get("voice_transcript")
+            voice_excerpt = _voice_excerpt(
+                row.get("voice_transcript") or row.get("desc_short")
+            )
+            if voice_excerpt:
+                item["voice_excerpt"] = voice_excerpt
+        items.append(_strip_empty_fields(item))
 
     return items
 
