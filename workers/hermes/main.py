@@ -215,11 +215,6 @@ def parse_content_request(raw_text: str) -> dict | None:
                 values = [v.strip() for v in raw_value.split() if v.strip()]
             if values:
                 request["media_expand"] = values
-        elif raw_key in {"limit"}:
-            try:
-                request["limit"] = int(raw_value)
-            except Exception:
-                continue
         elif raw_key in {"creator_id"}:
             try:
                 request["creator_id"] = int(raw_value)
