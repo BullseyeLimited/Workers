@@ -75,6 +75,7 @@ BRIEF_PATTERN = re.compile(
 CONTENT_REQUEST_PATTERN = re.compile(
     r"<CONTENT_REQUEST>(.*?)</CONTENT_REQUEST>", re.IGNORECASE | re.DOTALL
 )
+CONTENT_HEADER_PATTERN = re.compile(r"^\s*([A-Z0-9_ -]+?)\s*:\s*(.+?)\s*$")
 
 
 def _load_prompt() -> str:
@@ -183,9 +184,49 @@ def parse_content_request(raw_text: str) -> dict | None:
     if not payload:
         return None
     data, error = safe_parse_model_json(payload)
-    if error or not isinstance(data, dict):
-        return None
-    return data
+    if not error and isinstance(data, dict):
+        return data
+
+    request: dict = {}
+    lines = [line for line in payload.splitlines() if line.strip()]
+    for line in lines:
+        header_match = CONTENT_HEADER_PATTERN.match(line)
+        if not header_match:
+            continue
+        raw_key = header_match.group(1).strip().lower().replace(" ", "_")
+        raw_value = header_match.group(2).strip()
+        if not raw_value:
+            continue
+
+        if raw_key in {"zoom"}:
+            try:
+                request["zoom"] = int(raw_value)
+            except Exception:
+                continue
+        elif raw_key in {"script_id", "script"}:
+            request["script_id"] = raw_value
+        elif raw_key in {"include_shoot_extras", "shoot_extras"}:
+            val = raw_value.strip().lower()
+            request["include_shoot_extras"] = val in {"1", "true", "yes", "on"}
+        elif raw_key in {"media_expand", "media"}:
+            if "," in raw_value:
+                values = [v.strip() for v in raw_value.split(",") if v.strip()]
+            else:
+                values = [v.strip() for v in raw_value.split() if v.strip()]
+            if values:
+                request["media_expand"] = values
+        elif raw_key in {"limit"}:
+            try:
+                request["limit"] = int(raw_value)
+            except Exception:
+                continue
+        elif raw_key in {"creator_id"}:
+            try:
+                request["creator_id"] = int(raw_value)
+            except Exception:
+                continue
+
+    return request or None
 
 
 def _runpod_call(system_prompt: str, user_message: str) -> tuple[str, dict]:
