@@ -714,6 +714,82 @@ def _build_hermes_item(
     return ", ".join(cleaned)
 
 
+def _build_napoleon_item_line(
+    row: Dict[str, Any],
+    *,
+    include_context: bool,
+    include_stage: bool,
+    include_sequence: bool,
+) -> str:
+    media_type = _normalize_media_type(row.get("media_type")) or "unknown"
+    media_label = {
+        "voice": "voice note",
+        "photo": "photo",
+        "video": "video",
+        "text": "text",
+    }.get(media_type, media_type)
+
+    parts: List[str] = []
+    item_id = row.get("id")
+    if item_id is not None:
+        parts.append(f"id {item_id}")
+    if media_label:
+        parts.append(media_label)
+    explicitness = row.get("explicitness")
+    if explicitness:
+        parts.append(str(explicitness))
+    desc_short = row.get("desc_short")
+    if desc_short:
+        parts.append(str(desc_short))
+
+    if media_type in {"video", "voice"}:
+        duration = row.get("duration_seconds")
+        if duration is not None:
+            parts.append(f"{duration} sec")
+
+    if media_type == "voice":
+        transcript = row.get("voice_transcript")
+        if transcript:
+            excerpt = _voice_excerpt(transcript)
+            if excerpt and excerpt != desc_short:
+                parts.append(excerpt)
+
+    if include_context:
+        time_of_day = row.get("time_of_day")
+        if time_of_day:
+            parts.append(f"{time_of_day} time")
+        location_primary = row.get("location_primary")
+        if location_primary:
+            parts.append(f"in {location_primary}")
+        outfit_category = row.get("outfit_category")
+        if outfit_category:
+            parts.append(f"in {outfit_category}")
+
+    for key in (
+        "outfit_layers",
+        "body_focus",
+        "action_tags",
+        "mood_tags",
+        "camera_angle",
+        "shot_type",
+        "lighting",
+    ):
+        values = _normalize_list(row.get(key))
+        parts.extend(values)
+
+    if include_stage:
+        stage = row.get("stage")
+        if stage:
+            parts.append(f"stage {stage}")
+    if include_sequence:
+        sequence = row.get("sequence_position")
+        if sequence is not None:
+            parts.append(f"seq {sequence}")
+
+    cleaned = [part for part in parts if part and str(part).strip()]
+    return ", ".join(cleaned)
+
+
 def _build_hermes_script_header(
     script_row: Dict[str, Any],
     meta: Dict[str, Any],
@@ -1339,6 +1415,30 @@ def build_content_pack(
             "created_at": (script_header or {}).get("created_at") if script_header else None,
         }
     )
+    if zoom_level == 1:
+        return {
+            "zoom": zoom_level,
+            "script": script_payload,
+            "script_items": [
+                _build_napoleon_item_line(
+                    row,
+                    include_context=False,
+                    include_stage=True,
+                    include_sequence=True,
+                )
+                for row in script_items_rows
+            ],
+            "shoot_extras": [
+                _build_napoleon_item_line(
+                    row,
+                    include_context=True,
+                    include_stage=False,
+                    include_sequence=False,
+                )
+                for row in shoot_extras_rows
+            ],
+        }
+
     return {
         "zoom": zoom_level,
         "script": script_payload,
