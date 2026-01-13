@@ -643,36 +643,67 @@ def _build_hermes_item(
     include_context: bool,
     include_stage: bool,
     include_sequence: bool,
-) -> Dict[str, Any]:
+    offer_status: Optional[str] = None,
+    offered_price: Any = None,
+) -> str:
     media_type = _normalize_media_type(row.get("media_type")) or "unknown"
-    item: Dict[str, Any] = {
-        "id": row.get("id"),
-        "media_type": media_type,
-        "explicitness": row.get("explicitness"),
-        "desc_short": row.get("desc_short"),
-    }
+    media_label = {
+        "voice": "voice note",
+        "photo": "photo",
+        "video": "video",
+        "text": "text",
+    }.get(media_type, media_type)
+
+    parts: List[str] = []
+    item_id = row.get("id")
+    if item_id is not None:
+        parts.append(f"id {item_id}")
+    if media_label:
+        parts.append(media_label)
+    explicitness = row.get("explicitness")
+    if explicitness:
+        parts.append(str(explicitness))
+    desc_short = row.get("desc_short")
+    if desc_short:
+        parts.append(str(desc_short))
+
     if media_type in {"video", "voice"}:
-        item["duration_seconds"] = row.get("duration_seconds")
-    if media_type == "voice":
-        item["voice_excerpt"] = _voice_excerpt(
-            row.get("voice_transcript") or row.get("desc_short")
-        )
+        duration = row.get("duration_seconds")
+        if duration is not None:
+            parts.append(f"{duration} sec")
+
     if include_context:
-        item["time_of_day"] = row.get("time_of_day")
-        item["location_primary"] = row.get("location_primary")
-        item["outfit_category"] = row.get("outfit_category")
-    item["outfit_layers"] = row.get("outfit_layers")
-    item["body_focus"] = row.get("body_focus")
-    item["action_tags"] = row.get("action_tags")
-    item["mood_tags"] = row.get("mood_tags")
-    item["camera_angle"] = row.get("camera_angle")
-    item["shot_type"] = row.get("shot_type")
-    item["lighting"] = row.get("lighting")
+        time_of_day = row.get("time_of_day")
+        if time_of_day:
+            parts.append(f"{time_of_day} time")
+        location_primary = row.get("location_primary")
+        if location_primary:
+            parts.append(f"in {location_primary}")
+        outfit_category = row.get("outfit_category")
+        if outfit_category:
+            parts.append(f"in {outfit_category}")
+
+    for key in ("outfit_layers", "body_focus", "action_tags", "mood_tags"):
+        values = _normalize_list(row.get(key))
+        parts.extend(values)
+
     if include_stage:
-        item["stage"] = row.get("stage")
+        stage = row.get("stage")
+        if stage:
+            parts.append(f"stage {stage}")
     if include_sequence:
-        item["sequence_position"] = row.get("sequence_position")
-    return _strip_empty_fields(item)
+        sequence = row.get("sequence_position")
+        if sequence is not None:
+            parts.append(f"seq {sequence}")
+
+    if offer_status:
+        offer_bits = ["offer", offer_status]
+        if offered_price is not None:
+            offer_bits.append(str(offered_price))
+        parts.append(" ".join(offer_bits))
+
+    cleaned = [part for part in parts if part and str(part).strip()]
+    return ", ".join(cleaned)
 
 
 def _build_hermes_script_header(
@@ -1054,36 +1085,32 @@ def build_content_index(
             ammo_rows_sorted = _sort_newest_first(ammo_rows)
             ammo_items: List[Dict[str, Any]] = []
             for row in ammo_rows_sorted:
+                activity = activity_by_id.get(_safe_int(row.get("id")))
                 item = _build_hermes_item(
                     row,
                     include_context=True,
                     include_stage=False,
                     include_sequence=False,
+                    offer_status=activity.get("offer_status") if activity else None,
+                    offered_price=activity.get("offered_price") if activity else None,
                 )
-                activity = activity_by_id.get(_safe_int(row.get("id")))
-                if activity and activity.get("offer_status"):
-                    item["offer_status"] = activity.get("offer_status")
-                    if activity.get("offered_price") is not None:
-                        item["offered_price"] = activity.get("offered_price")
-                ammo_items.append(_strip_empty_fields(item))
+                ammo_items.append(item)
             if ammo_items:
                 script_block["ammo_items"] = ammo_items
         if core_rows:
             core_rows_sorted = _sort_core_items(core_rows)
             core_items: List[Dict[str, Any]] = []
             for row in core_rows_sorted:
+                activity = activity_by_id.get(_safe_int(row.get("id")))
                 item = _build_hermes_item(
                     row,
                     include_context=False,
                     include_stage=True,
                     include_sequence=True,
+                    offer_status=activity.get("offer_status") if activity else None,
+                    offered_price=activity.get("offered_price") if activity else None,
                 )
-                activity = activity_by_id.get(_safe_int(row.get("id")))
-                if activity and activity.get("offer_status"):
-                    item["offer_status"] = activity.get("offer_status")
-                    if activity.get("offered_price") is not None:
-                        item["offered_price"] = activity.get("offered_price")
-                core_items.append(_strip_empty_fields(item))
+                core_items.append(item)
             if core_items:
                 script_block["core_items"] = core_items
         used_script_blocks.append(_strip_empty_fields(script_block))
@@ -1102,18 +1129,16 @@ def build_content_index(
             )
             items: List[Dict[str, Any]] = []
             for row in rows_sorted:
+                activity = activity_by_id.get(_safe_int(row.get("id")))
                 item = _build_hermes_item(
                     row,
                     include_context=True,
                     include_stage=False,
                     include_sequence=False,
+                    offer_status=activity.get("offer_status") if activity else None,
+                    offered_price=activity.get("offered_price") if activity else None,
                 )
-                activity = activity_by_id.get(_safe_int(row.get("id")))
-                if activity and activity.get("offer_status"):
-                    item["offer_status"] = activity.get("offer_status")
-                    if activity.get("offered_price") is not None:
-                        item["offered_price"] = activity.get("offered_price")
-                items.append(_strip_empty_fields(item))
+                items.append(item)
             if items:
                 used_scriptless_groups.append(
                     {
