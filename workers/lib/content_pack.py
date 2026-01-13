@@ -684,6 +684,7 @@ def _build_item_line(
     include_context: bool,
     include_stage: bool,
     include_sequence: bool,
+    include_detail: bool = False,
     offer_status: Optional[str] = None,
     offered_price: Any = None,
 ) -> str:
@@ -719,6 +720,13 @@ def _build_item_line(
             excerpt = _voice_excerpt(transcript)
             if excerpt and excerpt != desc_short:
                 parts.append(f"audio: {excerpt}")
+        if include_detail and transcript:
+            parts.append(f"audio_full: {transcript}")
+
+    if include_detail:
+        desc_long = row.get("desc_long")
+        if desc_long:
+            parts.append(f"detail: {desc_long}")
 
     if include_context:
         _append_scalar(parts, "time", row.get("time_of_day"))
@@ -752,12 +760,14 @@ def _build_napoleon_item_line(
     include_context: bool,
     include_stage: bool,
     include_sequence: bool,
+    include_detail: bool = False,
 ) -> str:
     return _build_item_line(
         row,
         include_context=include_context,
         include_stage=include_stage,
         include_sequence=include_sequence,
+        include_detail=include_detail,
     )
 
 
@@ -1405,6 +1415,38 @@ def build_content_pack(
                     include_context=True,
                     include_stage=False,
                     include_sequence=False,
+                )
+                for row in shoot_extras_rows
+            ],
+        }
+
+    if zoom_level >= 2:
+        detail_types = set(effective_expand_media)
+
+        def wants_detail(row: Dict[str, Any]) -> bool:
+            media_type = _normalize_media_type(row.get("media_type")) or "unknown"
+            return media_type in detail_types
+
+        return {
+            "zoom": zoom_level,
+            "script": script_payload,
+            "script_items": [
+                _build_napoleon_item_line(
+                    row,
+                    include_context=False,
+                    include_stage=True,
+                    include_sequence=True,
+                    include_detail=wants_detail(row),
+                )
+                for row in script_items_rows
+            ],
+            "shoot_extras": [
+                _build_napoleon_item_line(
+                    row,
+                    include_context=True,
+                    include_stage=False,
+                    include_sequence=False,
+                    include_detail=wants_detail(row),
                 )
                 for row in shoot_extras_rows
             ],
