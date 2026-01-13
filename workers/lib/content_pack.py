@@ -647,79 +647,45 @@ def _build_hermes_item(
     offer_status: Optional[str] = None,
     offered_price: Any = None,
 ) -> str:
-    media_type = _normalize_media_type(row.get("media_type")) or "unknown"
-    media_label = {
-        "voice": "voice note",
-        "photo": "photo",
-        "video": "video",
-        "text": "text",
-    }.get(media_type, media_type)
-
-    parts: List[str] = []
-    item_id = row.get("id")
-    if item_id is not None:
-        parts.append(f"id {item_id}")
-    if media_label:
-        parts.append(media_label)
-    explicitness = row.get("explicitness")
-    if explicitness:
-        parts.append(str(explicitness))
-    desc_short = row.get("desc_short")
-    if desc_short:
-        parts.append(str(desc_short))
-
-    if media_type in {"video", "voice"}:
-        duration = row.get("duration_seconds")
-        if duration is not None:
-            parts.append(f"{duration} sec")
-
-    if media_type == "voice":
-        transcript = row.get("voice_transcript")
-        if transcript:
-            excerpt = _voice_excerpt(transcript)
-            if excerpt and excerpt != desc_short:
-                parts.append(excerpt)
-
-    if include_context:
-        time_of_day = row.get("time_of_day")
-        if time_of_day:
-            parts.append(f"{time_of_day} time")
-        location_primary = row.get("location_primary")
-        if location_primary:
-            parts.append(f"in {location_primary}")
-        outfit_category = row.get("outfit_category")
-        if outfit_category:
-            parts.append(f"in {outfit_category}")
-
-    for key in ("outfit_layers", "body_focus", "action_tags", "mood_tags"):
-        values = _normalize_list(row.get(key))
-        parts.extend(values)
-
-    if include_stage:
-        stage = row.get("stage")
-        if stage:
-            parts.append(f"stage {stage}")
-    if include_sequence:
-        sequence = row.get("sequence_position")
-        if sequence is not None:
-            parts.append(f"seq {sequence}")
-
-    if offer_status:
-        offer_bits = ["offer", offer_status]
-        if offered_price is not None:
-            offer_bits.append(str(offered_price))
-        parts.append(" ".join(offer_bits))
-
-    cleaned = [part for part in parts if part and str(part).strip()]
-    return ", ".join(cleaned)
+    return _build_item_line(
+        row,
+        include_context=include_context,
+        include_stage=include_stage,
+        include_sequence=include_sequence,
+        offer_status=offer_status,
+        offered_price=offered_price,
+    )
 
 
-def _build_napoleon_item_line(
+def _join_item_values(values: Iterable[Any]) -> str:
+    cleaned = [str(v).strip() for v in values if v is not None and str(v).strip()]
+    return " + ".join(cleaned)
+
+
+def _append_scalar(parts: List[str], label: str, value: Any) -> None:
+    if value is None:
+        return
+    cleaned = str(value).strip()
+    if not cleaned:
+        return
+    parts.append(f"{label}: {cleaned}")
+
+
+def _append_group(parts: List[str], label: str, values: Iterable[Any]) -> None:
+    joined = _join_item_values(values)
+    if not joined:
+        return
+    parts.append(f"{label}: {joined}")
+
+
+def _build_item_line(
     row: Dict[str, Any],
     *,
     include_context: bool,
     include_stage: bool,
     include_sequence: bool,
+    offer_status: Optional[str] = None,
+    offered_price: Any = None,
 ) -> str:
     media_type = _normalize_media_type(row.get("media_type")) or "unknown"
     media_label = {
@@ -745,49 +711,54 @@ def _build_napoleon_item_line(
     if media_type in {"video", "voice"}:
         duration = row.get("duration_seconds")
         if duration is not None:
-            parts.append(f"{duration} sec")
+            parts.append(f"duration: {duration} sec")
 
     if media_type == "voice":
         transcript = row.get("voice_transcript")
         if transcript:
             excerpt = _voice_excerpt(transcript)
             if excerpt and excerpt != desc_short:
-                parts.append(excerpt)
+                parts.append(f"audio: {excerpt}")
 
     if include_context:
-        time_of_day = row.get("time_of_day")
-        if time_of_day:
-            parts.append(f"{time_of_day} time")
-        location_primary = row.get("location_primary")
-        if location_primary:
-            parts.append(f"in {location_primary}")
-        outfit_category = row.get("outfit_category")
-        if outfit_category:
-            parts.append(f"in {outfit_category}")
+        _append_scalar(parts, "time", row.get("time_of_day"))
+        _append_scalar(parts, "location", row.get("location_primary"))
+        _append_scalar(parts, "outfit", row.get("outfit_category"))
 
-    for key in (
-        "outfit_layers",
-        "body_focus",
-        "action_tags",
-        "mood_tags",
-        "camera_angle",
-        "shot_type",
-        "lighting",
-    ):
-        values = _normalize_list(row.get(key))
-        parts.extend(values)
+    _append_group(parts, "fit", _normalize_list(row.get("outfit_layers")))
+    _append_group(parts, "focus", _normalize_list(row.get("body_focus")))
+    _append_group(parts, "action", _normalize_list(row.get("action_tags")))
+    _append_group(parts, "mood", _normalize_list(row.get("mood_tags")))
 
     if include_stage:
-        stage = row.get("stage")
-        if stage:
-            parts.append(f"stage {stage}")
+        _append_scalar(parts, "stage", row.get("stage"))
     if include_sequence:
         sequence = row.get("sequence_position")
         if sequence is not None:
-            parts.append(f"seq {sequence}")
+            _append_scalar(parts, "sequence", sequence)
 
-    cleaned = [part for part in parts if part and str(part).strip()]
-    return ", ".join(cleaned)
+    if offer_status:
+        offer_bits = [offer_status]
+        if offered_price is not None:
+            offer_bits.append(str(offered_price))
+        parts.append(f"offer: {' '.join(offer_bits)}")
+
+    return ", ".join(parts)
+
+
+def _build_napoleon_item_line(
+    row: Dict[str, Any],
+    *,
+    include_context: bool,
+    include_stage: bool,
+    include_sequence: bool,
+) -> str:
+    return _build_item_line(
+        row,
+        include_context=include_context,
+        include_stage=include_stage,
+        include_sequence=include_sequence,
+    )
 
 
 def _build_hermes_script_header(
