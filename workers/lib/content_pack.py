@@ -267,6 +267,7 @@ def _fetch_rows(
         "camera_angle",
         "shot_type",
         "lighting",
+        "voice_transcript",
         "script_id",
         "shoot_id",
         "stage",
@@ -274,7 +275,7 @@ def _fetch_rows(
         "created_at",
     ]
     if include_long:
-        select_fields.extend(["desc_long", "voice_transcript"])
+        select_fields.extend(["desc_long"])
     base_query = (
         client.table("content_items")
         .select(",".join(select_fields))
@@ -671,6 +672,13 @@ def _build_hermes_item(
         duration = row.get("duration_seconds")
         if duration is not None:
             parts.append(f"{duration} sec")
+
+    if media_type == "voice":
+        transcript = row.get("voice_transcript")
+        if transcript:
+            excerpt = _voice_excerpt(transcript)
+            if excerpt and excerpt != desc_short:
+                parts.append(excerpt)
 
     if include_context:
         time_of_day = row.get("time_of_day")
