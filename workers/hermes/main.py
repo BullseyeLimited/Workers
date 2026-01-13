@@ -215,6 +215,16 @@ def parse_content_request(raw_text: str) -> dict | None:
                 values = [v.strip() for v in raw_value.split() if v.strip()]
             if values:
                 request["media_expand"] = values
+        elif raw_key in {"content_ids", "item_ids", "content_id", "item_id"}:
+            raw_items = [v.strip() for v in raw_value.replace(" ", ",").split(",") if v.strip()]
+            ids: list[int] = []
+            for raw_item in raw_items:
+                try:
+                    ids.append(int(raw_item))
+                except Exception:
+                    continue
+            if ids:
+                request["content_ids"] = ids
         elif raw_key in {"creator_id"}:
             try:
                 request["creator_id"] = int(raw_value)

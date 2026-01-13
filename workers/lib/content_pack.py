@@ -1243,18 +1243,25 @@ def build_content_pack(
     script_id: str | None = None,
     include_shoot_extras: bool = True,
     media_expand: List[str] | str | None = None,
+    content_ids: List[int] | str | None = None,
     limit: int | None = None,
 ) -> Dict[str, Any]:
     """
     Script-first content pack for Napoleon.
     Zoom 0: list all scripts (summaries + counts)
     Zoom 1: script header + all script items (compact) + same-shoot extras (compact)
-    Zoom 2: expand requested media types (others stay compact)
+    Zoom 2: expanded detail lines for specific content ids or media types
     """
 
     zoom_level = _safe_int(zoom, 0) or 0
     expand_media = _normalize_media_types(_normalize_list(media_expand))
     effective_expand_media = expand_media if zoom_level >= 2 else []
+    content_id_list: List[int] = []
+    if content_ids is not None:
+        for raw in _normalize_list(content_ids):
+            cid = _safe_int(raw)
+            if cid is not None:
+                content_id_list.append(cid)
     excluded_ids: set[int] = set()
     if thread_id:
         excluded_ids, _used_ids, _offer_rows = _thread_excluded_content_ids(
@@ -1396,6 +1403,18 @@ def build_content_pack(
             "created_at": (script_header or {}).get("created_at") if script_header else None,
         }
     )
+    if content_id_list:
+        wanted = {cid for cid in content_id_list if cid is not None}
+        by_id: Dict[int, Dict[str, Any]] = {}
+        for row in script_items_rows + shoot_extras_rows:
+            cid = _safe_int(row.get("id"))
+            if cid is None:
+                continue
+            by_id[cid] = row
+        selected_rows = [by_id[cid] for cid in content_id_list if cid in by_id]
+        script_items_rows = [row for row in selected_rows if row.get("script_id")]
+        shoot_extras_rows = [row for row in selected_rows if not row.get("script_id")]
+
     if zoom_level == 1:
         return {
             "zoom": zoom_level,
@@ -1422,33 +1441,26 @@ def build_content_pack(
 
     if zoom_level >= 2:
         detail_types = set(effective_expand_media)
+        expand_all = not detail_types or bool(content_id_list)
 
         def wants_detail(row: Dict[str, Any]) -> bool:
+            if expand_all:
+                return True
             media_type = _normalize_media_type(row.get("media_type")) or "unknown"
             return media_type in detail_types
 
+        items_rows = script_items_rows + shoot_extras_rows
         return {
             "zoom": zoom_level,
-            "script": script_payload,
-            "script_items": [
+            "items": [
                 _build_napoleon_item_line(
                     row,
-                    include_context=False,
+                    include_context=True,
                     include_stage=True,
                     include_sequence=True,
                     include_detail=wants_detail(row),
                 )
-                for row in script_items_rows
-            ],
-            "shoot_extras": [
-                _build_napoleon_item_line(
-                    row,
-                    include_context=True,
-                    include_stage=False,
-                    include_sequence=False,
-                    include_detail=wants_detail(row),
-                )
-                for row in shoot_extras_rows
+                for row in items_rows
             ],
         }
 
