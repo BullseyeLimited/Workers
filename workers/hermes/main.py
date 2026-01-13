@@ -225,6 +225,22 @@ def parse_content_request(raw_text: str) -> dict | None:
                     continue
             if ids:
                 request["content_ids"] = ids
+        elif raw_key in {
+            "global_focus_ids",
+            "global_focus",
+            "global_ids",
+            "bubble2_ids",
+            "scriptless_ids",
+        }:
+            raw_items = [v.strip() for v in raw_value.replace(" ", ",").split(",") if v.strip()]
+            ids: list[int] = []
+            for raw_item in raw_items:
+                try:
+                    ids.append(int(raw_item))
+                except Exception:
+                    continue
+            if ids:
+                request["global_focus_ids"] = ids
         elif raw_key in {"creator_id"}:
             try:
                 request["creator_id"] = int(raw_value)

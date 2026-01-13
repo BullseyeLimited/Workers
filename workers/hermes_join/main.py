@@ -135,6 +135,7 @@ def _build_content_pack_from_request(
         "include_shoot_extras",
         "media_expand",
         "content_ids",
+        "global_focus_ids",
         "creator_id",
     }
     params = {k: request.get(k) for k in allowed_keys if k in request}

@@ -109,6 +109,71 @@ def _safe_int(value, default=None):
         return default
 
 
+def _parse_id_list(value) -> List[int]:
+    if value is None:
+        return []
+    raw_items: List[Any]
+    if isinstance(value, list):
+        raw_items = value
+    elif isinstance(value, str):
+        raw_items = [v.strip() for v in value.replace(" ", ",").split(",") if v.strip()]
+    else:
+        raw_items = [value]
+
+    ids: List[int] = []
+    for raw in raw_items:
+        cid = _safe_int(raw)
+        if cid is None or cid in ids:
+            continue
+        ids.append(cid)
+    return ids
+
+
+def _fetch_items_by_ids(
+    client,
+    *,
+    creator_id: int,
+    ids: List[int],
+    include_long: bool = False,
+) -> List[Dict[str, Any]]:
+    if not ids:
+        return []
+    select_fields = [
+        "id",
+        "creator_id",
+        "media_type",
+        "explicitness",
+        "desc_short",
+        "duration_seconds",
+        "time_of_day",
+        "location_primary",
+        "outfit_category",
+        "outfit_layers",
+        "location_tags",
+        "mood_tags",
+        "action_tags",
+        "body_focus",
+        "camera_angle",
+        "shot_type",
+        "lighting",
+        "voice_transcript",
+        "script_id",
+        "shoot_id",
+        "stage",
+        "sequence_position",
+        "created_at",
+    ]
+    if include_long:
+        select_fields.extend(["desc_long"])
+    query = (
+        client.table("content_items")
+        .select(",".join(select_fields))
+        .eq("creator_id", creator_id)
+        .in_("id", ids)
+    )
+    return query.execute().data or []
+
+
 def _fetch_thread_used_content_ids(client, *, thread_id: int) -> set[int]:
     """
     Return content_ids already delivered in this thread (messages.content_id).
@@ -1244,6 +1309,8 @@ def build_content_pack(
     include_shoot_extras: bool = True,
     media_expand: List[str] | str | None = None,
     content_ids: List[int] | str | None = None,
+    global_focus_ids: List[int] | str | None = None,
+    global_focus_limit: int | None = None,
     limit: int | None = None,
 ) -> Dict[str, Any]:
     """
@@ -1262,12 +1329,83 @@ def build_content_pack(
             cid = _safe_int(raw)
             if cid is not None:
                 content_id_list.append(cid)
+    global_focus_list = _parse_id_list(global_focus_ids)
+    focus_limit = int(global_focus_limit) if global_focus_limit is not None else 5
+    if focus_limit and global_focus_list:
+        global_focus_list = global_focus_list[:focus_limit]
     excluded_ids: set[int] = set()
     if thread_id:
         excluded_ids, _used_ids, _offer_rows = _thread_excluded_content_ids(
             client, thread_id=int(thread_id)
         )
     scripts = _fetch_scripts(client, creator_id=creator_id)
+    script_shoot_ids = {
+        str(s.get("shoot_id"))
+        for s in scripts
+        if s.get("shoot_id") is not None and str(s.get("shoot_id")).strip()
+    }
+
+    global_focus_rows: List[Dict[str, Any]] = []
+    if global_focus_list:
+        fetched_rows = _fetch_items_by_ids(
+            client,
+            creator_id=creator_id,
+            ids=global_focus_list,
+            include_long=zoom_level >= 2,
+        )
+        rows_by_id = {}
+        for row in fetched_rows:
+            cid = _safe_int(row.get("id"))
+            if cid is not None:
+                rows_by_id[cid] = row
+        for cid in global_focus_list:
+            row = rows_by_id.get(cid)
+            if not row:
+                continue
+            if cid in excluded_ids:
+                continue
+            if row.get("script_id"):
+                continue
+            shoot_id = row.get("shoot_id")
+            if shoot_id is not None and str(shoot_id) in script_shoot_ids:
+                continue
+            global_focus_rows.append(row)
+
+    def _wants_detail(row: Dict[str, Any], *, expand_all: bool, detail_types: set[str]) -> bool:
+        if expand_all:
+            return True
+        media_type = _normalize_media_type(row.get("media_type")) or "unknown"
+        return media_type in detail_types
+
+    def _render_global_focus_items(
+        *,
+        include_detail: bool,
+        expand_all: bool = False,
+        detail_types: set[str] | None = None,
+    ) -> List[str]:
+        if not global_focus_rows:
+            return []
+        if not include_detail:
+            return [
+                _build_napoleon_item_line(
+                    row,
+                    include_context=True,
+                    include_stage=False,
+                    include_sequence=False,
+                )
+                for row in global_focus_rows
+            ]
+        detail_types = detail_types or set()
+        return [
+            _build_napoleon_item_line(
+                row,
+                include_context=True,
+                include_stage=False,
+                include_sequence=False,
+                include_detail=_wants_detail(row, expand_all=expand_all, detail_types=detail_types),
+            )
+            for row in global_focus_rows
+        ]
     # For Zoom 0 we return script list only (no items).
     if zoom_level <= 0 or not script_id:
         # We still need item rows to compute counts; fetch once.
@@ -1345,7 +1483,7 @@ def build_content_pack(
             _count_by_media_and_explicitness(global_ammo_rows)
         )
         global_ammo_breakdown = _summarize_ammo_breakdown(global_ammo_rows)
-        return {
+        pack = {
             "zoom": 0,
             "scripts_header": "SCRIPTS + PACK AMMO",
             "scripts": scripts_index,
@@ -1355,6 +1493,13 @@ def build_content_pack(
                 "breakdown": global_ammo_breakdown,
             },
         }
+        global_focus_items = _render_global_focus_items(include_detail=False)
+        if global_focus_items:
+            pack["global_focus"] = {
+                "header": "GLOBAL AMMO FOCUS",
+                "items": global_focus_items,
+            }
+        return pack
 
     # Fetch the chosen script header.
     chosen_script_rows = _fetch_scripts(client, creator_id=creator_id, script_id=script_id)
@@ -1416,7 +1561,7 @@ def build_content_pack(
         shoot_extras_rows = [row for row in selected_rows if not row.get("script_id")]
 
     if zoom_level == 1:
-        return {
+        pack = {
             "zoom": zoom_level,
             "script": script_payload,
             "script_items": [
@@ -1438,19 +1583,20 @@ def build_content_pack(
                 for row in shoot_extras_rows
             ],
         }
+        global_focus_items = _render_global_focus_items(include_detail=False)
+        if global_focus_items:
+            pack["global_focus"] = {
+                "header": "GLOBAL AMMO FOCUS",
+                "items": global_focus_items,
+            }
+        return pack
 
     if zoom_level >= 2:
         detail_types = set(effective_expand_media)
         expand_all = not detail_types or bool(content_id_list)
 
-        def wants_detail(row: Dict[str, Any]) -> bool:
-            if expand_all:
-                return True
-            media_type = _normalize_media_type(row.get("media_type")) or "unknown"
-            return media_type in detail_types
-
         items_rows = script_items_rows + shoot_extras_rows
-        return {
+        pack = {
             "zoom": zoom_level,
             "items": [
                 _build_napoleon_item_line(
@@ -1458,11 +1604,22 @@ def build_content_pack(
                     include_context=True,
                     include_stage=True,
                     include_sequence=True,
-                    include_detail=wants_detail(row),
+                    include_detail=_wants_detail(row, expand_all=expand_all, detail_types=detail_types),
                 )
                 for row in items_rows
             ],
         }
+        global_focus_items = _render_global_focus_items(
+            include_detail=True,
+            expand_all=expand_all,
+            detail_types=detail_types,
+        )
+        if global_focus_items:
+            pack["global_focus"] = {
+                "header": "GLOBAL AMMO FOCUS",
+                "items": global_focus_items,
+            }
+        return pack
 
     return {
         "zoom": zoom_level,
