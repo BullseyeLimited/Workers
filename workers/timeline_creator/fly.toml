@@ -1,0 +1,17 @@
+app = "timeline-creator-worker"
+primary_region = "fra"
+
+[build]
+  dockerfile = "../../base/Dockerfile"
+  context    = "../.."
+
+[[vm]]
+  cpu_kind = "shared"
+  cpus = 1
+  memory = "1gb"
+
+[processes]
+  app = "python -m workers.timeline_creator.main"
+
+[deploy]
+  min_machines_running = 1
