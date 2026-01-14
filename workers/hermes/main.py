@@ -123,6 +123,76 @@ def _format_fan_turn(row: dict) -> str:
     return "\n".join(parts) if parts else text
 
 
+def _fetch_previous_napoleon_output(
+    thread_id: int,
+    *,
+    exclude_message_id: int,
+    client,
+) -> dict | None:
+    """
+    Provide Hermes with the last available Napoleon output snapshot so Hermes can keep
+    content/script decisions stable across stateless turns.
+
+    This is best-effort and fail-open: missing rows or schema differences should not
+    break routing.
+    """
+
+    select_fields = "message_id,extracted_at,tactical_plan_3turn,rethink_horizons,extras"
+    if CONTENT_PACK_ENABLED:
+        select_fields += ",content_request"
+
+    try:
+        rows = (
+            client.table("message_ai_details")
+            .select(select_fields)
+            .eq("thread_id", thread_id)
+            .eq("sender", "fan")
+            .eq("napoleon_status", "ok")
+            .neq("message_id", exclude_message_id)
+            .order("extracted_at", desc=True)
+            .limit(1)
+            .execute()
+            .data
+            or []
+        )
+    except Exception:
+        return None
+
+    if not rows or not isinstance(rows[0], dict):
+        return None
+
+    row = rows[0]
+    message_id = row.get("message_id")
+    if message_id is None:
+        return None
+
+    snapshot: dict[str, Any] = {
+        "fan_message_id": message_id,
+        "extracted_at": row.get("extracted_at"),
+        "tactical_plan_3turn": row.get("tactical_plan_3turn"),
+        "rethink_horizons": row.get("rethink_horizons"),
+    }
+
+    extras = row.get("extras") or {}
+    if isinstance(extras, dict):
+        content_actions = extras.get("content_actions")
+        if content_actions:
+            snapshot["content_actions"] = content_actions
+
+    if CONTENT_PACK_ENABLED:
+        content_request = row.get("content_request")
+        if content_request:
+            snapshot["content_request"] = content_request
+
+    # Strip empty containers to keep the prompt compact.
+    compact = {
+        key: value
+        for key, value in snapshot.items()
+        if value not in (None, "", {}, [])
+    }
+    return compact or None
+
+
 def _fail_closed_defaults() -> dict:
     return {
         "final_verdict_search": "NO",
@@ -410,6 +480,20 @@ def process_job(payload: Dict[str, Any]) -> bool:
         fan_card = thread_row.get("fan_identity_card") or "Identity card: empty"
         creator_card = creator_card or "Identity card: empty"
         content_index_block = ""
+        previous_napoleon_block = ""
+
+        previous_napoleon = _fetch_previous_napoleon_output(
+            thread_id,
+            exclude_message_id=fan_msg_id,
+            client=SB,
+        )
+        if previous_napoleon:
+            previous_napoleon_block = (
+                "\n\n<PREVIOUS_NAPOLEON_OUTPUT>\n"
+                f"{json.dumps(previous_napoleon, ensure_ascii=False, indent=2)}\n"
+                "</PREVIOUS_NAPOLEON_OUTPUT>"
+            )
+
         creator_id = thread_row.get("creator_id")
         if CONTENT_PACK_ENABLED and creator_id:
             try:
@@ -436,6 +520,7 @@ def process_job(payload: Dict[str, Any]) -> bool:
             f"{fan_card}\n\n"
             "CREATOR_IDENTITY_CARD:\n"
             f"{creator_card}"
+            f"{previous_napoleon_block}"
             f"{content_index_block}\n"
             "</HERMES_INPUT>"
         )
