@@ -140,15 +140,16 @@ def _build_content_pack_from_request(
     }
     params = {k: request.get(k) for k in allowed_keys if k in request}
     if not params.get("creator_id"):
-        thread_row = (
+        thread_rows = (
             client.table("threads")
             .select("creator_id")
             .eq("id", thread_id)
-            .single()
+            .limit(1)
             .execute()
             .data
-            or {}
+            or []
         )
+        thread_row = thread_rows[0] if thread_rows else {}
         params["creator_id"] = thread_row.get("creator_id")
     return build_content_pack(client, thread_id=thread_id, **params)
 
@@ -182,29 +183,33 @@ def process_job(payload: Dict[str, Any]) -> bool:
         select_fields += (
             ",content_request,content_pack,content_pack_status,content_pack_error,content_pack_created_at"
         )
-    details = (
+    details_rows = (
         SB.table("message_ai_details")
         .select(select_fields)
         .eq("message_id", fan_msg_id)
-        .single()
+        .limit(1)
         .execute()
         .data
+        or []
     )
-    if not details:
+    if not details_rows:
+        # Hermes hasn't persisted a routing decision row yet (or wrong DB/key).
         return True
+    details = details_rows[0]
 
     # If this turn has media, wait for Argus to finish enriching the message row
     # before letting Napoleon proceed.
     try:
-        msg_row = (
+        msg_rows = (
             SB.table("messages")
             .select("media_status,media_payload")
             .eq("id", fan_msg_id)
-            .single()
+            .limit(1)
             .execute()
             .data
-            or {}
+            or []
         )
+        msg_row = msg_rows[0] if msg_rows else {}
     except Exception:
         msg_row = {}
 
