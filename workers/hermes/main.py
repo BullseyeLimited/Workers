@@ -598,6 +598,27 @@ def process_job(payload: Dict[str, Any]) -> bool:
     need_kairos = verdict_kairos != "SKIP"
     need_web = verdict_search == "YES"
 
+    # If Hermes explicitly chooses to skip Kairos, reflect that the Kairos lane is
+    # effectively "done" for this turn so dashboards don't show a perpetual pending.
+    if not need_kairos:
+        try:
+            row = (
+                SB.table("message_ai_details")
+                .select("kairos_status")
+                .eq("message_id", fan_msg_id)
+                .limit(1)
+                .execute()
+                .data
+                or []
+            )
+            current = (row[0].get("kairos_status") if row else None) if row else None
+            if not current or str(current).lower() == "pending":
+                SB.table("message_ai_details").update({"kairos_status": "ok"}).eq(
+                    "message_id", fan_msg_id
+                ).execute()
+        except Exception:
+            pass
+
     # Idempotent forks
     if need_kairos:
         kairos_mode = "lite" if verdict_kairos == "LITE" else "full"

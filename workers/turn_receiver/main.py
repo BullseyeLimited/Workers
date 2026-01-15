@@ -2,6 +2,7 @@ import os, json, hashlib, uuid, datetime
 
 import pytz
 from fastapi import FastAPI, HTTPException, Request
+from postgrest.exceptions import APIError
 from supabase import create_client, ClientOptions
 from workers.lib.cards import new_base_card
 from workers.lib.link_utils import extract_urls
@@ -193,28 +194,49 @@ async def receive(request: Request):
     latest_turn = latest[0]["turn_index"] if latest else 0
     turn_index = (latest_turn or 0) + 1
 
-    res = (
-        SB.table("messages")
-        .insert(
-            {
-                "thread_id": thread_id,
-                "ext_message_id": ext_id,
-                "sender": "fan",
-                "message_text": text,
-                "source_channel": payload.get("source_channel") or "live",
-                "created_at": ts,
-                "turn_index": turn_index,
-                # Media fields are optional; populated only when attachments exist.
-                "media_status": "pending" if has_media else None,
-                "media_payload": {"items": all_media_items} if has_media else None,
-            },
-            upsert=False,
+    try:
+        res = (
+            SB.table("messages")
+            .insert(
+                {
+                    "thread_id": thread_id,
+                    "ext_message_id": ext_id,
+                    "sender": "fan",
+                    "message_text": text,
+                    "source_channel": payload.get("source_channel") or "live",
+                    "created_at": ts,
+                    "turn_index": turn_index,
+                    # Media fields are optional; populated only when attachments exist.
+                    "media_status": "pending" if has_media else None,
+                    "media_payload": {"items": all_media_items} if has_media else None,
+                },
+                upsert=False,
+            )
+            .execute()
+            .data
         )
-        .execute()
-        .data
-    )
+    except APIError as exc:
+        # Idempotency: if the caller retries the same ext_message_id, return the
+        # existing message instead of 500.
+        err = exc.args[0] if exc.args and isinstance(exc.args[0], dict) else {}
+        if err.get("code") == "23505":  # unique constraint violation
+            existing = (
+                SB.table("messages")
+                .select("id,thread_id")
+                .eq("thread_id", thread_id)
+                .eq("ext_message_id", ext_id)
+                .limit(1)
+                .execute()
+                .data
+                or []
+            )
+            if existing:
+                return {"message_id": existing[0]["id"], "thread_id": existing[0]["thread_id"]}
+            raise HTTPException(409, "Duplicate message") from exc
+        raise
+
     if not res:
-        raise HTTPException(409, "Duplicate message")
+        raise HTTPException(500, "Message insert failed")
 
     msg_id = res[0]["id"]
     SB.table("threads").update({"turn_count": turn_index}).eq("id", thread_id).execute()
