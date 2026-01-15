@@ -338,6 +338,7 @@ CRITICAL FORMATTING RULES
  Do not output a JSON object.
  NO MARKDOWN: Do not use code fences (```).
  HEADERS: Use the exact capitalized headers below. The system uses a regex parser to find them. If you misspell a header, the system fails.
+ CONTENT_ACTIONS: If you include <CONTENT_ACTIONS>, it must be header lines (NOT JSON). Use NONE if no actions.
 
 You must output these 2 sections in this exact order:
 
@@ -367,7 +368,10 @@ UPDATE_1_NEW_PLAN_METHOD: […]
 UPDATE_1_NEW_PLAN_SUCCESS_SIGNAL: […]
 UPDATE_1_NEW_PLAN_GUARDRAILS: […]
 
-<CONTENT_ACTIONS>{...}</CONTENT_ACTIONS>
+<CONTENT_ACTIONS>
+SENDS: [comma-separated content_ids OR NONE]
+OFFERS: [comma-separated content_id $price OR NONE]
+</CONTENT_ACTIONS>
 
 (Repeat as UPDATE_2_… only if more horizons changed.)
 

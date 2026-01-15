@@ -841,14 +841,153 @@ def parse_content_actions(raw_text: str) -> tuple[dict | None, str | None]:
     payload = match.group(1).strip()
     if not payload:
         return {}, None
-    data, error = safe_parse_model_json(payload)
-    if error:
-        return None, error
-    if isinstance(data, list):
-        return {"sends": data}, None
-    if not isinstance(data, dict):
-        return None, "content_actions_not_object"
-    return data, None
+    if _is_placeholder(payload):
+        return {}, None
+
+    def _dedupe_ints(values: list[int]) -> list[int]:
+        seen: set[int] = set()
+        out: list[int] = []
+        for value in values:
+            if value in seen:
+                continue
+            seen.add(value)
+            out.append(value)
+        return out
+
+    def _strip_fences(text: str) -> str:
+        s = (text or "").strip()
+        if not s:
+            return s
+        if s.startswith("```"):
+            newline = s.find("\n")
+            if newline != -1:
+                s = s[newline + 1 :]
+            s = s.strip()
+            if s.endswith("```"):
+                s = s[:-3]
+            s = s.strip()
+        return s
+
+    # Preferred contract: header lines inside the tag (regex-friendly; not JSON).
+    sends: list[int] = []
+    offers: list[dict] = []
+    saw_action_line = False
+    send_keys = r"(?:SENDS?|SEND|DELIVERIES?|DELIVERY|DELIVER|SENT)"
+    offer_keys = r"(?:OFFERS?|OFFER|PPV[_\s-]*OFFERS?|PPV[_\s-]*OFFER)"
+
+    for raw_line in payload.splitlines():
+        line = (raw_line or "").strip()
+        if not line:
+            continue
+        if _is_placeholder(line):
+            continue
+        # tolerate bullets/numbering/noise
+        line = re.sub(r"^[\s>*#-]+", "", line).strip()
+        if not line:
+            continue
+
+        send_match = re.match(
+            rf"^(?P<key>{send_keys})\s*[:=-]\s*(?P<body>.*)$",
+            line,
+            re.IGNORECASE,
+        )
+        if send_match:
+            saw_action_line = True
+            body = (send_match.group("body") or "").strip()
+            if body and not _is_placeholder(body):
+                for num in re.findall(r"\d+", body):
+                    try:
+                        sends.append(int(num))
+                    except Exception:
+                        continue
+            continue
+
+        offer_match = re.match(
+            rf"^(?P<key>{offer_keys})\s*[:=-]\s*(?P<body>.*)$",
+            line,
+            re.IGNORECASE,
+        )
+        if offer_match:
+            saw_action_line = True
+            body = (offer_match.group("body") or "").strip()
+            if not body or _is_placeholder(body):
+                continue
+            chunks = [
+                chunk.strip()
+                for chunk in re.split(r"[;,]+", body)
+                if chunk.strip()
+            ]
+            for chunk in chunks:
+                id_match = re.match(r"^(?P<id>\d+)(?P<rest>.*)$", chunk)
+                if not id_match:
+                    continue
+                try:
+                    content_id = int(id_match.group("id"))
+                except Exception:
+                    continue
+                offer: dict = {"content_id": content_id}
+                rest = (id_match.group("rest") or "").strip()
+                if rest:
+                    price_match = re.search(
+                        r"(?:\boffered_price\b|\bprice\b|\bamount\b)?\s*=?\s*\$?\s*(?P<price>\d+(?:\.\d+)?)",
+                        rest,
+                        re.IGNORECASE,
+                    )
+                    if price_match:
+                        offer["offered_price"] = price_match.group("price")
+                offers.append(offer)
+            continue
+
+    if sends or offers:
+        result: dict = {}
+        if sends:
+            result["sends"] = _dedupe_ints(sends)
+        if offers:
+            # Dedupe offers by content_id while preserving order (keep first price).
+            seen_offer_ids: set[int] = set()
+            deduped_offers: list[dict] = []
+            for offer in offers:
+                try:
+                    cid = int(offer.get("content_id"))
+                except Exception:
+                    continue
+                if cid in seen_offer_ids:
+                    continue
+                seen_offer_ids.add(cid)
+                deduped_offers.append(offer)
+            result["offers"] = deduped_offers
+        return result, None
+    if saw_action_line:
+        return {}, None
+
+    # Backwards compatibility: accept JSON payloads from older prompts/runs.
+    cleaned = _strip_fences(payload)
+    if cleaned:
+        # Try object first (safe_parse_model_json handles noisy output).
+        data, object_error = safe_parse_model_json(cleaned)
+        if not object_error and isinstance(data, dict):
+            return data, None
+
+        # Try list payloads: extract between first '[' and last ']'.
+        start = cleaned.find("[")
+        end = cleaned.rfind("]")
+        if start != -1 and end != -1 and start < end:
+            try:
+                parsed = json.loads(cleaned[start : end + 1])
+            except Exception as exc:  # noqa: BLE001
+                return None, f"{exc.__class__.__name__}: {exc}"
+            if isinstance(parsed, list):
+                sends = []
+                for item in parsed:
+                    try:
+                        sends.append(int(item))
+                    except Exception:
+                        continue
+                return {"sends": _dedupe_ints(sends)}, None
+        if object_error:
+            return None, object_error
+
+    return None, "content_actions_unparseable"
 
 
 def parse_napoleon_partial(raw_text: str) -> dict:
