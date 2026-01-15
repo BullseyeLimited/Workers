@@ -458,17 +458,16 @@ def process_job(payload: Dict[str, Any]) -> bool:
         latest_fan_text = _format_fan_turn(msg_row)
 
         # Thread data (keep Hermes focused on routing + content control)
-        thread_row = (
+        thread_rows = (
             SB.table("threads")
-            .select(
-                "creator_id"
-            )
+            .select("creator_id")
             .eq("id", thread_id)
-            .single()
+            .limit(1)
             .execute()
             .data
-            or {}
+            or []
         )
+        thread_row = thread_rows[0] if thread_rows else {}
         content_index_block = ""
         previous_napoleon_block = "\n\n<PREVIOUS_NAPOLEON_OUTPUT>\nNONE\n</PREVIOUS_NAPOLEON_OUTPUT>"
 
