@@ -762,6 +762,9 @@ def process_job(payload: Dict[str, Any], row_id: int) -> bool:
             error_message=f"RunPod error: {exc}",
         )
         print(f"[Kairos] RunPod error for message {fan_msg_id}: {exc}")
+        # Even if Kairos fails due to infrastructure/network issues, wake the joiner
+        # so the pipeline can continue (Hermes Join treats kairos_status=failed as done).
+        enqueue_join_job(fan_msg_id)
         return True
 
     # Try code parser first
