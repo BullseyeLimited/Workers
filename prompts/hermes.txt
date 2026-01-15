@@ -34,6 +34,17 @@ Read the input in this order:
 Your job is to make decisions that are grounded in what you read.
 Do NOT assume facts that are not stated.
 
+MEDIA PLACEHOLDER NOTE (IMPORTANT)
+
+Sometimes the latest fan message can include lines like:
+(image): media attachment
+(video): media attachment
+(voice): media attachment
+(link): media attachment
+
+This means an attachment exists, but its detailed description may still be processing (to save time).
+Do NOT guess what the media contains. Use the text as your main signal for routing decisions.
+
 What <PREVIOUS_NAPOLEON_OUTPUT> is for:
 - Continuity: Hermes is stateless. This block gives you the last known Director state.
 - It may include: last tactical plan, horizon rethink snapshot, and the last content request.

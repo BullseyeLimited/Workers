@@ -22,6 +22,7 @@ from openai import OpenAI
 from supabase import ClientOptions, create_client
 
 from workers.lib.prompt_builder import live_turn_window
+from workers.lib.job_utils import job_exists
 from workers.lib.simple_queue import ack, receive, send
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
@@ -38,6 +39,7 @@ SB = create_client(
 )
 
 QUEUE = "argus.analyse"
+JOIN_QUEUE = "hermes.join"
 
 OPENAI_KEY = os.getenv("ARGUS_OPENAI_API_KEY") or os.getenv("OPENAI_API_KEY")
 OPENAI_BASE_URL = os.getenv("ARGUS_OPENAI_BASE_URL") or os.getenv("OPENAI_BASE_URL") or "https://api.openai.com/v1"
@@ -820,7 +822,8 @@ def process_job(payload: Dict[str, Any]) -> bool:
             media_payload={"items": items},
             media_error="no_media_items",
         )
-        send("hermes.route", {"message_id": msg_id})
+        if not job_exists(JOIN_QUEUE, msg_id, client=SB):
+            send(JOIN_QUEUE, {"message_id": msg_id})
         return True
 
     context = _merge_context(thread_id, turn_index, msg_id)
@@ -838,8 +841,9 @@ def process_job(payload: Dict[str, Any]) -> bool:
         media_error=media_error,
     )
 
-    # Proceed to Hermes regardless of Argus status to avoid blocking the pipeline.
-    send("hermes.route", {"message_id": msg_id})
+    # Wake Hermes Join so Napoleon can proceed once Hermes/Kairos/Web are ready.
+    if not job_exists(JOIN_QUEUE, msg_id, client=SB):
+        send(JOIN_QUEUE, {"message_id": msg_id})
     return True
 
 

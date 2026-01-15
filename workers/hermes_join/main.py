@@ -193,6 +193,30 @@ def process_job(payload: Dict[str, Any]) -> bool:
     if not details:
         return True
 
+    # If this turn has media, wait for Argus to finish enriching the message row
+    # before letting Napoleon proceed.
+    try:
+        msg_row = (
+            SB.table("messages")
+            .select("media_status,media_payload")
+            .eq("id", fan_msg_id)
+            .single()
+            .execute()
+            .data
+            or {}
+        )
+    except Exception:
+        msg_row = {}
+
+    media_payload = msg_row.get("media_payload") or {}
+    has_media = False
+    if isinstance(media_payload, dict):
+        items = media_payload.get("items")
+        has_media = isinstance(items, list) and len(items) > 0
+    media_status = (msg_row.get("media_status") or "").strip().lower()
+    if has_media and media_status == "pending":
+        return True
+
     extras = details.get("extras") or {}
     hermes_status = details.get("hermes_status")
     hermes_output_raw = details.get("hermes_output_raw") or ""

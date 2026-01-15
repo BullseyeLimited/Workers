@@ -219,7 +219,10 @@ async def receive(request: Request):
     msg_id = res[0]["id"]
     SB.table("threads").update({"turn_count": turn_index}).eq("id", thread_id).execute()
     if has_media:
+        # Run Argus (media describer) and Hermes (router) in parallel.
+        # Hermes Join will gate Napoleon until upstream results are ready.
         enqueue_argus(msg_id)
+        enqueue_hermes(msg_id)
     else:
         enqueue_hermes(msg_id)
 
