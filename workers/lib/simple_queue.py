@@ -46,7 +46,7 @@ def receive(queue: str, vt_seconds: int = 30):
             payload = json.loads(payload)
         except Exception:
             payload = {}
-    return {"row_id": row_id, "payload": payload}
+    return {"row_id": row_id, "queue": queue, "payload": payload}
 
 
 # ------------------------------------------------------------------

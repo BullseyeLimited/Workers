@@ -23,6 +23,7 @@ from workers.lib.job_utils import job_exists
 from workers.lib.prompt_builder import live_turn_window
 from workers.lib.json_utils import safe_parse_model_json
 from workers.lib.simple_queue import ack, receive, send
+from workers.hermes_join.main import process_job as process_join_job
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
@@ -617,16 +618,21 @@ def process_job(payload: Dict[str, Any]) -> bool:
 if __name__ == "__main__":
     _log_supabase_identity()
     print("[Hermes] started - waiting for jobs", flush=True)
+    prefer_join = False
     while True:
-        job = receive(QUEUE, 30)
+        queue_order = (JOIN_QUEUE, QUEUE) if prefer_join else (QUEUE, JOIN_QUEUE)
+        job = receive(queue_order[0], 30) or receive(queue_order[1], 30)
+        prefer_join = not prefer_join
         if not job:
             time.sleep(1)
             continue
 
         row_id = job["row_id"]
+        queue_name = job.get("queue") or QUEUE
         payload = job["payload"]
         try:
-            if process_job(payload):
+            ok = process_job(payload) if queue_name == QUEUE else process_join_job(payload)
+            if ok:
                 ack(row_id)
         except Exception as exc:  # noqa: BLE001
             print("[Hermes] error:", exc, flush=True)

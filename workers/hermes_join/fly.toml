@@ -9,4 +9,4 @@ primary_region = "fra"
   app = "python -m workers.hermes_join.main"
 
 [deploy]
-  min_machines_running = 1
+  min_machines_running = 0
