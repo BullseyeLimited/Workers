@@ -381,18 +381,26 @@ def process_job(payload: Dict[str, Any]) -> bool:
 
     fan_msg_id = payload["message_id"]
     attempt = int(payload.get("hermes_retry", 0))
-    msg_row = (
+    # NOTE: Do not use `.single()` here. If the row is not visible (e.g., wrong
+    # Supabase project, RLS blocking due to bad key, or message deleted),
+    # `.single()` raises and the job becomes a poison pill that retries forever.
+    msg_rows = (
         SB.table("messages")
-        .select(
-            "id,thread_id,turn_index,message_text,media_analysis_text,media_payload"
-        )
+        .select("id,thread_id,turn_index,message_text,media_analysis_text,media_payload")
         .eq("id", fan_msg_id)
-        .single()
+        .limit(1)
         .execute()
         .data
+        or []
     )
-    if not msg_row:
-        raise ValueError(f"Message {fan_msg_id} not found")
+    if not msg_rows:
+        print(
+            f"[Hermes] message_id {fan_msg_id} not visible in messages; "
+            "acking job (check SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY secrets).",
+            flush=True,
+        )
+        return True
+    msg_row = msg_rows[0]
 
     thread_id = msg_row["thread_id"]
     turn_index = msg_row.get("turn_index")
