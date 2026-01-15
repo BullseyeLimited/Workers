@@ -93,16 +93,67 @@ def runpod_call(system_prompt: str, user_message: str) -> tuple[str, dict]:
 
 
 CHUNK_PATTERN = re.compile(r"^\s*(\d+)\s*\[(.*)\]\s*$")
+NUMBERED_LINE_PATTERN = re.compile(r"^\s*(\d{1,3})\s*[\)\.\-:]\s*(.+?)\s*$")
+NUMBERED_BRACKET_PATTERN = re.compile(r"^\s*(\d+)\s*[\)\.\-:]\s*\[(.*)\]\s*$")
+BRACKET_LINE_PATTERN = re.compile(r"^\s*\[(.*)\]\s*$")
+ID_LINE_PATTERN = re.compile(r"^\s*(\d+)\s*$")
 
 
 def parse_writer_output(raw_text: str) -> List[str]:
+    if not raw_text or not raw_text.strip():
+        return []
+
+    lines = [line.strip() for line in raw_text.splitlines() if line.strip()]
+    if not lines:
+        return []
+
+    # Best-effort cleanup if the model still numbered every line like "1) hello".
+    numbered_chunks: list[str] = []
+    numbers: list[int] = []
+    for line in lines:
+        match = NUMBERED_LINE_PATTERN.match(line)
+        if not match:
+            break
+        numbers.append(int(match.group(1)))
+        numbered_chunks.append(match.group(2).strip())
+
+    if (
+        len(numbered_chunks) >= 2
+        and len(numbered_chunks) == len(lines)
+        and numbers == list(range(1, len(numbers) + 1))
+    ):
+        return [chunk for chunk in numbered_chunks if chunk]
+
     chunks: List[str] = []
-    for line in raw_text.splitlines():
+    for line in lines:
         match = CHUNK_PATTERN.match(line)
         if match:
-            chunks.append(match.group(2).strip())
-    if not chunks and raw_text.strip():
-        chunks.append(raw_text.strip())
+            candidate = match.group(2).strip()
+            if candidate:
+                chunks.append(candidate)
+            continue
+
+        match = NUMBERED_BRACKET_PATTERN.match(line)
+        if match:
+            candidate = match.group(2).strip()
+            if candidate:
+                chunks.append(candidate)
+            continue
+
+        match = BRACKET_LINE_PATTERN.match(line)
+        if match:
+            candidate = match.group(1).strip()
+            if candidate:
+                chunks.append(candidate)
+            continue
+
+        match = ID_LINE_PATTERN.match(line)
+        if match:
+            chunks.append(match.group(1))
+            continue
+
+        chunks.append(line)
+
     return chunks
 
 
@@ -523,12 +574,47 @@ def process_job(payload: Dict[str, Any]) -> bool:
 
     chunks = parse_writer_output(raw_text)
     final_text = "\n".join(chunks).strip()
-    content_lines = _render_content_placeholders(payload.get("content_actions"))
-    if content_lines and "[CONTENT_SENT]" not in final_text and "[CONTENT_OFFER" not in final_text:
-        if final_text:
-            final_text = f"{final_text}\n" + "\n".join(content_lines)
-        else:
-            final_text = "\n".join(content_lines)
+    # Writer output should place numeric content IDs inline when needed.
+    # Best-effort fallback: if content actions exist but none of those IDs appear as
+    # standalone numeric lines, append the missing IDs at the end.
+    content_actions = payload.get("content_actions")
+    if content_actions and isinstance(content_actions, dict):
+        offer_items = _extract_action_list(
+            content_actions,
+            ("offers", "offer", "ppv_offers", "ppv_offer"),
+        )
+        send_items = _extract_action_list(
+            content_actions,
+            ("sends", "send", "deliveries", "delivery", "deliver", "sent"),
+        )
+        offers = _normalize_offer_items(offer_items)
+        sends = _normalize_send_items(send_items)
+
+        expected_ids: list[int] = []
+        seen: set[int] = set()
+        for cid in sends:
+            if cid not in seen:
+                seen.add(cid)
+                expected_ids.append(cid)
+        for offer in offers:
+            cid = offer.get("content_id")
+            if isinstance(cid, int) and cid not in seen:
+                seen.add(cid)
+                expected_ids.append(cid)
+
+        present_ids: set[int] = set()
+        for line in final_text.splitlines():
+            match = ID_LINE_PATTERN.match(line)
+            if match:
+                try:
+                    present_ids.add(int(match.group(1)))
+                except Exception:
+                    continue
+
+        if expected_ids and not (present_ids & set(expected_ids)):
+            missing_lines = [str(cid) for cid in expected_ids if cid not in present_ids]
+            if missing_lines:
+                final_text = (f"{final_text}\n" if final_text else "") + "\n".join(missing_lines)
     if not final_text:
         record_writer_failure(
             fan_message_id=fan_message_id,

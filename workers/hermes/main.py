@@ -449,11 +449,11 @@ def process_job(payload: Dict[str, Any]) -> bool:
         raw_turns = raw_turns or "[No raw turns provided]"
         latest_fan_text = _format_fan_turn(msg_row)
 
-        # Identity cards (fan + creator)
+        # Thread data (keep Hermes focused on routing + content control)
         thread_row = (
             SB.table("threads")
             .select(
-                "fan_identity_card,creator_identity_card,creator_id"
+                "creator_id"
             )
             .eq("id", thread_id)
             .single()
@@ -461,26 +461,8 @@ def process_job(payload: Dict[str, Any]) -> bool:
             .data
             or {}
         )
-        creator_card = thread_row.get("creator_identity_card")
-        if not creator_card and thread_row.get("creator_id"):
-            try:
-                creator_row = (
-                    SB.table("creators")
-                    .select("creator_identity_card")
-                    .eq("id", thread_row["creator_id"])
-                    .single()
-                    .execute()
-                    .data
-                    or {}
-                )
-                creator_card = creator_row.get("creator_identity_card")
-            except Exception:
-                creator_card = None
-
-        fan_card = thread_row.get("fan_identity_card") or "Identity card: empty"
-        creator_card = creator_card or "Identity card: empty"
         content_index_block = ""
-        previous_napoleon_block = ""
+        previous_napoleon_block = "\n\n<PREVIOUS_NAPOLEON_OUTPUT>\nNONE\n</PREVIOUS_NAPOLEON_OUTPUT>"
 
         previous_napoleon = _fetch_previous_napoleon_output(
             thread_id,
@@ -495,6 +477,7 @@ def process_job(payload: Dict[str, Any]) -> bool:
             )
 
         creator_id = thread_row.get("creator_id")
+        packed_index = ""
         if CONTENT_PACK_ENABLED and creator_id:
             try:
                 content_index = build_content_index(
@@ -503,23 +486,18 @@ def process_job(payload: Dict[str, Any]) -> bool:
                     thread_id=thread_id,
                 )
                 packed_index = format_content_pack(content_index)
-                if packed_index:
-                    content_index_block = (
-                        "\n\n<CONTENT_INDEX>\n"
-                        f"{packed_index}\n"
-                        "</CONTENT_INDEX>"
-                    )
             except Exception:
-                content_index_block = ""
+                packed_index = ""
+        content_index_block = (
+            "\n\n<CONTENT_INDEX>\n"
+            f"{packed_index or 'NONE'}\n"
+            "</CONTENT_INDEX>"
+        )
         user_block = (
             "<HERMES_INPUT>\n"
             f"{raw_turns}\n\n"
             "LATEST_FAN_MESSAGE:\n"
-            f"{latest_fan_text}\n\n"
-            "FAN_IDENTITY_CARD:\n"
-            f"{fan_card}\n\n"
-            "CREATOR_IDENTITY_CARD:\n"
-            f"{creator_card}"
+            f"{latest_fan_text}"
             f"{previous_napoleon_block}"
             f"{content_index_block}\n"
             "</HERMES_INPUT>"

@@ -216,10 +216,13 @@ def process_job(payload: Dict[str, Any]) -> bool:
         return True
 
     content_request = _extract_content_request(details.get("content_request"))
-    if CONTENT_PACK_ENABLED and content_request and not details.get("content_pack"):
+    if CONTENT_PACK_ENABLED and not details.get("content_pack"):
+        # Always provide Napoleon with a content pack when enabled.
+        # If Hermes did not specify a camera request, default to Zoom 0 (overview).
+        request = content_request or {"zoom": 0}
         try:
             content_pack = _build_content_pack_from_request(
-                content_request, details["thread_id"], client=SB
+                request, details["thread_id"], client=SB
             )
             SB.table("message_ai_details").update(
                 {
