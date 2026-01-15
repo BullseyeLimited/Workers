@@ -10,6 +10,7 @@ import os
 import re
 import time
 import traceback
+import base64
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Tuple
@@ -34,6 +35,31 @@ CONTENT_PACK_ENABLED = os.getenv("CONTENT_PACK_ENABLED", "").lower() in {
 
 if not SUPABASE_URL or not SUPABASE_KEY:
     raise RuntimeError("Missing Supabase configuration for Hermes")
+
+def _decode_jwt_claims(token: str) -> dict:
+    try:
+        parts = token.split(".")
+        if len(parts) < 2:
+            return {}
+        payload = parts[1]
+        payload += "=" * (-len(payload) % 4)
+        decoded = base64.urlsafe_b64decode(payload.encode("utf-8")).decode("utf-8")
+        data = json.loads(decoded)
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def _log_supabase_identity():
+    claims = _decode_jwt_claims(SUPABASE_KEY or "")
+    ref = claims.get("ref")
+    role = claims.get("role")
+    iss = claims.get("iss")
+    print(
+        f"[Hermes] supabase_url={SUPABASE_URL} jwt_iss={iss} jwt_ref={ref} jwt_role={role}",
+        flush=True,
+    )
+
 
 SB = create_client(
     SUPABASE_URL,
@@ -589,6 +615,7 @@ def process_job(payload: Dict[str, Any]) -> bool:
 
 
 if __name__ == "__main__":
+    _log_supabase_identity()
     print("[Hermes] started - waiting for jobs", flush=True)
     while True:
         job = receive(QUEUE, 30)
