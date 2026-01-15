@@ -338,7 +338,7 @@ def _runpod_call(system_prompt: str, user_message: str) -> tuple[str, dict]:
         "Authorization": f"Bearer {key}",
     }
     payload = {
-        "model": os.getenv("HERMES_MODEL", "gpt-4o-mini"),
+        "model": os.getenv("RUNPOD_MODEL_NAME", "gpt-oss-20b-uncensored"),
         "messages": [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_message},
