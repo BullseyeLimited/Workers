@@ -622,13 +622,13 @@ if __name__ == "__main__":
         if not job:
             time.sleep(1)
             continue
+
         row_id = job["row_id"]
+        payload = job["payload"]
         try:
-            payload = job["payload"]
             if process_job(payload):
                 ack(row_id)
         except Exception as exc:  # noqa: BLE001
-            print("[Hermes] error:", exc)
+            print("[Hermes] error:", exc, flush=True)
             traceback.print_exc()
-            # Let the job retry
             time.sleep(2)

@@ -1,4 +1,4 @@
-app = "hermes-join-worker"
+app = "hermesjoin-worker"
 primary_region = "fra"
 
 [build]
