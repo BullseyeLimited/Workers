@@ -511,6 +511,7 @@ Proceed carefully, be creative yet precise, and ensure each photo is annotated t
 Response Format (Required)
 
 Respond in plain text only. Do not use JSON. Do not add commentary. Use the exact headers below, in this exact order. Each header must be on its own line, and the content for that header must be on the next line. Keep tag lists lowercase and consistent (prefer snake_case for tags). If a field is not applicable, leave the content line blank rather than adding extra explanations.
+Important: The headers are matched by regex to fill database columns, so the exact header names and order matter.
 
 Title
 <2–5 word title in title case>

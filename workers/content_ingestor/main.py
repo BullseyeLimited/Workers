@@ -188,6 +188,40 @@ def _normalize_tag(value: str) -> str:
     return cleaned
 
 
+def _normalize_header(value: str) -> str:
+    cleaned = str(value).strip().lower()
+    cleaned = cleaned.strip(" \t:;-—–")
+    cleaned = cleaned.replace("_", " ")
+    cleaned = " ".join(cleaned.split())
+    return cleaned
+
+
+HEADER_ALIASES = {
+    "title": ("title",),
+    "desc_short": ("short description", "short_desc", "desc_short"),
+    "desc_long": ("long description", "long_desc", "desc_long"),
+    "explicitness": ("explicitness", "explicitness rating"),
+    "time_of_day": ("time of day", "time_of_day", "timeofday"),
+    "location_primary": ("location primary", "primary location", "location_primary"),
+    "location_tags": ("location tags", "location_tags"),
+    "outfit_category": ("outfit category", "outfit_category"),
+    "outfit_layers": ("outfit layers", "outfit_layers"),
+    "mood_tags": ("mood tags", "mood_tags"),
+    "action_tags": ("action tags", "action_tags"),
+    "body_focus": ("body focus", "body_focus"),
+    "camera_angle": ("camera angle", "camera_angle"),
+    "shot_type": ("shot type", "shot_type"),
+    "lighting": ("lighting",),
+    "duration_seconds": ("duration seconds", "duration_seconds", "duration"),
+    "voice_transcript": ("voice transcript", "voice_transcript", "transcript"),
+}
+HEADER_FIELD_MAP = {
+    _normalize_header(alias): field
+    for field, aliases in HEADER_ALIASES.items()
+    for alias in aliases
+}
+
+
 def _normalize_list(value: Any) -> List[str]:
     if value is None:
         return []
@@ -233,6 +267,61 @@ def _extract_update(data: Dict[str, Any], content_id: int) -> Optional[Dict[str,
         return None
     payload.setdefault("id", content_id)
     return payload
+
+
+def _parse_header_output(text: str) -> Dict[str, Any]:
+    lines = text.splitlines()
+    update: Dict[str, Any] = {}
+    current_field: Optional[str] = None
+    buffer: List[str] = []
+
+    def flush() -> None:
+        nonlocal buffer, current_field
+        if not current_field:
+            buffer = []
+            return
+        value = "\n".join(buffer).strip()
+        update[current_field] = value
+        buffer = []
+
+    for raw_line in lines:
+        line = raw_line.rstrip()
+        stripped = line.strip()
+        if not stripped:
+            if current_field:
+                buffer.append("")
+            continue
+
+        normalized = _normalize_header(stripped)
+        if normalized in HEADER_FIELD_MAP:
+            flush()
+            current_field = HEADER_FIELD_MAP[normalized]
+            continue
+
+        if ":" in stripped:
+            left, right = stripped.split(":", 1)
+            normalized_left = _normalize_header(left)
+            if normalized_left in HEADER_FIELD_MAP:
+                flush()
+                current_field = HEADER_FIELD_MAP[normalized_left]
+                buffer.append(right.strip())
+                continue
+
+        for sep in (" - ", " — ", " – "):
+            if sep in stripped:
+                left, right = stripped.split(sep, 1)
+                normalized_left = _normalize_header(left)
+                if normalized_left in HEADER_FIELD_MAP:
+                    flush()
+                    current_field = HEADER_FIELD_MAP[normalized_left]
+                    buffer.append(right.strip())
+                    break
+        else:
+            if current_field:
+                buffer.append(stripped)
+
+    flush()
+    return {k: v for k, v in update.items() if v != ""}
 
 
 def _sanitize_update(update: Dict[str, Any]) -> Dict[str, Any]:
@@ -513,20 +602,30 @@ def process_job(payload: Dict[str, Any]) -> bool:
         return True
 
     data, parse_error = safe_parse_model_json(raw_text)
-    if parse_error or not data:
-        attempts += 1
-        status = "pending" if attempts <= MAX_RETRIES else "failed"
-        _update_ingest_status(
-            content_id,
-            status=status,
-            error=f"parse_error:{parse_error}",
-            attempts=attempts,
-        )
-        if status == "pending":
-            send(QUEUE, {"content_id": content_id})
-        return True
+    update = None
+    if data and not parse_error:
+        update = _extract_update(data, content_id)
+    if not update:
+        header_update = _parse_header_output(raw_text)
+        if header_update:
+            header_update.setdefault("id", content_id)
+            update = header_update
+        else:
+            attempts += 1
+            status = "pending" if attempts <= MAX_RETRIES else "failed"
+            error = parse_error or "parse_error:no_header_fields"
+            _update_ingest_status(
+                content_id,
+                status=status,
+                error=str(error),
+                attempts=attempts,
+            )
+            if status == "pending":
+                send(QUEUE, {"content_id": content_id})
+            return True
 
-    update = _extract_update(data, content_id)
+    if "id" not in update:
+        update["id"] = content_id
     if not update:
         _update_ingest_status(
             content_id,
