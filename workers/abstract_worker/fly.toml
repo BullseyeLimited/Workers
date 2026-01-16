@@ -1,0 +1,12 @@
+app = "abstract-worker"
+primary_region = "fra"
+
+[build]
+  dockerfile = "../../base/Dockerfile"
+  context    = "../.."
+
+[processes]
+  app = "python -m workers.abstract_worker.main"
+
+[deploy]
+  min_machines_running = 1

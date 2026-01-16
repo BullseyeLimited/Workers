@@ -440,6 +440,29 @@ def _fetch_summaries(thread_id: int, tier: str) -> List[dict]:
     )
 
 
+def _pending_job(
+    queue_name: str,
+    thread_id: int,
+    start_turn: int | None,
+    end_turn: int | None,
+    tier_index: int | None,
+) -> bool:
+    query = (
+        SB.table("job_queue")
+        .select("id")
+        .eq("queue", queue_name)
+        .filter("payload->>thread_id", "eq", str(thread_id))
+    )
+    if start_turn is not None:
+        query = query.filter("payload->>start_turn", "eq", str(start_turn))
+    if end_turn is not None:
+        query = query.filter("payload->>end_turn", "eq", str(end_turn))
+    if tier_index is not None:
+        query = query.filter("payload->>tier_index", "eq", str(tier_index))
+    rows = query.limit(1).execute().data
+    return bool(rows)
+
+
 def _maybe_enqueue_next(thread_id: int, tier: str):
     cfg = TIER_PIPELINE.get(tier)
     if not cfg:
