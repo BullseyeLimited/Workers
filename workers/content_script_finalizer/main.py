@@ -12,10 +12,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from openai import OpenAI
+import requests
 from supabase import ClientOptions, create_client
 
-from workers.lib.job_utils import job_exists
 from workers.lib.json_utils import safe_parse_model_json
 from workers.lib.simple_queue import ack, receive, send
 
@@ -40,20 +39,11 @@ QUEUE = "content.script_finalize"
 
 PROMPTS_DIR = Path(__file__).resolve().parents[2] / "prompts"
 
-OPENAI_KEY = (
-    os.getenv("CONTENT_OPENAI_API_KEY")
-    or os.getenv("OPENAI_API_KEY")
-    or os.getenv("ARGUS_OPENAI_API_KEY")
-)
-OPENAI_BASE_URL = (
-    os.getenv("CONTENT_OPENAI_BASE_URL")
-    or os.getenv("OPENAI_BASE_URL")
-    or "https://api.openai.com/v1"
-)
+RUNPOD_URL = os.getenv("RUNPOD_URL", "").rstrip("/")
+RUNPOD_API_KEY = os.getenv("RUNPOD_API_KEY") or os.getenv("OPENAI_API_KEY")
+RUNPOD_MODEL_NAME = os.getenv("RUNPOD_MODEL_NAME")
 
-OPENAI_CLIENT = OpenAI(api_key=OPENAI_KEY, base_url=OPENAI_BASE_URL) if OPENAI_KEY else None
-
-SCRIPT_MODEL = os.getenv("CONTENT_SCRIPT_MODEL") or os.getenv("CONTENT_TEXT_MODEL", "gpt-4o-mini")
+SCRIPT_MODEL = os.getenv("CONTENT_SCRIPT_MODEL") or RUNPOD_MODEL_NAME
 
 MAX_RETRIES = int(os.getenv("CONTENT_SCRIPT_MAX_RETRIES", "2"))
 
@@ -263,15 +253,13 @@ def _sanitize_item_update(update: Dict[str, Any]) -> Optional[Dict[str, Any]]:
 
 
 def _run_model(prompt: str, script_row: Dict[str, Any], items: List[Dict[str, Any]]) -> Tuple[str, Optional[str]]:
-    if not OPENAI_CLIENT:
-        return "", "openai_client_unavailable"
+    if not RUNPOD_URL:
+        return "", "runpod_url_missing"
+    if not RUNPOD_API_KEY:
+        return "", "runpod_api_key_missing"
     if not SCRIPT_MODEL:
         return "", "model_not_configured"
 
-    payload = {
-        "script": script_row,
-        "items": items,
-    }
     user_content = (
         "<SCRIPT>\n"
         f"{json.dumps(script_row, ensure_ascii=False)}\n"
@@ -280,24 +268,45 @@ def _run_model(prompt: str, script_row: Dict[str, Any], items: List[Dict[str, An
         f"{json.dumps(items, ensure_ascii=False)}\n"
         "</SCRIPT_ITEMS>"
     )
-    try:
-        resp = OPENAI_CLIENT.chat.completions.create(
-            model=SCRIPT_MODEL,
-            response_format={"type": "json_object"},
-            messages=[
-                {"role": "system", "content": prompt},
-                {"role": "user", "content": user_content},
-            ],
-            temperature=0.2,
-            max_tokens=2000,
-        )
-    except Exception as exc:  # noqa: BLE001
-        return "", f"model_error: {exc}"
 
-    content = (resp.choices[0].message.content or "").strip()
-    if not content:
+    url = f"{RUNPOD_URL}/v1/chat/completions"
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {RUNPOD_API_KEY}",
+    }
+    payload = {
+        "model": SCRIPT_MODEL,
+        "messages": [
+            {"role": "system", "content": prompt},
+            {"role": "user", "content": user_content},
+        ],
+        "temperature": float(os.getenv("CONTENT_TEMPERATURE", "0.2")),
+        "max_tokens": int(os.getenv("CONTENT_MAX_TOKENS", "2000")),
+    }
+    try:
+        resp = requests.post(url, headers=headers, json=payload, timeout=120)
+        resp.raise_for_status()
+        data = resp.json()
+    except Exception as exc:  # noqa: BLE001
+        return "", f"runpod_error: {exc}"
+
+    raw_text = ""
+    try:
+        choice0 = (data.get("choices") or [{}])[0] or {}
+        msg = choice0.get("message") or {}
+        raw_text = (
+            msg.get("content")
+            or msg.get("reasoning")
+            or msg.get("reasoning_content")
+            or choice0.get("text")
+            or ""
+        )
+    except Exception:
+        raw_text = ""
+    raw_text = raw_text.strip()
+    if not raw_text:
         return "", "model_empty_output"
-    return content, None
+    return raw_text, None
 
 
 def _update_finalize_status(

@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
-from openai import OpenAI
+import requests
 from supabase import ClientOptions, create_client
 
 from workers.lib.job_utils import job_exists
@@ -41,25 +41,13 @@ SCRIPT_QUEUE = "content.script_finalize"
 
 PROMPTS_DIR = Path(__file__).resolve().parents[2] / "prompts"
 
-OPENAI_KEY = (
-    os.getenv("CONTENT_OPENAI_API_KEY")
-    or os.getenv("OPENAI_API_KEY")
-    or os.getenv("ARGUS_OPENAI_API_KEY")
-)
-OPENAI_BASE_URL = (
-    os.getenv("CONTENT_OPENAI_BASE_URL")
-    or os.getenv("OPENAI_BASE_URL")
-    or "https://api.openai.com/v1"
-)
+RUNPOD_URL = os.getenv("RUNPOD_URL", "").rstrip("/")
+RUNPOD_API_KEY = os.getenv("RUNPOD_API_KEY") or os.getenv("OPENAI_API_KEY")
+RUNPOD_MODEL_NAME = os.getenv("RUNPOD_MODEL_NAME")
 
-OPENAI_CLIENT = OpenAI(api_key=OPENAI_KEY, base_url=OPENAI_BASE_URL) if OPENAI_KEY else None
-
-PHOTO_MODEL = os.getenv("CONTENT_PHOTO_MODEL") or os.getenv("ARGUS_PHOTO_MODEL")
-VIDEO_MODEL = os.getenv("CONTENT_VIDEO_MODEL") or os.getenv("ARGUS_VIDEO_MODEL")
-VOICE_MODEL = os.getenv("CONTENT_VOICE_MODEL") or os.getenv("ARGUS_VOICE_MODEL")
-
-DEFAULT_PHOTO_MODEL = os.getenv("CONTENT_PHOTO_MODEL_DEFAULT", "gpt-4o-mini")
-DEFAULT_TEXT_MODEL = os.getenv("CONTENT_TEXT_MODEL", "gpt-4o-mini")
+PHOTO_MODEL = os.getenv("CONTENT_PHOTO_MODEL") or RUNPOD_MODEL_NAME
+VIDEO_MODEL = os.getenv("CONTENT_VIDEO_MODEL") or RUNPOD_MODEL_NAME
+VOICE_MODEL = os.getenv("CONTENT_VOICE_MODEL") or RUNPOD_MODEL_NAME
 
 MAX_RETRIES = int(os.getenv("CONTENT_INGEST_MAX_RETRIES", "2"))
 
@@ -318,40 +306,88 @@ def _build_user_content(media_type: str, row: Dict[str, Any], url: str):
 
 def _select_model(media_type: str) -> Optional[str]:
     if media_type == "photo":
-        return PHOTO_MODEL or DEFAULT_PHOTO_MODEL
+        return PHOTO_MODEL
     if media_type == "video":
-        return VIDEO_MODEL or DEFAULT_TEXT_MODEL
+        return VIDEO_MODEL
     if media_type == "voice":
-        return VOICE_MODEL or DEFAULT_TEXT_MODEL
+        return VOICE_MODEL
     return None
 
 
+def _runpod_call(
+    *,
+    model: str,
+    system_prompt: str,
+    user_content: Any,
+    temperature: float = 0.2,
+    max_tokens: int = 2000,
+) -> Tuple[str, Optional[str]]:
+    """
+    Call the RunPod vLLM OpenAI-compatible server using chat completions.
+    Returns (raw_text, error_message).
+    """
+    if not RUNPOD_URL:
+        return "", "runpod_url_missing"
+    if not RUNPOD_API_KEY:
+        return "", "runpod_api_key_missing"
+    if not model:
+        return "", "model_not_configured"
+
+    url = f"{RUNPOD_URL}/v1/chat/completions"
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {RUNPOD_API_KEY}",
+    }
+    payload = {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_content},
+        ],
+        "temperature": float(os.getenv("CONTENT_TEMPERATURE", str(temperature))),
+        "max_tokens": int(os.getenv("CONTENT_MAX_TOKENS", str(max_tokens))),
+    }
+    try:
+        resp = requests.post(url, headers=headers, json=payload, timeout=60)
+        resp.raise_for_status()
+        data = resp.json()
+    except Exception as exc:  # noqa: BLE001
+        return "", f"runpod_error: {exc}"
+
+    raw_text = ""
+    try:
+        choice0 = (data.get("choices") or [{}])[0] or {}
+        msg = choice0.get("message") or {}
+        raw_text = (
+            msg.get("content")
+            or msg.get("reasoning")
+            or msg.get("reasoning_content")
+            or choice0.get("text")
+            or ""
+        )
+    except Exception:
+        raw_text = ""
+    return raw_text.strip(), None
+
+
 def _run_model(media_type: str, prompt: str, row: Dict[str, Any], url: str) -> Tuple[str, Optional[str]]:
-    if not OPENAI_CLIENT:
-        return "", "openai_client_unavailable"
     model = _select_model(media_type)
     if not model:
         return "", "model_not_configured"
 
     user_content = _build_user_content(media_type, row, url)
-    try:
-        resp = OPENAI_CLIENT.chat.completions.create(
-            model=model,
-            response_format={"type": "json_object"},
-            messages=[
-                {"role": "system", "content": prompt},
-                {"role": "user", "content": user_content},
-            ],
-            temperature=0.2,
-            max_tokens=2000,
-        )
-    except Exception as exc:  # noqa: BLE001
-        return "", f"model_error: {exc}"
-
-    content = (resp.choices[0].message.content or "").strip()
-    if not content:
+    raw_text, error = _runpod_call(
+        model=model,
+        system_prompt=prompt,
+        user_content=user_content,
+        temperature=0.2,
+        max_tokens=2000,
+    )
+    if error:
+        return "", error
+    if not raw_text:
         return "", "model_empty_output"
-    return content, None
+    return raw_text, None
 
 
 def _update_ingest_status(
