@@ -18,6 +18,7 @@ from supabase import ClientOptions, create_client
 from workers.lib.job_utils import job_exists
 from workers.lib.json_utils import safe_parse_model_json
 from workers.lib.simple_queue import ack, receive, send
+from workers.content_script_finalizer.main import process_job as process_finalize_job
 
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
@@ -38,6 +39,12 @@ SB = create_client(
 
 QUEUE = "content.ingest"
 SCRIPT_QUEUE = "content.script_finalize"
+HANDLE_SCRIPT_FINALIZE = os.getenv("CONTENT_HANDLE_SCRIPT_FINALIZE", "true").lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
 
 PROMPTS_DIR = Path(__file__).resolve().parents[2] / "prompts"
 
@@ -544,15 +551,25 @@ def process_job(payload: Dict[str, Any]) -> bool:
 
 if __name__ == "__main__":
     print("[content_ingestor] started - waiting for jobs", flush=True)
+    prefer_finalize = True
     while True:
-        job = receive(QUEUE, 30)
+        if HANDLE_SCRIPT_FINALIZE:
+            queue_order = (SCRIPT_QUEUE, QUEUE) if prefer_finalize else (QUEUE, SCRIPT_QUEUE)
+            job = receive(queue_order[0], 30) or receive(queue_order[1], 30)
+            prefer_finalize = not prefer_finalize
+        else:
+            job = receive(QUEUE, 30)
         if not job:
             time.sleep(1)
             continue
         row_id = job["row_id"]
+        queue_name = job.get("queue") or QUEUE
         payload = job["payload"]
         try:
-            ok = process_job(payload)
+            if queue_name == QUEUE:
+                ok = process_job(payload)
+            else:
+                ok = process_finalize_job(payload)
             if ok:
                 ack(row_id)
         except Exception as exc:  # noqa: BLE001
