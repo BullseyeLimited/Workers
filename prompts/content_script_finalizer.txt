@@ -1,0 +1,25 @@
+SYSTEM PROMPT PLACEHOLDER — Content Script Finalizer
+
+Return ONLY valid JSON. Output a single JSON object with:
+- "content_scripts_update": object with script-level fields
+- "content_items_updates": array of item updates (each must include "id")
+- "notes": optional array of strings
+
+Expected structure example:
+{
+  "content_scripts_update": {
+    "title": "Cozy evening → bedroom tease",
+    "summary": "...",
+    "time_of_day": "evening",
+    "location_primary": "bedroom",
+    "outfit_category": "sleepwear",
+    "focus_tags": ["cozy", "bedroom"],
+    "script_summary": "...",
+    "ammo_summary": "..."
+  },
+  "content_items_updates": [
+    {"id": 1, "stage": "setup", "sequence_position": 1},
+    {"id": 2, "stage": "tease", "sequence_position": 2}
+  ],
+  "notes": []
+}

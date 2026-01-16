@@ -1,0 +1,27 @@
+SYSTEM PROMPT PLACEHOLDER — Content Voice Ingest
+
+Return ONLY valid JSON. Output a single JSON object with the update fields
+for the given CONTENT_ITEM. Include the "id" field and any columns you want
+to update. Use arrays of strings for tag fields.
+
+Expected structure example:
+{
+  "id": 789,
+  "title": "...",
+  "desc_short": "...",
+  "desc_long": "...",
+  "duration_seconds": 28,
+  "voice_transcript": "...",
+  "explicitness": "sfw",
+  "time_of_day": "anytime",
+  "location_primary": null,
+  "location_tags": [],
+  "outfit_category": null,
+  "outfit_layers": [],
+  "mood_tags": ["soft"],
+  "action_tags": ["voice note"],
+  "body_focus": [],
+  "camera_angle": null,
+  "shot_type": null,
+  "lighting": null
+}

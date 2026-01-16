@@ -1,0 +1,12 @@
+app = "content-script-finalizer-worker"
+primary_region = "fra"
+
+[build]
+  dockerfile = "../../base/Dockerfile"
+  context    = "../.."
+
+[processes]
+  app = "python -m workers.content_script_finalizer.main"
+
+[deploy]
+  min_machines_running = 1
