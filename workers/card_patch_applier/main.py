@@ -73,6 +73,7 @@ ABSTRACT_QUEUE_MAP = {
 }
 
 MAX_RETRIES = int(os.getenv("ABSTRACT_MAX_RETRIES", "5"))
+TARGET_MATCH_MIN_RATIO = float(os.getenv("ABSTRACT_TARGET_MATCH_MIN", "0.6"))
 
 HEADER_RE = re.compile(
     r"^(ADD|REINFORCE|REVISE)\s+SEGMENT[\s_\-:]*([A-Z0-9_\-\. ]+)\s*$",
@@ -81,6 +82,8 @@ HEADER_RE = re.compile(
 TEXT_KEY_RE = re.compile(r"^\s*TEXT\b", re.IGNORECASE)
 CONF_KEY_RE = re.compile(r"^\s*CONFIDENCE\b", re.IGNORECASE)
 REASON_KEY_RE = re.compile(r"^\s*REASON\b", re.IGNORECASE)
+TARGET_ID_KEY_RE = re.compile(r"^\s*TARGET_ID\b", re.IGNORECASE)
+TARGET_KEY_RE = re.compile(r"^\s*TARGET\b", re.IGNORECASE)
 CONF_BRACKET_RE = re.compile(
     r"\[(tentative|possible|likely|confident|canonical)\]\s*$",
     re.IGNORECASE,
@@ -154,14 +157,26 @@ def _split_value(line: str) -> str:
     return ""
 
 
-def _parse_block(lines: List[str]) -> Tuple[str | None, str, str]:
+def _parse_block(lines: List[str]) -> Tuple[str | None, str, str, str, str]:
     text = None
     confidence = None
     reason = ""
+    target_id = ""
+    target_text = ""
 
     for raw in lines:
         line = raw.strip()
         if not line:
+            continue
+
+        if TARGET_ID_KEY_RE.match(line):
+            value = _split_value(line)
+            target_id = value.strip() or target_id
+            continue
+
+        if TARGET_KEY_RE.match(line):
+            value = _split_value(line)
+            target_text = value.strip() or target_text
             continue
 
         if TEXT_KEY_RE.match(line):
@@ -191,7 +206,13 @@ def _parse_block(lines: List[str]) -> Tuple[str | None, str, str]:
             line = raw.strip()
             if not line:
                 continue
-            if TEXT_KEY_RE.match(line) or CONF_KEY_RE.match(line) or REASON_KEY_RE.match(line):
+            if (
+                TEXT_KEY_RE.match(line)
+                or CONF_KEY_RE.match(line)
+                or REASON_KEY_RE.match(line)
+                or TARGET_ID_KEY_RE.match(line)
+                or TARGET_KEY_RE.match(line)
+            ):
                 continue
             match = CONF_BRACKET_RE.search(line)
             if match:
@@ -203,7 +224,7 @@ def _parse_block(lines: List[str]) -> Tuple[str | None, str, str]:
     if not confidence or confidence not in CONFIDENCE_ORDER:
         confidence = "possible"
 
-    return text, confidence, reason
+    return text, confidence, reason, target_id, target_text
 
 
 def parse_patch_output(raw_text: str) -> Tuple[List[dict], str]:
@@ -230,7 +251,7 @@ def parse_patch_output(raw_text: str) -> Tuple[List[dict], str]:
             idx += 1
 
         last_block_end = idx
-        text_body, confidence, reason = _parse_block(block_lines)
+        text_body, confidence, reason, target_id, target_text = _parse_block(block_lines)
         if not text_body:
             continue
 
@@ -244,6 +265,8 @@ def parse_patch_output(raw_text: str) -> Tuple[List[dict], str]:
                 "text": text,
                 "confidence": confidence,
                 "reason": reason,
+                "target_id": target_id or None,
+                "target_text": target_text or None,
             }
         )
 
@@ -291,7 +314,7 @@ def _strip_confidence(text: str) -> str:
     return re.sub(r"\[[a-z]+\]\s*$", "", (text or "").strip(), flags=re.IGNORECASE).strip()
 
 
-def _find_best_match(entries: List[dict], text: str) -> dict | None:
+def _find_best_match(entries: List[dict], text: str, *, min_ratio: float = 0.72) -> dict | None:
     if not entries:
         return None
     needle = _strip_confidence(text).lower()
@@ -307,9 +330,26 @@ def _find_best_match(entries: List[dict], text: str) -> dict | None:
         if score > best_score:
             best_score = score
             best = entry
-    if best_score >= 0.72:
+    if best_score >= min_ratio:
         return best
     return None
+
+
+def _find_entry_by_id(entries: List[dict], target_id: str | None) -> dict | None:
+    if not target_id:
+        return None
+    for entry in entries:
+        if str(entry.get("id")) == str(target_id):
+            return entry
+    return None
+
+
+def _match_ratio(left: str, right: str) -> float:
+    left_clean = _strip_confidence(left).lower()
+    right_clean = _strip_confidence(right).lower()
+    if not left_clean or not right_clean:
+        return 0.0
+    return difflib.SequenceMatcher(None, left_clean, right_clean).ratio()
 
 
 def _entry_origin(entry: dict, fallback) -> str:
@@ -341,10 +381,19 @@ def apply_patches_to_card(
 
         bucket = segments.get(seg_id) or []
         segments[seg_id] = bucket
-        current = _active_entry(bucket)
         patch_conf = _parse_confidence(patch["confidence"])
         patch_text = _normalize_text(patch["text"], patch_conf)
         reason = patch.get("reason") or ""
+        target_id = patch.get("target_id")
+        target_text = patch.get("target_text") or ""
+        target_entry = None
+        if target_id:
+            target_entry = _find_entry_by_id(bucket, target_id)
+            if target_entry and target_text:
+                if _match_ratio(target_text, target_entry.get("text") or "") < TARGET_MATCH_MIN_RATIO:
+                    target_entry = None
+        if not target_entry and target_text:
+            target_entry = _find_best_match(bucket, target_text, min_ratio=TARGET_MATCH_MIN_RATIO)
 
         if patch["action"] == "add":
             match = _find_best_match(bucket, patch_text)
@@ -388,7 +437,7 @@ def apply_patches_to_card(
             continue
 
         if patch["action"] == "reinforce":
-            target = _find_best_match(bucket, patch_text) or current
+            target = target_entry or _find_best_match(bucket, patch_text)
             if not target:
                 # No existing entry to reinforce; fall back to ADD behavior.
                 entry_text = append_origin_tag(patch_text, worker_tier)
@@ -430,7 +479,7 @@ def apply_patches_to_card(
             continue
 
         if patch["action"] == "revise":
-            target = _find_best_match(bucket, patch_text) or current
+            target = target_entry or _find_best_match(bucket, patch_text)
             if not target:
                 # No existing entry to revise; fall back to ADD behavior.
                 entry_text = append_origin_tag(patch_text, worker_tier)

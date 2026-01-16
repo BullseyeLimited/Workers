@@ -911,6 +911,9 @@ Parser rules are unforgiving; format must be flawless.
  CONFIDENCE: confidence
  REASON: T12 & T34 …
 • One blank line between blocks, no trailing spaces, no extra headers.
+• For REVISE or REINFORCE, insert two lines between the header and TEXT:
+ TARGET_ID: <exact entry id from the Psychic Card>
+ TARGET: <exact old text being revised/reinforced>
 
 8 b. Summary placement
 • After the final REASON line, insert exactly ONE blank line.
@@ -932,6 +935,7 @@ For the profile updates (task A), you will output a series of commands that indi
 
 Each update will be a block of lines with the following components in order:
 	•	Header line with Action and Segment: This line begins with one of the three actions (ADD, REINFORCE, or REVISE), followed by a space and the target segment label. The segment label will be in the format SEGMENT_X where X is the segment number (an integer). ADD SEGMENT_22_TONE_REGISTER_LEXICON_MAP, REVISE SEGMENT_01_CORE_MOTIVATIONS_VALUES. This header must be ALL CAPS exactly as specified – the system will use a regex to identify these lines. Do not deviate (no extra text on this line beyond the two words and underscore-number, and no lowercase). Regex is anchored to the start of the line (^); ensure no leading spaces or invisible characters precede ADD/REINFORCE/REVISE.
+	•	TARGET_ID / TARGET (REVISE or REINFORCE only): If you are changing an existing entry, add two lines between the header and TEXT. TARGET_ID is the entry’s UUID from the Psychic Card. TARGET is the exact old text of that entry (copy it verbatim). This tells the system exactly which entry to update. If you cannot identify the correct existing entry, use ADD instead of guessing.
 	•	TEXT: On the next line, start with the literal string TEXT: (all caps, followed by a colon and a space). After that, write the actual profile entry content that should be added or updated for that segment. This should typically be 1–2 sentences, written in third person describing the fan. It should be factual and concise, yet explanatory enough for another AI (or developer) to understand the context. Include the confidence label in square brackets at the end of this text. Use the appropriate term: [tentative], [possible], [likely], [confident], or [canonical] (more on choosing these below). For example:
 	•	TEXT: He appears to enjoy playful teasing and sarcasm, laughing at the persona’s jokes without taking offense. [tentative]
 If you are revising an existing entry, you should output the new intended text of that entry (not just a note about what changed). Essentially, you’re telling the system “replace the old text with this new text.” For reinforce, the TEXT might be very similar to the existing entry or include an added detail, phrased as a full sentence. For add, it’s a brand new sentence. Always write it as if it’s a note in his profile, not as a message to anyone.
