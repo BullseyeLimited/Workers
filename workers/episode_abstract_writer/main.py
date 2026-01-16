@@ -43,9 +43,11 @@ def call_llm(prompt: str) -> str:
     payload = {
         "model": RUNPOD_MODEL,
         "messages": [{"role": "user", "content": prompt}],
-        "max_tokens": 800,
-        "temperature": 0,
+        "temperature": float(os.getenv("ABSTRACT_TEMPERATURE", "0")),
     }
+    max_tokens = int(os.getenv("ABSTRACT_MAX_TOKENS", "0"))
+    if max_tokens > 0:
+        payload["max_tokens"] = max_tokens
 
     resp = requests.post(url, headers=headers, json=payload, timeout=120)
     resp.raise_for_status()
@@ -111,6 +113,7 @@ def process_job(payload: dict) -> bool:
     thread_id = payload["thread_id"]
     end_turn = int(payload.get("end_turn") or 0)
     start_turn = int(payload.get("start_turn") or 0) or max(1, end_turn - 19)
+    attempt = int(payload.get("attempt") or 1)
 
     raw_text = ""
     raw_hash = ""
@@ -144,6 +147,7 @@ def process_job(payload: dict) -> bool:
             "end_turn": end_turn,
             "raw_text": raw_text,
             "raw_hash": raw_hash,
+            "attempt": attempt,
         },
     )
 

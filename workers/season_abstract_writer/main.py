@@ -42,9 +42,11 @@ def call_llm(prompt: str) -> str:
     payload = {
         "model": RUNPOD_MODEL,
         "messages": [{"role": "user", "content": prompt}],
-        "max_tokens": 900,
-        "temperature": 0,
+        "temperature": float(os.getenv("ABSTRACT_TEMPERATURE", "0")),
     }
+    max_tokens = int(os.getenv("ABSTRACT_MAX_TOKENS", "0"))
+    if max_tokens > 0:
+        payload["max_tokens"] = max_tokens
 
     resp = requests.post(url, headers=headers, json=payload, timeout=120)
     resp.raise_for_status()
@@ -72,6 +74,7 @@ def process_job(payload: dict) -> bool:
     tier_index = int(payload.get("tier_index") or 0)
     start_turn = payload.get("start_turn")
     end_turn = payload.get("end_turn")
+    attempt = int(payload.get("attempt") or 1)
 
     extra_ctx = _recent_tier_abstracts(thread_id, "season", client=SB)
     prompt = build_prompt(
@@ -98,6 +101,8 @@ def process_job(payload: dict) -> bool:
             "tier_index": tier_index,
             "raw_text": raw_text,
             "raw_hash": raw_hash,
+            "raw_block": raw_block,
+            "attempt": attempt,
         },
     )
 
