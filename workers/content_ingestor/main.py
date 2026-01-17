@@ -339,20 +339,19 @@ def _sanitize_update(update: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _build_user_content(media_type: str, row: Dict[str, Any], url: str):
-    payload = json.dumps(row, ensure_ascii=False)
     if media_type == "photo":
         return [
             {
                 "type": "text",
-                "text": f"<CONTENT_ITEM>\n{payload}\n</CONTENT_ITEM>\n\nIMAGE_URL:\n{url}",
+                "text": f"IMAGE_URL:\n{url}",
             },
             {"type": "image_url", "image_url": {"url": url}},
         ]
     if media_type == "video":
-        return f"<CONTENT_ITEM>\n{payload}\n</CONTENT_ITEM>\n\nVIDEO_URL:\n{url}"
+        return f"VIDEO_URL:\n{url}"
     if media_type == "voice":
-        return f"<CONTENT_ITEM>\n{payload}\n</CONTENT_ITEM>\n\nVOICE_URL:\n{url}"
-    return f"<CONTENT_ITEM>\n{payload}\n</CONTENT_ITEM>"
+        return f"VOICE_URL:\n{url}"
+    return ""
 
 
 def _select_model(media_type: str) -> Optional[str]:
