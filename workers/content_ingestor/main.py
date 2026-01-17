@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import time
 import traceback
 from datetime import datetime, timezone
@@ -72,58 +73,6 @@ MEDIA_TYPE_ALIASES = {
     "sound": "voice",
 }
 
-CONTROLLED_EXPLICITNESS = {"sfw", "tease", "nsfw"}
-CONTROLLED_TIME_OF_DAY = {"morning", "afternoon", "evening", "night", "anytime"}
-CONTROLLED_OUTFIT_CATEGORY = {
-    "casual",
-    "sleepwear",
-    "athleisure",
-    "gymwear",
-    "swimwear",
-    "dress",
-    "lingerie",
-    "robe_or_towel",
-    "cosplay",
-    "nude_or_topless",
-    "unknown",
-}
-CONTROLLED_CAMERA_ANGLE = {
-    "front_selfie",
-    "mirror_selfie",
-    "over_shoulder",
-    "high_angle",
-    "low_angle",
-    "eye_level",
-    "top_down",
-    "side_profile",
-    "back_view",
-    "tripod_static",
-    "handheld",
-}
-CONTROLLED_SHOT_TYPE = {
-    "establishing_wide",
-    "wide",
-    "full_body",
-    "three_quarter",
-    "medium",
-    "medium_close",
-    "close_up",
-    "detail_close",
-    "face_close",
-}
-CONTROLLED_LIGHTING = {
-    "natural_daylight",
-    "golden_hour",
-    "warm_indoor",
-    "cool_indoor",
-    "mixed_light",
-    "low_light",
-    "flash",
-    "ring_light",
-    "bathroom_vanity",
-    "neon_or_colored",
-}
-
 
 def _load_prompt(filename: str) -> str:
     path = PROMPTS_DIR / filename
@@ -182,10 +131,29 @@ def _clean_text(value: Any) -> Optional[str]:
     return str(value).strip() or None
 
 
+_LIST_SPLIT_RE = re.compile(r"[,\n;|]+")
+
+
 def _normalize_tag(value: str) -> str:
-    cleaned = str(value).strip().lower().replace("_", " ")
-    cleaned = " ".join(cleaned.split())
-    return cleaned
+    """
+    Normalize a tag-like string to a stable snake_case token.
+
+    Notes:
+    - Keep `_` as part of the token (underscore joins words).
+    - Treat commas/newlines/semicolons as separators (handled in _normalize_list).
+    """
+    text = str(value).strip().lower()
+    if not text:
+        return ""
+    # Trim common wrappers/bullets the model might output.
+    text = text.strip(" \t-–—•*[](){}<>\"'")
+    # Normalize separators to underscores.
+    text = re.sub(r"[\s\-\/]+", "_", text)
+    # Remove anything that's not alphanumeric or underscore.
+    text = re.sub(r"[^a-z0-9_]+", "", text)
+    # Collapse repeats.
+    text = re.sub(r"_+", "_", text).strip("_")
+    return text
 
 
 def _normalize_header(value: str) -> str:
@@ -228,10 +196,10 @@ def _normalize_list(value: Any) -> List[str]:
     if isinstance(value, list):
         values = value
     elif isinstance(value, str):
-        if "," in value:
-            values = [v.strip() for v in value.split(",")]
-        else:
-            values = [v.strip() for v in value.split()]
+        raw = value.strip()
+        if not raw:
+            return []
+        values = [v.strip() for v in _LIST_SPLIT_RE.split(raw) if v.strip()]
     else:
         values = [value]
     cleaned: List[str] = []
@@ -245,13 +213,15 @@ def _normalize_list(value: Any) -> List[str]:
     return cleaned
 
 
-def _normalize_controlled(value: Any, allowed: set[str]) -> Optional[str]:
+def _normalize_token(value: Any) -> Optional[str]:
+    """
+    Normalize a single token-like scalar (e.g., explicitness, time_of_day) without
+    enforcing a controlled vocabulary.
+    """
     if value is None:
         return None
     text = _normalize_tag(value)
-    if not text:
-        return None
-    return text if text in allowed else None
+    return text or None
 
 
 def _extract_update(data: Dict[str, Any], content_id: int) -> Optional[Dict[str, Any]]:
@@ -358,23 +328,8 @@ def _sanitize_update(update: Dict[str, Any]) -> Dict[str, Any]:
         if field == "duration_seconds":
             cleaned[field] = _coerce_int(value)
             continue
-        if field == "explicitness":
-            cleaned[field] = _normalize_controlled(value, CONTROLLED_EXPLICITNESS)
-            continue
-        if field == "time_of_day":
-            cleaned[field] = _normalize_controlled(value, CONTROLLED_TIME_OF_DAY)
-            continue
-        if field == "outfit_category":
-            cleaned[field] = _normalize_controlled(value, CONTROLLED_OUTFIT_CATEGORY)
-            continue
-        if field == "camera_angle":
-            cleaned[field] = _normalize_controlled(value, CONTROLLED_CAMERA_ANGLE)
-            continue
-        if field == "shot_type":
-            cleaned[field] = _normalize_controlled(value, CONTROLLED_SHOT_TYPE)
-            continue
-        if field == "lighting":
-            cleaned[field] = _normalize_controlled(value, CONTROLLED_LIGHTING)
+        if field in {"explicitness", "time_of_day", "outfit_category", "camera_angle", "shot_type", "lighting"}:
+            cleaned[field] = _normalize_token(value)
             continue
     # Drop empty lists to avoid noisy updates.
     for field in list(cleaned.keys()):
