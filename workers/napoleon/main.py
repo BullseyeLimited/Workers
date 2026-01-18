@@ -12,6 +12,12 @@ from supabase import create_client, ClientOptions
 from workers.lib.content_pack import format_content_pack
 from workers.lib.json_utils import safe_parse_model_json
 from workers.lib.prompt_builder import build_prompt_sections, live_turn_window
+from workers.lib.reply_run_tracking import (
+    is_run_active,
+    set_run_current_step,
+    step_started_at,
+    upsert_step,
+)
 from workers.lib.simple_queue import receive, ack, send
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
@@ -1284,6 +1290,37 @@ def run_repair_call(
 
 def process_job(payload):
     fan_message_id = payload["message_id"]
+    run_id = payload.get("run_id")
+    attempt = 0
+
+    if run_id:
+        set_run_current_step(str(run_id), "napoleon", client=SB)
+        started_at = step_started_at(
+            run_id=str(run_id), step="napoleon", attempt=attempt, client=SB
+        ) or datetime.now(timezone.utc).isoformat()
+        upsert_step(
+            run_id=str(run_id),
+            step="napoleon",
+            attempt=attempt,
+            status="running",
+            client=SB,
+            message_id=int(fan_message_id),
+            started_at=started_at,
+            meta={"queue": QUEUE},
+        )
+        if not is_run_active(str(run_id), client=SB):
+            upsert_step(
+                run_id=str(run_id),
+                step="napoleon",
+                attempt=attempt,
+                status="canceled",
+                client=SB,
+                message_id=int(fan_message_id),
+                started_at=started_at,
+                ended_at=datetime.now(timezone.utc).isoformat(),
+                error="run_canceled",
+            )
+            return True
 
     msg = (
         SB.table("messages")
@@ -1294,6 +1331,17 @@ def process_job(payload):
         .data
     )
     if not msg:
+        if run_id:
+            upsert_step(
+                run_id=str(run_id),
+                step="napoleon",
+                attempt=attempt,
+                status="failed",
+                client=SB,
+                message_id=int(fan_message_id),
+                ended_at=datetime.now(timezone.utc).isoformat(),
+                error="message_not_found",
+            )
         raise ValueError(f"Message {fan_message_id} not found")
 
     thread_id = msg["thread_id"]
@@ -1403,6 +1451,17 @@ def process_job(payload):
             error_message=f"RunPod error: {exc}",
         )
         print(f"[Napoleon] RunPod error for fan message {fan_message_id}: {exc}")
+        if run_id:
+            upsert_step(
+                run_id=str(run_id),
+                step="napoleon",
+                attempt=attempt,
+                status="failed",
+                client=SB,
+                message_id=int(fan_message_id),
+                ended_at=datetime.now(timezone.utc).isoformat(),
+                error=f"runpod_error: {exc}",
+            )
         return True
 
     analysis, parse_error = parse_napoleon_headers(raw_text)
@@ -1627,6 +1686,19 @@ def process_job(payload):
         creator_message_id=None,
     )
 
+    if run_id and not is_run_active(str(run_id), client=SB):
+        upsert_step(
+            run_id=str(run_id),
+            step="napoleon",
+            attempt=attempt,
+            status="canceled",
+            client=SB,
+            message_id=int(fan_message_id),
+            ended_at=datetime.now(timezone.utc).isoformat(),
+            error="run_canceled_post_compute",
+        )
+        return True
+
     def _recent_fan_messages(limit: int = 20) -> list[str]:
         rows = (
             SB.table("messages")
@@ -1658,7 +1730,19 @@ def process_job(payload):
         "turn_directive": turn1_directive,
         "content_actions": content_actions or {},
     }
+    if run_id:
+        writer_payload["run_id"] = str(run_id)
     send(WRITER_QUEUE, writer_payload)
+    if run_id:
+        upsert_step(
+            run_id=str(run_id),
+            step="napoleon",
+            attempt=attempt,
+            status="ok",
+            client=SB,
+            message_id=int(fan_message_id),
+            ended_at=datetime.now(timezone.utc).isoformat(),
+        )
     return True
 
 

@@ -12,6 +12,7 @@ import json
 import os
 import time
 import traceback
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 from urllib.parse import urlparse, urljoin
@@ -23,6 +24,12 @@ from supabase import ClientOptions, create_client
 
 from workers.lib.prompt_builder import live_turn_window
 from workers.lib.job_utils import job_exists
+from workers.lib.reply_run_tracking import (
+    is_run_active,
+    set_run_current_step,
+    step_started_at,
+    upsert_step,
+)
 from workers.lib.simple_queue import ack, receive, send
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
@@ -797,6 +804,35 @@ def process_job(payload: Dict[str, Any]) -> bool:
     msg_id = payload.get("message_id")
     if not msg_id:
         return True
+    run_id = payload.get("run_id")
+    if run_id:
+        set_run_current_step(str(run_id), "argus", client=SB)
+        started_at = step_started_at(
+            run_id=str(run_id), step="argus", attempt=0, client=SB
+        ) or datetime.now(timezone.utc).isoformat()
+        upsert_step(
+            run_id=str(run_id),
+            step="argus",
+            attempt=0,
+            status="running",
+            client=SB,
+            message_id=int(msg_id),
+            started_at=started_at,
+            meta={"queue": QUEUE},
+        )
+        if not is_run_active(str(run_id), client=SB):
+            upsert_step(
+                run_id=str(run_id),
+                step="argus",
+                attempt=0,
+                status="canceled",
+                client=SB,
+                message_id=int(msg_id),
+                started_at=started_at,
+                ended_at=datetime.now(timezone.utc).isoformat(),
+                error="run_canceled",
+            )
+            return True
 
     row = (
         SB.table("messages")
@@ -807,6 +843,17 @@ def process_job(payload: Dict[str, Any]) -> bool:
         .data
     )
     if not row:
+        if run_id:
+            upsert_step(
+                run_id=str(run_id),
+                step="argus",
+                attempt=0,
+                status="failed",
+                client=SB,
+                message_id=int(msg_id),
+                ended_at=datetime.now(timezone.utc).isoformat(),
+                error="message_not_found",
+            )
         return True
 
     thread_id = row.get("thread_id")
@@ -823,7 +870,21 @@ def process_job(payload: Dict[str, Any]) -> bool:
             media_error="no_media_items",
         )
         if not job_exists(JOIN_QUEUE, msg_id, client=SB):
-            send(JOIN_QUEUE, {"message_id": msg_id})
+            join_payload = {"message_id": msg_id}
+            if run_id:
+                join_payload["run_id"] = str(run_id)
+            send(JOIN_QUEUE, join_payload)
+        if run_id:
+            upsert_step(
+                run_id=str(run_id),
+                step="argus",
+                attempt=0,
+                status="failed",
+                client=SB,
+                message_id=int(msg_id),
+                ended_at=datetime.now(timezone.utc).isoformat(),
+                error="no_media_items",
+            )
         return True
 
     context = _merge_context(thread_id, turn_index, msg_id)
@@ -843,7 +904,21 @@ def process_job(payload: Dict[str, Any]) -> bool:
 
     # Wake Hermes Join so Napoleon can proceed once Hermes/Kairos/Web are ready.
     if not job_exists(JOIN_QUEUE, msg_id, client=SB):
-        send(JOIN_QUEUE, {"message_id": msg_id})
+        join_payload = {"message_id": msg_id}
+        if run_id:
+            join_payload["run_id"] = str(run_id)
+        send(JOIN_QUEUE, join_payload)
+    if run_id:
+        upsert_step(
+            run_id=str(run_id),
+            step="argus",
+            attempt=0,
+            status="ok" if status == "ok" else "failed",
+            client=SB,
+            message_id=int(msg_id),
+            ended_at=datetime.now(timezone.utc).isoformat(),
+            error=None if status == "ok" else (media_error or "argus_error"),
+        )
     return True
 
 

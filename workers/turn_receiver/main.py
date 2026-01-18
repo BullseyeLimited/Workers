@@ -43,6 +43,10 @@ def enqueue_argus(mid: int):
     # media-aware worker that will eventually wake Kairos
     send("argus.analyse", {"message_id": mid})
 
+def enqueue_reply_supervisor(mid: int):
+    # reply supervisor manages run cancel/defer logic before starting the pipeline
+    send("reply.supervise", {"message_id": mid})
+
 
 def _latest_summary_end(thread_id: int, tier: str) -> int:
     row = (
@@ -231,6 +235,12 @@ async def receive(request: Request):
                 or []
             )
             if existing:
+                # Best-effort: enqueue supervisor even on retries, so a transient
+                # failure between insert and enqueue doesn't permanently drop work.
+                try:
+                    enqueue_reply_supervisor(existing[0]["id"])
+                except Exception:
+                    pass
                 return {"message_id": existing[0]["id"], "thread_id": existing[0]["thread_id"]}
             raise HTTPException(409, "Duplicate message") from exc
         raise
@@ -240,13 +250,8 @@ async def receive(request: Request):
 
     msg_id = res[0]["id"]
     SB.table("threads").update({"turn_count": turn_index}).eq("id", thread_id).execute()
-    if has_media:
-        # Run Argus (media describer) and Hermes (router) in parallel.
-        # Hermes Join will gate Napoleon until upstream results are ready.
-        enqueue_argus(msg_id)
-        enqueue_hermes(msg_id)
-    else:
-        enqueue_hermes(msg_id)
+    # Supervisor decides whether to start, abort, or defer the run.
+    enqueue_reply_supervisor(msg_id)
 
     _maybe_enqueue_episode_summary(thread_id, turn_index)
 
