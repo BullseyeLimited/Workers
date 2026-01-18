@@ -183,3 +183,27 @@ create trigger on_file_delete
   after delete on storage.objects
   for each row
   execute procedure public.handle_deleted_media();
+
+-- -------------------------------------------------------------------
+-- 4) Queue cleanup (optional): when a content_item is deleted, remove its queued ingest job
+--    This prevents stale jobs when you delete media and the delete trigger removes content_items.
+-- -------------------------------------------------------------------
+
+create or replace function public.handle_content_item_deleted_queue_cleanup()
+returns trigger
+language plpgsql
+security definer
+as $$
+begin
+  delete from public.job_queue
+  where queue = 'content.ingest'
+    and (payload->>'content_id') = old.id::text;
+  return old;
+end;
+$$;
+
+drop trigger if exists on_content_item_delete_cleanup on public.content_items;
+create trigger on_content_item_delete_cleanup
+  after delete on public.content_items
+  for each row
+  execute procedure public.handle_content_item_deleted_queue_cleanup();

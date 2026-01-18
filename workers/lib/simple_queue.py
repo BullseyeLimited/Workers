@@ -32,7 +32,7 @@ def receive(queue: str, vt_seconds: int = 30):
             return None
 
     vt_until = (
-        datetime.datetime.utcnow()
+        datetime.datetime.now(datetime.timezone.utc)
         + datetime.timedelta(seconds=vt_seconds)
     ).isoformat()
 
@@ -41,7 +41,7 @@ def receive(queue: str, vt_seconds: int = 30):
         SB.table("job_queue")
         .select("id,payload")
         .eq("queue", queue)
-        .lte("available_at", datetime.datetime.utcnow().isoformat())
+        .lte("available_at", datetime.datetime.now(datetime.timezone.utc).isoformat())
         .order("id")
         .limit(1)
         .execute()

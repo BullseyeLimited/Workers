@@ -8,5 +8,8 @@ primary_region = "fra"
 [processes]
   app = "python -m workers.content_ingestor.main"
 
+[env]
+  QUEUE_USE_RPC = "false"
+
 [deploy]
   min_machines_running = 1

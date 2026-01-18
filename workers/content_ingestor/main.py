@@ -962,19 +962,6 @@ if __name__ == "__main__":
     while True:
         _maybe_run_sweeper()
 
-        if RUNPOD_GATE_ENABLED:
-            reachable, gate_error = _runpod_is_reachable()
-            if not reachable:
-                notice = gate_error or "runpod_unreachable"
-                if notice != _last_runpod_gate_notice:
-                    print(
-                        f"[content_ingestor] runpod not ready ({notice}); waiting…",
-                        flush=True,
-                    )
-                    _last_runpod_gate_notice = notice
-                time.sleep(RUNPOD_GATE_SLEEP_SECONDS)
-                continue
-
         if HANDLE_SCRIPT_FINALIZE:
             queue_order = (SCRIPT_QUEUE, QUEUE) if prefer_finalize else (QUEUE, SCRIPT_QUEUE)
             job = receive(queue_order[0], 30) or receive(queue_order[1], 30)
@@ -987,6 +974,27 @@ if __name__ == "__main__":
         row_id = job["row_id"]
         queue_name = job.get("queue") or QUEUE
         payload = job["payload"]
+
+        if RUNPOD_GATE_ENABLED and queue_name == QUEUE:
+            reachable, gate_error = _runpod_is_reachable()
+            if not reachable:
+                notice = gate_error or "runpod_unreachable"
+                if notice != _last_runpod_gate_notice:
+                    print(
+                        f"[content_ingestor] runpod not ready ({notice}); waiting…",
+                        flush=True,
+                    )
+                    _last_runpod_gate_notice = notice
+                try:
+                    # Release the job immediately so we don't hold it invisible while the pod is off.
+                    SB.table("job_queue").update(
+                        {"available_at": datetime.now(timezone.utc).isoformat()}
+                    ).eq("id", row_id).execute()
+                except Exception:
+                    pass
+                time.sleep(RUNPOD_GATE_SLEEP_SECONDS)
+                continue
+
         try:
             if queue_name == QUEUE:
                 ok = process_job(payload)
