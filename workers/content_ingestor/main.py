@@ -12,6 +12,7 @@ import traceback
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
+from urllib.parse import urlparse
 
 import requests
 from supabase import ClientOptions, create_client
@@ -102,15 +103,17 @@ def _infer_media_type(row: Dict[str, Any]) -> Optional[str]:
     if mime.startswith("audio/"):
         return "voice"
 
-    url = (row.get("url_main") or row.get("url_thumb") or "").lower()
+    url_raw = row.get("url_main") or row.get("url_thumb") or ""
+    url = str(url_raw).lower()
+    url_path = urlparse(url).path.lower() if url else ""
     for ext in (".jpg", ".jpeg", ".png", ".webp", ".gif"):
-        if url.endswith(ext):
+        if url_path.endswith(ext):
             return "photo"
     for ext in (".mp4", ".mov", ".m4v", ".webm"):
-        if url.endswith(ext):
+        if url_path.endswith(ext):
             return "video"
-    for ext in (".mp3", ".m4a", ".wav", ".aac", ".ogg"):
-        if url.endswith(ext):
+    for ext in (".mp3", ".m4a", ".wav", ".aac", ".ogg", ".opus"):
+        if url_path.endswith(ext):
             return "voice"
     return None
 
