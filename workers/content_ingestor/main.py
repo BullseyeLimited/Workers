@@ -593,7 +593,7 @@ def _run_model(
 
     temperature = float(os.getenv("CONTENT_TEMPERATURE", "0.2"))
     if media_type == "video":
-        max_tokens = int(os.getenv("CONTENT_VIDEO_MAX_TOKENS", "1000000"))
+        max_tokens = int(os.getenv("CONTENT_VIDEO_MAX_TOKENS", "65536"))
     else:
         max_tokens = int(os.getenv("CONTENT_MAX_TOKENS", "2000"))
 
