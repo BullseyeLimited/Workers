@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 os.environ.setdefault("SUPABASE_URL", "http://localhost")
 os.environ.setdefault("SUPABASE_SERVICE_ROLE_KEY", "test-key")
 
-from workers.reply_supervisor.main import _middle_window_decision, _parse_ts
+from workers.reply_supervisor.main import _extract_json_object, _parse_ts
 
 
 class ReplySupervisorPolicyTests(unittest.TestCase):
@@ -23,14 +23,16 @@ class ReplySupervisorPolicyTests(unittest.TestCase):
         self.assertIsNone(_parse_ts(""))
         self.assertIsNone(_parse_ts("   "))
 
-    def test_middle_window_flags_emergency(self):
-        self.assertEqual("ABORT_REDO", _middle_window_decision("my mother died"))
-        self.assertEqual("ABORT_REDO", _middle_window_decision("I am in the hospital"))
+    def test_extract_json_object_strict(self):
+        self.assertEqual({"a": 1}, _extract_json_object('{"a": 1}'))
 
-    def test_middle_window_defaults_defer(self):
-        self.assertEqual("DEFER", _middle_window_decision("lol ok"))
+    def test_extract_json_object_embedded(self):
+        blob = "sure here you go\n{\"decision\":\"DEFER\",\"reason\":\"ok\"}\nthanks"
+        self.assertEqual(
+            {"decision": "DEFER", "reason": "ok"},
+            _extract_json_object(blob),
+        )
 
 
 if __name__ == "__main__":
     unittest.main()
-

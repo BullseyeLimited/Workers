@@ -6,9 +6,10 @@ Responsibilities:
 - Cancel/supersede an active reply_run based on timing rules.
 - Defer or schedule follow-ups when we choose not to interrupt.
 
-This worker intentionally does not call LLMs yet; it only implements the
-time-window policy skeleton. A later "interrupt decider" model can be added
-behind the same decision points.
+This worker implements a hybrid policy:
+- hard rules (auto-abort window, Napoleon protection window)
+- model-driven "interrupt decider" for the middle window that chooses
+  between aborting, fast follow-up, or deferring to a natural next turn.
 """
 
 from __future__ import annotations
@@ -18,8 +19,10 @@ import os
 import time
 import traceback
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Any, Dict
 
+import requests
 from supabase import ClientOptions, create_client
 
 from workers.lib.simple_queue import ack, receive, send
@@ -44,6 +47,24 @@ ARGUS_QUEUE = "argus.analyse"
 AUTO_ABORT_SECONDS = float(os.getenv("REPLY_AUTO_ABORT_SECONDS", "10"))
 NAPOLEON_PROTECT_SECONDS = float(os.getenv("REPLY_NAPOLEON_PROTECT_SECONDS", "10"))
 FOLLOWUP_RECHECK_SECONDS = float(os.getenv("REPLY_FOLLOWUP_RECHECK_SECONDS", "10"))
+FOLLOWUP_FAST_RECHECK_SECONDS = float(os.getenv("REPLY_FOLLOWUP_FAST_RECHECK_SECONDS", "1"))
+
+PROMPTS_DIR = Path(__file__).resolve().parents[2] / "prompts"
+DECIDER_PROMPT_PATH = PROMPTS_DIR / "reply_interrupt_decider.txt"
+
+RUNPOD_URL = (os.getenv("REPLY_DECIDER_RUNPOD_URL") or os.getenv("RUNPOD_URL") or "").rstrip("/")
+RUNPOD_API_KEY = os.getenv("REPLY_DECIDER_RUNPOD_API_KEY") or os.getenv("RUNPOD_API_KEY") or ""
+RUNPOD_MODEL_NAME = (
+    os.getenv("REPLY_DECIDER_RUNPOD_MODEL_NAME")
+    or os.getenv("RUNPOD_MODEL_NAME")
+    or "gpt-oss-20b-uncensored"
+)
+
+DECISION_ABORT_REDO = "ABORT_REDO"
+DECISION_FOLLOWUP_FAST = "FOLLOWUP_FAST"
+DECISION_DEFER = "DEFER"
+
+ALLOWED_DECISIONS = {DECISION_ABORT_REDO, DECISION_FOLLOWUP_FAST, DECISION_DEFER}
 
 
 def _utcnow() -> datetime:
@@ -106,6 +127,23 @@ def _record_event(
     except Exception:
         # Fail-open: monitoring should not block core routing.
         pass
+
+
+def _load_decider_prompt() -> str:
+    try:
+        return DECIDER_PROMPT_PATH.read_text(encoding="utf-8")
+    except Exception:
+        # Minimal default prompt if the file is missing.
+        return (
+            "You decide how to handle a new fan message while a reply pipeline is running.\n"
+            "Return STRICT JSON only.\n"
+            "Schema:\n"
+            '{ "decision": "ABORT_REDO|FOLLOWUP_FAST|DEFER", "reason": "..." }\n'
+            "Rules:\n"
+            "- Prefer DEFER unless the message is urgent.\n"
+            "- Use ABORT_REDO only for emergencies or major corrections.\n"
+            "- If abort_allowed=false, do NOT output ABORT_REDO.\n"
+        )
 
 
 def _active_run(thread_id: int) -> dict | None:
@@ -261,26 +299,44 @@ def _enqueue_pipeline(*, run_id: str, message_id: int) -> None:
 
 
 def _latest_unreplied_fan_turn(thread_id: int) -> dict | None:
-    # A "replied" boundary is the latest creator message.
-    latest_creator = (
-        SB.table("messages")
-        .select("turn_index")
+    # IMPORTANT: do not use "latest creator message" as the replied boundary.
+    # A creator message can be inserted AFTER a new fan message arrives mid-run,
+    # without actually responding to that new fan message. We therefore use the
+    # latest committed run's snapshot boundary as the canonical "replied" marker.
+    committed = (
+        SB.table("reply_runs")
+        .select("snapshot_end_turn_index")
         .eq("thread_id", thread_id)
-        .eq("sender", "creator")
-        .order("turn_index", desc=True)
+        .eq("status", "committed")
+        .order("created_at", desc=True)
         .limit(1)
         .execute()
         .data
         or []
     )
-    last_creator_turn = int(latest_creator[0].get("turn_index") or 0) if latest_creator else 0
+    if committed and committed[0].get("snapshot_end_turn_index") is not None:
+        replied_boundary_turn = int(committed[0]["snapshot_end_turn_index"])
+    else:
+        # Fallback for threads that have never used reply_runs yet.
+        latest_creator = (
+            SB.table("messages")
+            .select("turn_index")
+            .eq("thread_id", thread_id)
+            .eq("sender", "creator")
+            .order("turn_index", desc=True)
+            .limit(1)
+            .execute()
+            .data
+            or []
+        )
+        replied_boundary_turn = int(latest_creator[0].get("turn_index") or 0) if latest_creator else 0
 
     fan_rows = (
         SB.table("messages")
         .select("id,turn_index")
         .eq("thread_id", thread_id)
         .eq("sender", "fan")
-        .gt("turn_index", last_creator_turn)
+        .gt("turn_index", replied_boundary_turn)
         .order("turn_index", desc=True)
         .limit(1)
         .execute()
@@ -292,27 +348,160 @@ def _latest_unreplied_fan_turn(thread_id: int) -> dict | None:
 
 def _middle_window_decision(message_text: str) -> str:
     """
-    Placeholder "importance" logic until you add the model prompt.
+    Deprecated: the supervisor now uses the model-driven decider.
+    """
+    return DECISION_DEFER
 
-    Returns one of:
+
+def _runpod_chat(system_prompt: str, user_prompt: str) -> tuple[str, dict]:
+    if not RUNPOD_URL:
+        raise RuntimeError("RUNPOD_URL is not set for reply decider")
+    url = f"{RUNPOD_URL}/v1/chat/completions"
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {RUNPOD_API_KEY}",
+    }
+    payload = {
+        "model": RUNPOD_MODEL_NAME,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ],
+        "max_tokens": 250,
+        "temperature": 0,
+    }
+    resp = requests.post(url, headers=headers, json=payload, timeout=120)
+    resp.raise_for_status()
+    data = resp.json()
+
+    raw_text = ""
+    try:
+        if data.get("choices"):
+            msg = data["choices"][0].get("message") or {}
+            raw_text = (
+                msg.get("content")
+                or msg.get("reasoning")
+                or msg.get("reasoning_content")
+                or ""
+            )
+        if not raw_text:
+            raw_text = data.get("choices", [{}])[0].get("text") or ""
+    except Exception:
+        pass
+
+    return raw_text, payload
+
+
+def _extract_json_object(text: str) -> dict | None:
+    if not text:
+        return None
+    raw = text.strip()
+    if not raw:
+        return None
+    try:
+        parsed = json.loads(raw)
+        return parsed if isinstance(parsed, dict) else None
+    except Exception:
+        pass
+    # Best-effort: strip leading/trailing chatter and parse the first {...} blob.
+    start = raw.find("{")
+    end = raw.rfind("}")
+    if start == -1 or end == -1 or end <= start:
+        return None
+    try:
+        parsed = json.loads(raw[start : end + 1])
+        return parsed if isinstance(parsed, dict) else None
+    except Exception:
+        return None
+
+
+def _decide_interrupt(
+    *,
+    message_text: str,
+    abort_allowed: bool,
+    run_id: str,
+    thread_id: int,
+    run_age_seconds: float,
+    current_step: str | None,
+    napoleon_started_at: datetime | None,
+) -> tuple[str, str, dict]:
+    """
+    Decide how to handle an in-flight run when a new fan message arrives.
+
+    Returns (decision, reason, debug_payload). Decision is one of:
     - ABORT_REDO
+    - FOLLOWUP_FAST
     - DEFER
     """
-    text = (message_text or "").lower()
-    hard_keywords = [
-        "died",
-        "dead",
-        "passed away",
-        "funeral",
-        "hospital",
-        "emergency",
-        "911",
-        "suicide",
-        "kill myself",
-    ]
-    if any(k in text for k in hard_keywords):
-        return "ABORT_REDO"
-    return "DEFER"
+    debug: dict = {
+        "provider": "runpod",
+        "model": RUNPOD_MODEL_NAME,
+        "abort_allowed": bool(abort_allowed),
+    }
+
+    system_prompt = _load_decider_prompt()
+    nap_elapsed: float | None = None
+    if napoleon_started_at:
+        try:
+            nap_elapsed = (_utcnow() - napoleon_started_at).total_seconds()
+        except Exception:
+            nap_elapsed = None
+
+    context = {
+        "new_fan_message": {"text": message_text or ""},
+        "run": {
+            "run_id": str(run_id),
+            "thread_id": int(thread_id),
+            "run_age_seconds": float(run_age_seconds),
+            "current_step": current_step or "",
+            "napoleon_started_at": napoleon_started_at.isoformat() if napoleon_started_at else None,
+            "napoleon_elapsed_seconds": nap_elapsed,
+        },
+        "policy": {
+            "abort_allowed": bool(abort_allowed),
+            "auto_abort_seconds": float(AUTO_ABORT_SECONDS),
+            "napoleon_protect_seconds": float(NAPOLEON_PROTECT_SECONDS),
+        },
+        "decisions": {
+            "ABORT_REDO": "Cancel current run and restart a new run using this message as root.",
+            "FOLLOWUP_FAST": "Let current run finish; then start a new run soon after to answer this message.",
+            "DEFER": "Let current run finish; do NOT start a follow-up automatically (answer naturally later).",
+        },
+    }
+    user_prompt = (
+        "<INTERRUPT_CONTEXT>\n"
+        f"{json.dumps(context, ensure_ascii=False, indent=2)}\n"
+        "</INTERRUPT_CONTEXT>"
+    )
+
+    try:
+        content, request_payload = _runpod_chat(system_prompt, user_prompt)
+        debug["request"] = request_payload
+        debug["raw"] = (content or "")[:2000]
+    except Exception as exc:  # noqa: BLE001
+        # If the model is temporarily unavailable, fail-safe:
+        # do NOT abort the current run; queue a fast follow-up.
+        debug["error"] = str(exc)
+        return DECISION_FOLLOWUP_FAST, "decider_unavailable_followup_fast", debug
+
+    parsed = _extract_json_object(content or "")
+    if not parsed:
+        debug["parse_error"] = "invalid_json"
+        return DECISION_FOLLOWUP_FAST, "decider_invalid_json_followup_fast", debug
+
+    decision = str(parsed.get("decision") or "").strip().upper()
+    reason = str(parsed.get("reason") or "").strip() or "model_decision"
+
+    if decision not in ALLOWED_DECISIONS:
+        debug["parse_error"] = "unknown_decision"
+        debug["parsed"] = parsed
+        return DECISION_FOLLOWUP_FAST, "decider_unknown_decision_followup_fast", debug
+
+    if decision == DECISION_ABORT_REDO and not abort_allowed:
+        # Enforce hard rule.
+        return DECISION_FOLLOWUP_FAST, "model_requested_abort_but_abort_not_allowed", debug
+
+    return decision, reason, debug
 
 
 def _handle_new_fan_message(message_id: int) -> bool:
@@ -393,33 +582,30 @@ def _handle_new_fan_message(message_id: int) -> bool:
     # Rule 2: never abort once Napoleon has been running long enough.
     napoleon = _latest_step(run_id, "napoleon")
     napoleon_started = _parse_ts((napoleon or {}).get("started_at"))
+    abort_allowed = True
     if napoleon_started and (now - napoleon_started).total_seconds() >= NAPOLEON_PROTECT_SECONDS:
-        _record_event(
-            run_id=run_id,
-            event_type="interrupt",
-            triggering_message_id=message_id,
-            decision="DEFER",
-            reason="napoleon_protected_window",
-            payload={"napoleon_started_at": napoleon_started.isoformat()},
-        )
-        _enqueue_delayed(
-            {"thread_id": thread_id, "reason": "followup_after_protected_run"},
-            delay_seconds=FOLLOWUP_RECHECK_SECONDS,
-        )
-        return True
+        abort_allowed = False
 
-    # Middle window: decide whether to abort or defer.
-    decision = _middle_window_decision(msg.get("message_text") or "")
+    # Decide what to do in the middle/protected window.
+    decision, decision_reason, debug_payload = _decide_interrupt(
+        message_text=msg.get("message_text") or "",
+        abort_allowed=abort_allowed,
+        run_id=run_id,
+        thread_id=thread_id,
+        run_age_seconds=run_age,
+        current_step=str(active.get("current_step") or ""),
+        napoleon_started_at=napoleon_started,
+    )
     _record_event(
         run_id=run_id,
         event_type="interrupt",
         triggering_message_id=message_id,
         decision=decision,
-        reason="middle_window_placeholder",
-        payload={"run_age_seconds": run_age},
+        reason=decision_reason,
+        payload={"run_age_seconds": run_age, "debug": debug_payload},
     )
 
-    if decision == "ABORT_REDO":
+    if decision == DECISION_ABORT_REDO and abort_allowed:
         _cancel_run(run_id, reason="middle_window_abort_redo")
         new_run_id = _create_run(
             thread_id=thread_id,
@@ -435,20 +621,25 @@ def _handle_new_fan_message(message_id: int) -> bool:
             _enqueue_pipeline(run_id=new_run_id, message_id=message_id)
         return True
 
-    # Default: defer and schedule a follow-up.
-    _enqueue_delayed(
-        {"thread_id": thread_id, "reason": "followup_after_defer"},
-        delay_seconds=FOLLOWUP_RECHECK_SECONDS,
-    )
+    if decision == DECISION_FOLLOWUP_FAST:
+        _enqueue_delayed(
+            {"thread_id": thread_id, "reason": "followup_fast", "mode": "fast"},
+            delay_seconds=FOLLOWUP_FAST_RECHECK_SECONDS,
+        )
+        return True
+
+    # DEFER: do not follow up automatically (answer naturally on the next trigger).
     return True
 
 
-def _handle_followup(thread_id: int) -> bool:
+def _handle_followup(thread_id: int, *, mode: str = "normal") -> bool:
+    delay = FOLLOWUP_FAST_RECHECK_SECONDS if mode == "fast" else FOLLOWUP_RECHECK_SECONDS
+
     active = _active_run(thread_id)
     if active:
         _enqueue_delayed(
-            {"thread_id": thread_id, "reason": "followup_still_active"},
-            delay_seconds=FOLLOWUP_RECHECK_SECONDS,
+            {"thread_id": thread_id, "reason": "followup_still_active", "mode": mode},
+            delay_seconds=delay,
         )
         return True
 
@@ -469,7 +660,7 @@ def _handle_followup(thread_id: int) -> bool:
             event_type="run_started",
             triggering_message_id=message_id,
             decision="START",
-            reason="followup_start",
+            reason=f"followup_start:{mode}",
         )
         _enqueue_pipeline(run_id=run_id, message_id=message_id)
     return True
@@ -485,7 +676,7 @@ def process_job(payload: Dict[str, Any]) -> bool:
             return True
     if payload.get("thread_id"):
         try:
-            return _handle_followup(int(payload["thread_id"]))
+            return _handle_followup(int(payload["thread_id"]), mode=str(payload.get("mode") or "normal"))
         except Exception:
             return True
     return True
