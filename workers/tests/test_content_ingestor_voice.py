@@ -18,6 +18,10 @@ class ContentIngestorVoiceTests(unittest.TestCase):
         row = {"media_type": None, "mimetype": "", "url_main": "https://x/y/image.jpg?token=abc"}
         self.assertEqual("photo", _infer_media_type(row))
 
+    def test_infer_media_type_ignores_other_and_uses_url_extension(self):
+        row = {"media_type": "other", "mimetype": None, "url_main": "https://x/y/video.mp4"}
+        self.assertEqual("video", _infer_media_type(row))
+
     def test_infer_media_type_supports_opus(self):
         row = {"media_type": None, "mimetype": "", "url_main": "https://x/y/audio.opus?token=abc"}
         self.assertEqual("voice", _infer_media_type(row))

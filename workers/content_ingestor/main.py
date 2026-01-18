@@ -125,7 +125,7 @@ def _normalize_media_type(value: Optional[str]) -> Optional[str]:
 
 def _infer_media_type(row: Dict[str, Any]) -> Optional[str]:
     media_type = _normalize_media_type(row.get("media_type"))
-    if media_type:
+    if media_type in {"photo", "video", "voice"}:
         return media_type
 
     mime = (row.get("mimetype") or "").lower().strip()
@@ -593,7 +593,7 @@ def _run_model(
 
     temperature = float(os.getenv("CONTENT_TEMPERATURE", "0.2"))
     if media_type == "video":
-        max_tokens = int(os.getenv("CONTENT_VIDEO_MAX_TOKENS", "65536"))
+        max_tokens = int(os.getenv("CONTENT_VIDEO_MAX_TOKENS", "30000"))
     else:
         max_tokens = int(os.getenv("CONTENT_MAX_TOKENS", "2000"))
 
