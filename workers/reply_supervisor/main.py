@@ -51,6 +51,7 @@ FOLLOWUP_FAST_RECHECK_SECONDS = float(os.getenv("REPLY_FOLLOWUP_FAST_RECHECK_SEC
 
 PROMPTS_DIR = Path(__file__).resolve().parents[2] / "prompts"
 DECIDER_PROMPT_PATH = PROMPTS_DIR / "reply_interrupt_decider.txt"
+DECIDER_PROMPT_NO_ABORT_PATH = PROMPTS_DIR / "reply_interrupt_decider_no_abort.txt"
 
 RUNPOD_URL = (os.getenv("REPLY_DECIDER_RUNPOD_URL") or os.getenv("RUNPOD_URL") or "").rstrip("/")
 RUNPOD_API_KEY = os.getenv("REPLY_DECIDER_RUNPOD_API_KEY") or os.getenv("RUNPOD_API_KEY") or ""
@@ -129,11 +130,20 @@ def _record_event(
         pass
 
 
-def _load_decider_prompt() -> str:
+def _load_decider_prompt(*, abort_allowed: bool) -> str:
+    prompt_path = DECIDER_PROMPT_PATH if abort_allowed else DECIDER_PROMPT_NO_ABORT_PATH
     try:
-        return DECIDER_PROMPT_PATH.read_text(encoding="utf-8")
+        return prompt_path.read_text(encoding="utf-8")
     except Exception:
         # Minimal default prompt if the file is missing.
+        if not abort_allowed:
+            return (
+                "You decide what to do when a new fan message arrives while a reply pipeline is running.\n"
+                "Aborting the current run is NOT allowed.\n"
+                "Return STRICT JSON only.\n"
+                "Schema:\n"
+                '{ "decision": "FOLLOWUP_FAST|DEFER", "reason": "..." }\n'
+            )
         return (
             "You decide how to handle a new fan message while a reply pipeline is running.\n"
             "Return STRICT JSON only.\n"
@@ -261,6 +271,52 @@ def _has_media(row: dict) -> bool:
         return False
     items = media_payload.get("items")
     return isinstance(items, list) and len(items) > 0
+
+
+def _format_turn_text(row: dict) -> str:
+    parts: list[str] = []
+    text = (row.get("message_text") or "").strip()
+    media_analysis = (row.get("media_analysis_text") or "").strip()
+
+    if text:
+        parts.append(text)
+    if media_analysis:
+        parts.append(f"(media): {media_analysis}")
+
+    return "\n".join(parts).strip()
+
+
+def _recent_turns_before(thread_id: int, *, before_turn_index: int | None, limit: int = 20) -> list[dict]:
+    """
+    Return recent turns for context, ordered oldest -> newest.
+    """
+    query = (
+        SB.table("messages")
+        .select("turn_index,sender,message_text,media_analysis_text")
+        .eq("thread_id", int(thread_id))
+    )
+    if before_turn_index is not None:
+        query = query.lt("turn_index", int(before_turn_index))
+
+    rows = (
+        query.order("turn_index", desc=True)
+        .limit(int(limit))
+        .execute()
+        .data
+        or []
+    )
+
+    turns: list[dict] = []
+    for row in reversed(rows):
+        sender = (row.get("sender") or "").strip() or "unknown"
+        turns.append(
+            {
+                "turn_index": int(row.get("turn_index") or 0),
+                "sender": sender,
+                "text": _format_turn_text(row),
+            }
+        )
+    return turns
 
 
 def _enqueue_pipeline(*, run_id: str, message_id: int) -> None:
@@ -417,6 +473,7 @@ def _extract_json_object(text: str) -> dict | None:
 
 def _decide_interrupt(
     *,
+    message_turn_index: int | None,
     message_text: str,
     abort_allowed: bool,
     run_id: str,
@@ -439,7 +496,7 @@ def _decide_interrupt(
         "abort_allowed": bool(abort_allowed),
     }
 
-    system_prompt = _load_decider_prompt()
+    system_prompt = _load_decider_prompt(abort_allowed=abort_allowed)
     nap_elapsed: float | None = None
     if napoleon_started_at:
         try:
@@ -447,26 +504,27 @@ def _decide_interrupt(
         except Exception:
             nap_elapsed = None
 
+    recent_turns = _recent_turns_before(thread_id, before_turn_index=message_turn_index, limit=20)
+
+    decisions: dict[str, str] = {
+        "FOLLOWUP_FAST": "Let current run finish; then start a new run soon after to answer this message.",
+        "DEFER": "Let current run finish; do NOT start a follow-up automatically (answer naturally later).",
+    }
+    if abort_allowed:
+        decisions["ABORT_REDO"] = "Cancel current run and restart a new run using this message as root."
+
     context = {
-        "new_fan_message": {"text": message_text or ""},
+        "recent_turns": recent_turns,
+        "new_fan_message": {"turn_index": message_turn_index, "text": message_text or ""},
         "run": {
-            "run_id": str(run_id),
-            "thread_id": int(thread_id),
             "run_age_seconds": float(run_age_seconds),
             "current_step": current_step or "",
-            "napoleon_started_at": napoleon_started_at.isoformat() if napoleon_started_at else None,
             "napoleon_elapsed_seconds": nap_elapsed,
         },
         "policy": {
             "abort_allowed": bool(abort_allowed),
-            "auto_abort_seconds": float(AUTO_ABORT_SECONDS),
-            "napoleon_protect_seconds": float(NAPOLEON_PROTECT_SECONDS),
         },
-        "decisions": {
-            "ABORT_REDO": "Cancel current run and restart a new run using this message as root.",
-            "FOLLOWUP_FAST": "Let current run finish; then start a new run soon after to answer this message.",
-            "DEFER": "Let current run finish; do NOT start a follow-up automatically (answer naturally later).",
-        },
+        "decisions": decisions,
     }
     user_prompt = (
         "<INTERRUPT_CONTEXT>\n"
@@ -507,7 +565,7 @@ def _decide_interrupt(
 def _handle_new_fan_message(message_id: int) -> bool:
     rows = (
         SB.table("messages")
-        .select("id,thread_id,turn_index,created_at,sender,message_text")
+        .select("id,thread_id,turn_index,created_at,sender,message_text,media_payload,media_analysis_text")
         .eq("id", message_id)
         .limit(1)
         .execute()
@@ -586,9 +644,14 @@ def _handle_new_fan_message(message_id: int) -> bool:
     if napoleon_started and (now - napoleon_started).total_seconds() >= NAPOLEON_PROTECT_SECONDS:
         abort_allowed = False
 
+    message_text_for_decider = _format_turn_text(msg)
+    if not message_text_for_decider and _has_media(msg):
+        message_text_for_decider = "media attachment"
+
     # Decide what to do in the middle/protected window.
     decision, decision_reason, debug_payload = _decide_interrupt(
-        message_text=msg.get("message_text") or "",
+        message_turn_index=int(msg.get("turn_index") or 0) or None,
+        message_text=message_text_for_decider,
         abort_allowed=abort_allowed,
         run_id=run_id,
         thread_id=thread_id,
