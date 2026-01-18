@@ -22,6 +22,12 @@ from workers.lib.content_pack import build_content_index, format_content_pack
 from workers.lib.job_utils import job_exists
 from workers.lib.prompt_builder import live_turn_window
 from workers.lib.json_utils import safe_parse_model_json
+from workers.lib.reply_run_tracking import (
+    is_run_active,
+    set_run_current_step,
+    step_started_at,
+    upsert_step,
+)
 from workers.lib.simple_queue import ack, receive, send
 from workers.hermes_join.main import process_job as process_join_job
 
@@ -409,6 +415,36 @@ def process_job(payload: Dict[str, Any]) -> bool:
 
     fan_msg_id = payload["message_id"]
     attempt = int(payload.get("hermes_retry", 0))
+    run_id = payload.get("run_id")
+
+    if run_id:
+        set_run_current_step(str(run_id), "hermes", client=SB)
+        started_at = step_started_at(
+            run_id=str(run_id), step="hermes", attempt=attempt, client=SB
+        ) or datetime.now(timezone.utc).isoformat()
+        upsert_step(
+            run_id=str(run_id),
+            step="hermes",
+            attempt=attempt,
+            status="running",
+            client=SB,
+            message_id=int(fan_msg_id),
+            started_at=started_at,
+            meta={"queue": QUEUE},
+        )
+        if not is_run_active(str(run_id), client=SB):
+            upsert_step(
+                run_id=str(run_id),
+                step="hermes",
+                attempt=attempt,
+                status="canceled",
+                client=SB,
+                message_id=int(fan_msg_id),
+                started_at=started_at,
+                ended_at=datetime.now(timezone.utc).isoformat(),
+                error="run_canceled",
+            )
+            return True
     # NOTE: Do not use `.single()` here. If the row is not visible (e.g., wrong
     # Supabase project, RLS blocking due to bad key, or message deleted),
     # `.single()` raises and the job becomes a poison pill that retries forever.
@@ -427,6 +463,17 @@ def process_job(payload: Dict[str, Any]) -> bool:
             "acking job (check SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY secrets).",
             flush=True,
         )
+        if run_id:
+            upsert_step(
+                run_id=str(run_id),
+                step="hermes",
+                attempt=attempt,
+                status="failed",
+                client=SB,
+                message_id=int(fan_msg_id),
+                ended_at=datetime.now(timezone.utc).isoformat(),
+                error="message_not_visible",
+            )
         return True
     msg_row = msg_rows[0]
 
@@ -599,20 +646,130 @@ def process_job(payload: Dict[str, Any]) -> bool:
     need_kairos = verdict_kairos != "SKIP"
     need_web = verdict_search == "YES"
 
+    if run_id:
+        kairos_mode = "lite" if verdict_kairos == "LITE" else "full"
+        if need_kairos:
+            upsert_step(
+                run_id=str(run_id),
+                step="kairos",
+                attempt=0,
+                status="pending",
+                client=SB,
+                message_id=int(fan_msg_id),
+                mode=kairos_mode,
+                meta={"source": "hermes"},
+            )
+        else:
+            upsert_step(
+                run_id=str(run_id),
+                step="kairos",
+                attempt=0,
+                status="skipped",
+                client=SB,
+                message_id=int(fan_msg_id),
+                mode="skip",
+                meta={"source": "hermes"},
+            )
+
+        if need_web:
+            upsert_step(
+                run_id=str(run_id),
+                step="web",
+                attempt=0,
+                status="pending",
+                client=SB,
+                message_id=int(fan_msg_id),
+                meta={"source": "hermes", "brief": research_brief},
+            )
+        else:
+            upsert_step(
+                run_id=str(run_id),
+                step="web",
+                attempt=0,
+                status="skipped",
+                client=SB,
+                message_id=int(fan_msg_id),
+                mode="skip",
+                meta={"source": "hermes"},
+            )
+
+    # If this run was canceled while Hermes was working, do not fan out downstream jobs.
+    if run_id and not is_run_active(str(run_id), client=SB):
+        upsert_step(
+            run_id=str(run_id),
+            step="hermes",
+            attempt=attempt,
+            status="canceled",
+            client=SB,
+            message_id=int(fan_msg_id),
+            ended_at=datetime.now(timezone.utc).isoformat(),
+            error="run_canceled_post_compute",
+        )
+        return True
+
+    # If Hermes explicitly chooses to skip Kairos, reflect that the Kairos lane is
+    # effectively "done" for this turn so dashboards don't show a perpetual pending.
+    if not need_kairos:
+        try:
+            row = (
+                SB.table("message_ai_details")
+                .select("kairos_status")
+                .eq("message_id", fan_msg_id)
+                .limit(1)
+                .execute()
+                .data
+                or []
+            )
+            current = (row[0].get("kairos_status") if row else None) if row else None
+            if not current or str(current).lower() == "pending":
+                SB.table("message_ai_details").update({"kairos_status": "ok"}).eq(
+                    "message_id", fan_msg_id
+                ).execute()
+        except Exception:
+            pass
+
     # Idempotent forks
     if need_kairos:
         kairos_mode = "lite" if verdict_kairos == "LITE" else "full"
         if not job_exists(KAIROS_QUEUE, fan_msg_id, client=SB):
-            send(KAIROS_QUEUE, {"message_id": fan_msg_id, "kairos_mode": kairos_mode})
+            kairos_payload = {
+                "message_id": fan_msg_id,
+                "kairos_mode": kairos_mode,
+            }
+            if run_id:
+                kairos_payload["run_id"] = str(run_id)
+            send(KAIROS_QUEUE, kairos_payload)
 
     if need_web:
         if not job_exists(WEB_QUEUE, fan_msg_id, client=SB):
-            send(WEB_QUEUE, {"message_id": fan_msg_id, "brief": research_brief})
+            web_payload = {"message_id": fan_msg_id, "brief": research_brief}
+            if run_id:
+                web_payload["run_id"] = str(run_id)
+            send(WEB_QUEUE, web_payload)
 
     if not need_kairos and not need_web:
         if not job_exists(JOIN_QUEUE, fan_msg_id, client=SB):
-            send(JOIN_QUEUE, {"message_id": fan_msg_id})
+            join_payload = {"message_id": fan_msg_id}
+            if run_id:
+                join_payload["run_id"] = str(run_id)
+            send(JOIN_QUEUE, join_payload)
 
+    if run_id:
+        upsert_step(
+            run_id=str(run_id),
+            step="hermes",
+            attempt=attempt,
+            status="ok",
+            client=SB,
+            message_id=int(fan_msg_id),
+            ended_at=datetime.now(timezone.utc).isoformat(),
+            meta={
+                "hermes_status": hermes_blob.get("status"),
+                "final_verdict_kairos": verdict_kairos,
+                "final_verdict_search": verdict_search,
+                "join_requirements": parsed.get("join_requirements"),
+            },
+        )
     return True
 
 

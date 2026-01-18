@@ -17,6 +17,12 @@ from openai import OpenAI
 from supabase import ClientOptions, create_client
 
 from workers.lib.job_utils import job_exists
+from workers.lib.reply_run_tracking import (
+    is_run_active,
+    set_run_current_step,
+    step_started_at,
+    upsert_step,
+)
 from workers.lib.simple_queue import ack, receive, send
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
@@ -134,6 +140,36 @@ def process_job(payload: Dict[str, Any]) -> bool:
     fan_msg_id = payload["message_id"]
     brief = payload.get("brief") or "NONE"
     attempt = int(payload.get("web_retry", 0))
+    run_id = payload.get("run_id")
+
+    if run_id:
+        set_run_current_step(str(run_id), "web", client=SB)
+        started_at = step_started_at(
+            run_id=str(run_id), step="web", attempt=attempt, client=SB
+        ) or datetime.now(timezone.utc).isoformat()
+        upsert_step(
+            run_id=str(run_id),
+            step="web",
+            attempt=attempt,
+            status="running",
+            client=SB,
+            message_id=int(fan_msg_id),
+            started_at=started_at,
+            meta={"queue": QUEUE, "brief": brief},
+        )
+        if not is_run_active(str(run_id), client=SB):
+            upsert_step(
+                run_id=str(run_id),
+                step="web",
+                attempt=attempt,
+                status="canceled",
+                client=SB,
+                message_id=int(fan_msg_id),
+                started_at=started_at,
+                ended_at=datetime.now(timezone.utc).isoformat(),
+                error="run_canceled",
+            )
+            return True
 
     msg_row = (
         SB.table("messages")
@@ -207,6 +243,7 @@ def process_job(payload: Dict[str, Any]) -> bool:
             "message_id": fan_msg_id,
             "brief": brief,
             "web_retry": attempt + 1,
+            "run_id": str(run_id) if run_id else None,
         }
         send(QUEUE, retry_payload)
         web_blob = {
@@ -224,6 +261,17 @@ def process_job(payload: Dict[str, Any]) -> bool:
                 "web_research_status": "retrying",
             }
         ).eq("message_id", fan_msg_id).execute()
+        if run_id:
+            upsert_step(
+                run_id=str(run_id),
+                step="web",
+                attempt=attempt,
+                status="failed",
+                client=SB,
+                message_id=int(fan_msg_id),
+                ended_at=datetime.now(timezone.utc).isoformat(),
+                error=error or "retrying",
+            )
         return True
 
     if raw_text:
@@ -252,9 +300,36 @@ def process_job(payload: Dict[str, Any]) -> bool:
         }
     ).eq("message_id", fan_msg_id).execute()
 
-    if not job_exists(JOIN_QUEUE, fan_msg_id, client=SB):
-        send(JOIN_QUEUE, {"message_id": fan_msg_id})
+    if run_id and not is_run_active(str(run_id), client=SB):
+        upsert_step(
+            run_id=str(run_id),
+            step="web",
+            attempt=attempt,
+            status="canceled",
+            client=SB,
+            message_id=int(fan_msg_id),
+            ended_at=datetime.now(timezone.utc).isoformat(),
+            error="run_canceled_post_compute",
+        )
+        return True
 
+    if not job_exists(JOIN_QUEUE, fan_msg_id, client=SB):
+        join_payload = {"message_id": fan_msg_id}
+        if run_id:
+            join_payload["run_id"] = str(run_id)
+        send(JOIN_QUEUE, join_payload)
+
+    if run_id:
+        upsert_step(
+            run_id=str(run_id),
+            step="web",
+            attempt=attempt,
+            status="ok" if status == "ok" else "failed",
+            client=SB,
+            message_id=int(fan_msg_id),
+            ended_at=datetime.now(timezone.utc).isoformat(),
+            error=error,
+        )
     return True
 
 

@@ -1,3 +1,4 @@
+import difflib
 import hashlib
 import json
 import os
@@ -9,8 +10,14 @@ from typing import Dict, List, Tuple
 
 from supabase import create_client, ClientOptions
 
-from workers.lib.cards import CONFIDENCE_ORDER, append_origin_tag, ensure_card_shape, make_entry
-from workers.lib.simple_queue import ack, receive
+from workers.lib.cards import (
+    CONFIDENCE_ORDER,
+    SEGMENT_NAMES,
+    append_origin_tag,
+    ensure_card_shape,
+    make_entry,
+)
+from workers.lib.simple_queue import ack, receive, send
 from workers.lib.time_tier import parse_tier
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
@@ -57,17 +64,39 @@ TIER_PIPELINE = {
         "queue": "lifetime.abstract",
     },
 }
+ABSTRACT_QUEUE_MAP = {
+    "episode": "episode.abstract",
+    "chapter": "chapter.abstract",
+    "season": "season.abstract",
+    "year": "year.abstract",
+    "lifetime": "lifetime.abstract",
+}
+
+MAX_RETRIES = int(os.getenv("ABSTRACT_MAX_RETRIES", "5"))
+TARGET_MATCH_MIN_RATIO = float(os.getenv("ABSTRACT_TARGET_MATCH_MIN", "0.6"))
 
 HEADER_RE = re.compile(
-    r"^(ADD|REINFORCE|REVISE)\s+SEGMENT_(\d+_[A-Z0-9_]+)\s*$",
+    r"^(ADD|REINFORCE|REVISE)\s+SEGMENT[\s_\-:]*([A-Z0-9_\-\. ]+)\s*$",
     re.IGNORECASE,
 )
-TEXT_RE = re.compile(r"^TEXT:\s*(.+)\[([a-z]+)]\s*$", re.IGNORECASE)
-CONF_RE = re.compile(
-    r"^\s*CONFIDENCE:\s*(tentative|possible|likely|confident|canonical)\s*$",
+TEXT_KEY_RE = re.compile(r"^\s*TEXT\b", re.IGNORECASE)
+CONF_KEY_RE = re.compile(r"^\s*CONFIDENCE\b", re.IGNORECASE)
+REASON_KEY_RE = re.compile(r"^\s*REASON\b", re.IGNORECASE)
+TARGET_ID_KEY_RE = re.compile(r"^\s*TARGET_ID\b", re.IGNORECASE)
+TARGET_KEY_RE = re.compile(r"^\s*TARGET\b", re.IGNORECASE)
+CONF_BRACKET_RE = re.compile(
+    r"\[(tentative|possible|likely|confident|canonical)\]\s*$",
     re.IGNORECASE,
 )
-REASON_RE = re.compile(r"^\s*REASON:\s*(.+)\s*$", re.IGNORECASE)
+
+SEGMENT_LABEL_MAP = {}
+for seg_id, label in SEGMENT_NAMES.items():
+    normalized = re.sub(r"[^a-z0-9]+", "_", label.lower()).strip("_")
+    SEGMENT_LABEL_MAP[normalized] = seg_id
+    stripped = re.sub(r"^\d+\.?", "", label).strip()
+    normalized_stripped = re.sub(r"[^a-z0-9]+", "_", stripped.lower()).strip("_")
+    if normalized_stripped:
+        SEGMENT_LABEL_MAP[normalized_stripped] = seg_id
 
 
 def _parse_confidence(value: str) -> str:
@@ -90,6 +119,114 @@ def _normalize_text(text: str, confidence: str) -> str:
     return text
 
 
+def _normalize_label(value: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "_", (value or "").lower()).strip("_")
+
+
+def _parse_header(line: str):
+    match = HEADER_RE.match(line.strip())
+    if not match:
+        return None
+    action = match.group(1).lower()
+    tail = (match.group(2) or "").strip()
+    if not tail:
+        return None
+
+    seg_id = None
+    label = tail
+    id_match = re.search(r"\d+", tail)
+    if id_match:
+        seg_id = str(int(id_match.group(0)))
+        label = tail[id_match.end() :].strip(" _.-")
+    normalized_label = _normalize_label(label)
+    if not seg_id and normalized_label in SEGMENT_LABEL_MAP:
+        seg_id = SEGMENT_LABEL_MAP[normalized_label]
+
+    if not seg_id:
+        return None
+
+    segment_label = label or SEGMENT_NAMES.get(seg_id) or ""
+    return action, seg_id, segment_label, tail
+
+
+def _split_value(line: str) -> str:
+    if ":" in line:
+        return line.split(":", 1)[1].strip()
+    if "-" in line:
+        return line.split("-", 1)[1].strip()
+    return ""
+
+
+def _parse_block(lines: List[str]) -> Tuple[str | None, str, str, str, str]:
+    text = None
+    confidence = None
+    reason = ""
+    target_id = ""
+    target_text = ""
+
+    for raw in lines:
+        line = raw.strip()
+        if not line:
+            continue
+
+        if TARGET_ID_KEY_RE.match(line):
+            value = _split_value(line)
+            target_id = value.strip() or target_id
+            continue
+
+        if TARGET_KEY_RE.match(line):
+            value = _split_value(line)
+            target_text = value.strip() or target_text
+            continue
+
+        if TEXT_KEY_RE.match(line):
+            value = _split_value(line)
+            if not value:
+                value = line.split(None, 1)[1] if len(line.split(None, 1)) > 1 else ""
+            match = CONF_BRACKET_RE.search(value)
+            if match:
+                confidence = match.group(1).lower()
+                value = CONF_BRACKET_RE.sub("", value).strip()
+            text = value.strip() or text
+            continue
+
+        if CONF_KEY_RE.match(line):
+            value = _split_value(line).lower()
+            if value in CONFIDENCE_ORDER:
+                confidence = value
+            continue
+
+        if REASON_KEY_RE.match(line):
+            value = _split_value(line)
+            reason = value.strip() or reason
+            continue
+
+    if text is None:
+        for raw in lines:
+            line = raw.strip()
+            if not line:
+                continue
+            if (
+                TEXT_KEY_RE.match(line)
+                or CONF_KEY_RE.match(line)
+                or REASON_KEY_RE.match(line)
+                or TARGET_ID_KEY_RE.match(line)
+                or TARGET_KEY_RE.match(line)
+            ):
+                continue
+            match = CONF_BRACKET_RE.search(line)
+            if match:
+                confidence = match.group(1).lower()
+                line = CONF_BRACKET_RE.sub("", line).strip()
+            text = line.strip()
+            break
+
+    if not confidence or confidence not in CONFIDENCE_ORDER:
+        confidence = "possible"
+
+    return text, confidence, reason, target_id, target_text
+
+
 def parse_patch_output(raw_text: str) -> Tuple[List[dict], str]:
     """
     Parse the Episode/Chapter abstract output into patch blocks + summary.
@@ -98,69 +235,27 @@ def parse_patch_output(raw_text: str) -> Tuple[List[dict], str]:
     lines = (raw_text or "").replace("\r", "").splitlines()
     idx = 0
     patches: List[dict] = []
+    last_block_end = 0
 
     while idx < len(lines):
-        # Skip any blank separators
-        while idx < len(lines) and not lines[idx].strip():
-            idx += 1
-
-        if idx >= len(lines):
-            break
-
-        line = lines[idx].strip()
-        header = HEADER_RE.match(line)
+        header = _parse_header(lines[idx])
         if not header:
-            break  # Summary starts here
-
-        action = header.group(1).lower()
-        segment_full = header.group(2)
-        if "_" in segment_full:
-            segment_id, segment_label = segment_full.split("_", 1)
-        else:
-            segment_id, segment_label = segment_full, ""
-        idx += 1
-
-        if idx >= len(lines):
-            raise ValueError(f"missing TEXT for segment {segment_full}")
-
-        text_line = lines[idx].strip()
-        text_match = TEXT_RE.match(text_line)
-        if not text_match:
-            raise ValueError(f"malformed TEXT for segment {segment_full}")
-        text_body = text_match.group(1).strip()
-        text_conf = _parse_confidence(text_match.group(2))
-        idx += 1
-
-        if idx >= len(lines):
-            raise ValueError(f"missing CONFIDENCE for segment {segment_full}")
-
-        conf_line = lines[idx].strip()
-        conf_match = CONF_RE.match(conf_line)
-        if not conf_match:
-            raise ValueError(f"malformed CONFIDENCE for segment {segment_full}")
-        confidence = _parse_confidence(conf_match.group(1))
-        if confidence != text_conf:
-            raise ValueError(
-                f"confidence mismatch for segment {segment_full} "
-                f"(text={text_conf}, confidence_line={confidence})"
-            )
-        idx += 1
-
-        if idx >= len(lines):
-            raise ValueError(f"missing REASON for segment {segment_full}")
-
-        reason_line = lines[idx].strip()
-        reason_match = REASON_RE.match(reason_line)
-        if not reason_match:
-            raise ValueError(f"missing REASON for segment {segment_full}")
-        reason = reason_match.group(1).strip()
-        idx += 1
-
-        while idx < len(lines) and not lines[idx].strip():
             idx += 1
+            continue
+        action, segment_id, segment_label, segment_full = header
+        idx += 1
+
+        block_lines: List[str] = []
+        while idx < len(lines) and not _parse_header(lines[idx]):
+            block_lines.append(lines[idx])
+            idx += 1
+
+        last_block_end = idx
+        text_body, confidence, reason, target_id, target_text = _parse_block(block_lines)
+        if not text_body:
+            continue
 
         text = _normalize_text(text_body, confidence)
-
         patches.append(
             {
                 "action": action,
@@ -170,13 +265,12 @@ def parse_patch_output(raw_text: str) -> Tuple[List[dict], str]:
                 "text": text,
                 "confidence": confidence,
                 "reason": reason,
+                "target_id": target_id or None,
+                "target_text": target_text or None,
             }
         )
 
-        if idx < len(lines) and not HEADER_RE.match(lines[idx].strip()):
-            break
-
-    summary = "\n".join(lines[idx:]).strip()
+    summary = "\n".join(lines[last_block_end:]).strip()
     if not summary:
         raise ValueError("summary section missing")
     return patches, summary
@@ -216,6 +310,48 @@ def _active_entry(entries: List[dict]) -> dict | None:
     return entries[-1]
 
 
+def _strip_confidence(text: str) -> str:
+    return re.sub(r"\[[a-z]+\]\s*$", "", (text or "").strip(), flags=re.IGNORECASE).strip()
+
+
+def _find_best_match(entries: List[dict], text: str, *, min_ratio: float = 0.72) -> dict | None:
+    if not entries:
+        return None
+    needle = _strip_confidence(text).lower()
+    if not needle:
+        return None
+    best = None
+    best_score = 0.0
+    for entry in entries:
+        cand = _strip_confidence(entry.get("text") or "").lower()
+        if not cand:
+            continue
+        score = difflib.SequenceMatcher(None, needle, cand).ratio()
+        if score > best_score:
+            best_score = score
+            best = entry
+    if best_score >= min_ratio:
+        return best
+    return None
+
+
+def _find_entry_by_id(entries: List[dict], target_id: str | None) -> dict | None:
+    if not target_id:
+        return None
+    for entry in entries:
+        if str(entry.get("id")) == str(target_id):
+            return entry
+    return None
+
+
+def _match_ratio(left: str, right: str) -> float:
+    left_clean = _strip_confidence(left).lower()
+    right_clean = _strip_confidence(right).lower()
+    if not left_clean or not right_clean:
+        return 0.0
+    return difflib.SequenceMatcher(None, left_clean, right_clean).ratio()
+
+
 def _entry_origin(entry: dict, fallback) -> str:
     """Determine the origin tier string for an entry, defaulting safely."""
 
@@ -245,15 +381,45 @@ def apply_patches_to_card(
 
         bucket = segments.get(seg_id) or []
         segments[seg_id] = bucket
-        current = _active_entry(bucket)
         patch_conf = _parse_confidence(patch["confidence"])
         patch_text = _normalize_text(patch["text"], patch_conf)
         reason = patch.get("reason") or ""
+        target_id = patch.get("target_id")
+        target_text = patch.get("target_text") or ""
+        target_entry = None
+        if target_id:
+            target_entry = _find_entry_by_id(bucket, target_id)
+            if target_entry and target_text:
+                if _match_ratio(target_text, target_entry.get("text") or "") < TARGET_MATCH_MIN_RATIO:
+                    target_entry = None
+        if not target_entry and target_text:
+            target_entry = _find_best_match(bucket, target_text, min_ratio=TARGET_MATCH_MIN_RATIO)
 
         if patch["action"] == "add":
-            if current:
-                print(
-                    f"[card_patch_applier] duplicate ADD for segment {seg_id}; skipping"
+            match = _find_best_match(bucket, patch_text)
+            if match:
+                # Treat ADD as reinforce if it matches existing text.
+                origin_name = _entry_origin(match, worker_tier)
+                current_conf = match.get("confidence") or patch_conf
+                try:
+                    bumped_conf = _one_step_confidence(current_conf, patch_conf)
+                except Exception:
+                    bumped_conf = patch_conf
+                match["confidence"] = bumped_conf
+                match["text"] = append_origin_tag(
+                    _normalize_text(patch_text, bumped_conf),
+                    parse_tier(origin_name),
+                )
+                match["reason"] = reason or match.get("reason")
+                evidence = match.setdefault("evidence", [])
+                evidence.append(
+                    {
+                        "summary_id": summary_id,
+                        "reason": reason,
+                        "confidence": patch_conf,
+                        "created_at": datetime.now(timezone.utc).isoformat(),
+                        "action": "reinforce",
+                    }
                 )
                 continue
 
@@ -271,26 +437,36 @@ def apply_patches_to_card(
             continue
 
         if patch["action"] == "reinforce":
-            if not current:
-                print(
-                    f"[card_patch_applier] REINFORCE but no row for segment {seg_id}"
+            target = target_entry or _find_best_match(bucket, patch_text)
+            if not target:
+                # No existing entry to reinforce; fall back to ADD behavior.
+                entry_text = append_origin_tag(patch_text, worker_tier)
+                now_entry = make_entry(
+                    text=entry_text,
+                    confidence=patch_conf,
+                    action="add",
+                    summary_id=summary_id,
+                    tier=tier,
+                    reason=reason,
+                    origin_tier=worker_tier.name,
                 )
+                bucket.append(now_entry)
                 continue
 
-            origin_name = _entry_origin(current, worker_tier)
-            current_conf = current.get("confidence") or patch_conf
+            origin_name = _entry_origin(target, worker_tier)
+            current_conf = target.get("confidence") or patch_conf
             try:
                 bumped_conf = _one_step_confidence(current_conf, patch_conf)
             except Exception:
                 bumped_conf = patch_conf
 
-            current["confidence"] = bumped_conf
-            current["text"] = append_origin_tag(
+            target["confidence"] = bumped_conf
+            target["text"] = append_origin_tag(
                 _normalize_text(patch_text, bumped_conf),
                 parse_tier(origin_name),
             )
-            current["reason"] = reason or current.get("reason")
-            evidence = current.setdefault("evidence", [])
+            target["reason"] = reason or target.get("reason")
+            evidence = target.setdefault("evidence", [])
             evidence.append(
                 {
                     "summary_id": summary_id,
@@ -303,18 +479,30 @@ def apply_patches_to_card(
             continue
 
         if patch["action"] == "revise":
-            if not current:
-                print(f"[card_patch_applier] REVISE but no row for segment {seg_id}")
+            target = target_entry or _find_best_match(bucket, patch_text)
+            if not target:
+                # No existing entry to revise; fall back to ADD behavior.
+                entry_text = append_origin_tag(patch_text, worker_tier)
+                now_entry = make_entry(
+                    text=entry_text,
+                    confidence=patch_conf,
+                    action="add",
+                    summary_id=summary_id,
+                    tier=tier,
+                    reason=reason,
+                    origin_tier=worker_tier.name,
+                )
+                bucket.append(now_entry)
                 continue
 
-            origin_name = _entry_origin(current, worker_tier)
-            current["confidence"] = patch_conf
-            current["text"] = append_origin_tag(
+            origin_name = _entry_origin(target, worker_tier)
+            target["confidence"] = patch_conf
+            target["text"] = append_origin_tag(
                 _normalize_text(patch_text, patch_conf),
                 parse_tier(origin_name),
             )
-            current["reason"] = reason or current.get("reason")
-            evidence = current.setdefault("evidence", [])
+            target["reason"] = reason or target.get("reason")
+            evidence = target.setdefault("evidence", [])
             evidence.append(
                 {
                     "summary_id": summary_id,
@@ -433,11 +621,35 @@ def _fetch_summaries(thread_id: int, tier: str) -> List[dict]:
         .select("id,tier_index,start_turn,end_turn,abstract_summary")
         .eq("thread_id", thread_id)
         .eq("tier", tier)
+        .eq("extract_status", "ok")
         .order("tier_index")
         .execute()
         .data
         or []
     )
+
+
+def _pending_job(
+    queue_name: str,
+    thread_id: int,
+    start_turn: int | None,
+    end_turn: int | None,
+    tier_index: int | None,
+) -> bool:
+    query = (
+        SB.table("job_queue")
+        .select("id")
+        .eq("queue", queue_name)
+        .filter("payload->>thread_id", "eq", str(thread_id))
+    )
+    if start_turn is not None:
+        query = query.filter("payload->>start_turn", "eq", str(start_turn))
+    if end_turn is not None:
+        query = query.filter("payload->>end_turn", "eq", str(end_turn))
+    if tier_index is not None:
+        query = query.filter("payload->>tier_index", "eq", str(tier_index))
+    rows = query.limit(1).execute().data
+    return bool(rows)
 
 
 def _maybe_enqueue_next(thread_id: int, tier: str):
@@ -504,6 +716,7 @@ def process_job(payload: Dict) -> bool:
     raw_hash = payload.get("raw_hash") or hashlib.sha256(
         raw_text.encode("utf-8")
     ).hexdigest()
+    attempt = int(payload.get("attempt") or 1)
 
     try:
         patches, summary = parse_patch_output(raw_text)
@@ -512,6 +725,37 @@ def process_job(payload: Dict) -> bool:
         patches, summary = [], ""
         extract_status = "failed"
         print(f"[card_patch_applier] parse failed: {exc}")
+
+    if extract_status != "ok":
+        if attempt < MAX_RETRIES:
+            queue = ABSTRACT_QUEUE_MAP.get(tier)
+            if queue:
+                retry_payload = {
+                    "thread_id": thread_id,
+                    "start_turn": start_turn,
+                    "end_turn": end_turn,
+                    "tier_index": tier_index,
+                    "attempt": attempt + 1,
+                }
+                raw_block = payload.get("raw_block")
+                if raw_block:
+                    retry_payload["raw_block"] = raw_block
+                send(queue, retry_payload)
+            return True
+
+        _insert_summary_row(
+            thread_id=thread_id,
+            tier=tier,
+            start_turn=start_turn,
+            end_turn=end_turn,
+            tier_index=tier_index,
+            abstract_summary=summary,
+            patches=patches,
+            raw_text=raw_text,
+            raw_hash=raw_hash,
+            extract_status=extract_status,
+        )
+        return True
 
     summary_id = _insert_summary_row(
         thread_id=thread_id,
@@ -526,11 +770,10 @@ def process_job(payload: Dict) -> bool:
         extract_status=extract_status,
     )
 
-    if extract_status == "ok" and patches:
+    if patches:
         _apply_patches(thread_id, summary_id, tier, patches)
 
-    if extract_status == "ok":
-        _maybe_enqueue_next(thread_id, tier)
+    _maybe_enqueue_next(thread_id, tier)
 
     return True
 

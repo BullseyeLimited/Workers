@@ -239,5 +239,59 @@ Example 6 (GIF/sticker-style reaction image):
   ]
 }
 
+Example 7:
+{
+  "paragraphs": [
+    "This is a close-up photo of a man's erect penis, taken from a front angle in a well-lit room, possibly a bedroom. The penis looks average to slightly above average in length, estimating 6 inches, with moderate girth and a gentle upward curve.",
+    "The skin color is a warm tan shade, with the glans appearing pinkish-red and shiny, indicating arousal. Veins are visible along the shaft, more prominent on one side, and the base has short, dark pubic hair trimmed neatly.",
+    "It's circumcised, with a clear ridge below the head. Lighting is even, coming from above, highlighting textures without harsh shadows. Background shows blurred bedsheets in neutral colors, no text or objects visible."
+  ]
+}
+
+Example 8:
+{
+  "paragraphs": [
+    "This image is a mirror selfie showing a man's flaccid penis, framed from mid-torso down in a bathroom setting. The penis hangs straight, appearing longer when soft, around 5 inches, with a slender build and pale skin tone matching the body.",
+    "Uncircumcised, the foreskin covers the tip fully, and testicles are symmetrical, hanging loosely with a wrinkled texture. Pubic hair is natural and bushy, dark in color. The man's legs are slightly apart, posture relaxed.",
+    "Lighting comes from overhead bathroom lights, casting soft shadows under the scrotum. Background includes a sink and towel rack, with faint reflections in the mirror, no readable text."
+  ]
+}
+
+Example 9:
+{
+  "paragraphs": [
+    "This is a full-length mirror selfie of a man in casual attire, standing in what seems like a living room. He's dressed in a blue button-up shirt tucked into khaki pants, with brown belt and loafers, outfit fitting well but not tight.",
+    "His expression is friendly, with a small smile and direct gaze at the phone, one hand holding it at chest level, the other in his pocket. Build appears average, with short brown hair and clean-shaven face.",
+    "Background features a couch, coffee table with remote and glass, and window with curtains partially drawn. Natural daylight filters in, making colors vibrant, no on-image text visible."
+  ]
+}
+
+Example 10:
+{
+  "paragraphs": [
+    "This photo is a bathroom mirror selfie of a man flexing after a shower, wrapped in a gray towel low on his hips, exposing toned torso. His abs are defined, chest broad, with visible muscle cuts under medium skin tone, arms raised in a double bicep pose.",
+    "Expression is intense and confident, eyebrows slightly furrowed, mouth in a determined line, hair wet and slicked back. Water droplets glisten on his shoulders and chest, adding shine.",
+    "Lighting is bright from ceiling fixture, creating highlights on muscles and subtle shadows in the abs. Background shows shower curtain, toiletries on sink, steam on mirror edges, no text present."
+  ]
+}
+
+Example 11:
+{
+  "paragraphs": [
+    "This is an outdoor photo of a black sports car parked in a driveway, taken from a side-front angle during daytime. The car looks sleek, possibly a coupe model with shiny alloy wheels, tinted windows, and red brake calipers visible.",
+    "Details include a license plate blurred or cropped out, chrome accents on the grille, and a small spoiler on the trunk. The body is glossy, reflecting trees and sky, no dents or scratches apparent.",
+    "Background has a suburban house with garage, green lawn, and blue sky with some clouds. Lighting is natural sunlight, even exposure, no text or people in the frame."
+  ]
+}
+
+Example 12:
+{
+  "paragraphs": [
+    "This is a close-up face selfie of a man outdoors, perhaps in a park, with trees blurred in the background. He has medium-length wavy hair, light stubble, and a playful grin with teeth showing, eyes crinkled at the corners.",
+    "Wearing sunglasses perched on his head and a green jacket, skin tone fair with slight flush on cheeks. Pose is head tilted slightly, phone held at arm's length.",
+    "Lighting is natural from sunlight, casting a warm glow and small shadow under the chin. No text overlays or other elements visible."
+  ]
+}
+
 
 REMINDER: Your output must always be ONLY the JSON object with the single key \"paragraphs\".

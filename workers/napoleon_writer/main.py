@@ -9,12 +9,20 @@ import os
 import re
 import time
 import traceback
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List
 
 import requests
 from supabase import create_client, ClientOptions
 
+from workers.lib.reply_run_tracking import (
+    is_run_active,
+    mark_run_committed,
+    set_run_current_step,
+    step_started_at,
+    upsert_step,
+)
 from workers.lib.simple_queue import receive, ack
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
@@ -555,6 +563,37 @@ def upsert_writer_details(
 def process_job(payload: Dict[str, Any]) -> bool:
     fan_message_id = payload["fan_message_id"]
     thread_id = payload["thread_id"]
+    run_id = payload.get("run_id")
+    attempt = 0
+
+    if run_id:
+        set_run_current_step(str(run_id), "writer", client=SB)
+        started_at = step_started_at(
+            run_id=str(run_id), step="writer", attempt=attempt, client=SB
+        ) or datetime.now(timezone.utc).isoformat()
+        upsert_step(
+            run_id=str(run_id),
+            step="writer",
+            attempt=attempt,
+            status="running",
+            client=SB,
+            message_id=int(fan_message_id),
+            started_at=started_at,
+            meta={"queue": QUEUE},
+        )
+        if not is_run_active(str(run_id), client=SB):
+            upsert_step(
+                run_id=str(run_id),
+                step="writer",
+                attempt=attempt,
+                status="canceled",
+                client=SB,
+                message_id=int(fan_message_id),
+                started_at=started_at,
+                ended_at=datetime.now(timezone.utc).isoformat(),
+                error="run_canceled",
+            )
+            return True
 
     system_prompt = _load_writer_prompt()
     user_block = build_writer_user_block(payload)
@@ -571,6 +610,17 @@ def process_job(payload: Dict[str, Any]) -> bool:
             error_message=f"RunPod error: {exc}",
         )
         print(f"[Napoleon Writer] RunPod error for fan message {fan_message_id}: {exc}")
+        if run_id:
+            upsert_step(
+                run_id=str(run_id),
+                step="writer",
+                attempt=attempt,
+                status="failed",
+                client=SB,
+                message_id=int(fan_message_id),
+                ended_at=datetime.now(timezone.utc).isoformat(),
+                error=f"runpod_error: {exc}",
+            )
         return True
 
     chunks = parse_writer_output(raw_text)
@@ -624,6 +674,30 @@ def process_job(payload: Dict[str, Any]) -> bool:
             raw_text=raw_text,
             error_message="empty_writer_output",
         )
+        if run_id:
+            upsert_step(
+                run_id=str(run_id),
+                step="writer",
+                attempt=attempt,
+                status="failed",
+                client=SB,
+                message_id=int(fan_message_id),
+                ended_at=datetime.now(timezone.utc).isoformat(),
+                error="empty_writer_output",
+            )
+        return True
+
+    if run_id and not is_run_active(str(run_id), client=SB):
+        upsert_step(
+            run_id=str(run_id),
+            step="writer",
+            attempt=attempt,
+            status="canceled",
+            client=SB,
+            message_id=int(fan_message_id),
+            ended_at=datetime.now(timezone.utc).isoformat(),
+            error="run_canceled_pre_insert",
+        )
         return True
 
     creator_message_id = insert_creator_reply(thread_id, final_text)
@@ -640,6 +714,18 @@ def process_job(payload: Dict[str, Any]) -> bool:
         raw_text=raw_text,
         chunks=chunks,
     )
+    if run_id:
+        mark_run_committed(str(run_id), creator_message_id=creator_message_id, client=SB)
+        upsert_step(
+            run_id=str(run_id),
+            step="writer",
+            attempt=attempt,
+            status="ok",
+            client=SB,
+            message_id=int(fan_message_id),
+            ended_at=datetime.now(timezone.utc).isoformat(),
+            meta={"creator_message_id": int(creator_message_id)},
+        )
     return True
 
 

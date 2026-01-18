@@ -20,6 +20,12 @@ from workers.lib.prompt_builder import (
     build_prompt_sections,
     live_turn_window,
 )
+from workers.lib.reply_run_tracking import (
+    is_run_active,
+    set_run_current_step,
+    step_started_at,
+    upsert_step,
+)
 from workers.lib.simple_queue import ack, receive, send
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
@@ -671,8 +677,11 @@ def upsert_kairos_details(
     )
 
 
-def enqueue_join_job(message_id: int) -> None:
-    send(JOIN_QUEUE, {"message_id": message_id})
+def enqueue_join_job(message_id: int, run_id: str | None = None) -> None:
+    payload = {"message_id": message_id}
+    if run_id:
+        payload["run_id"] = str(run_id)
+    send(JOIN_QUEUE, payload)
 
 
 def process_job(payload: Dict[str, Any], row_id: int) -> bool:
@@ -681,6 +690,7 @@ def process_job(payload: Dict[str, Any], row_id: int) -> bool:
 
     fan_msg_id = payload["message_id"]
     attempt = int(payload.get("kairos_retry", 0))
+    run_id = payload.get("run_id")
     is_repair = bool(payload.get("repair_mode"))
     previous_raw_text = payload.get("orig_raw_text") or ""
     root_raw_text = payload.get("root_raw_text") or previous_raw_text or ""
@@ -688,6 +698,38 @@ def process_job(payload: Dict[str, Any], row_id: int) -> bool:
     orig_system_prompt = payload.get("orig_system_prompt") or ""
     orig_user_prompt = payload.get("orig_user_prompt") or ""
     root_analysis = payload.get("root_analysis") or {}
+    kairos_mode = (payload.get("kairos_mode") or "full").lower()
+
+    if run_id:
+        set_run_current_step(str(run_id), "kairos", client=SB)
+        started_at = step_started_at(
+            run_id=str(run_id), step="kairos", attempt=attempt, client=SB
+        ) or datetime.now(timezone.utc).isoformat()
+        upsert_step(
+            run_id=str(run_id),
+            step="kairos",
+            attempt=attempt,
+            status="running",
+            client=SB,
+            message_id=int(fan_msg_id),
+            mode=kairos_mode,
+            started_at=started_at,
+            meta={"queue": QUEUE, "repair_mode": bool(is_repair)},
+        )
+        if not is_run_active(str(run_id), client=SB):
+            upsert_step(
+                run_id=str(run_id),
+                step="kairos",
+                attempt=attempt,
+                status="canceled",
+                client=SB,
+                message_id=int(fan_msg_id),
+                mode=kairos_mode,
+                started_at=started_at,
+                ended_at=datetime.now(timezone.utc).isoformat(),
+                error="run_canceled",
+            )
+            return True
     message_row = (
         SB.table("messages")
         .select("id,thread_id,sender,turn_index,message_text,media_analysis_text,media_payload")
@@ -697,13 +739,24 @@ def process_job(payload: Dict[str, Any], row_id: int) -> bool:
         .data
     )
     if not message_row:
+        if run_id:
+            upsert_step(
+                run_id=str(run_id),
+                step="kairos",
+                attempt=attempt,
+                status="failed",
+                client=SB,
+                message_id=int(fan_msg_id),
+                mode=kairos_mode,
+                ended_at=datetime.now(timezone.utc).isoformat(),
+                error="message_missing",
+            )
         raise ValueError(f"Message {fan_msg_id} missing")
     message_row = message_row[0]
 
     thread_id = message_row["thread_id"]
     turn_index = message_row.get("turn_index")
     latest_fan_text = _format_fan_turn(message_row)
-    kairos_mode = (payload.get("kairos_mode") or "full").lower()
     if kairos_mode == "lite":
         raw_turns = live_turn_window(
             thread_id,
@@ -765,7 +818,19 @@ def process_job(payload: Dict[str, Any], row_id: int) -> bool:
         print(f"[Kairos] RunPod error for message {fan_msg_id}: {exc}")
         # Even if Kairos fails due to infrastructure/network issues, wake the joiner
         # so the pipeline can continue (Hermes Join treats kairos_status=failed as done).
-        enqueue_join_job(fan_msg_id)
+        enqueue_join_job(fan_msg_id, str(run_id) if run_id else None)
+        if run_id:
+            upsert_step(
+                run_id=str(run_id),
+                step="kairos",
+                attempt=attempt,
+                status="failed",
+                client=SB,
+                message_id=int(fan_msg_id),
+                mode=kairos_mode,
+                ended_at=datetime.now(timezone.utc).isoformat(),
+                error=f"runpod_error: {exc}",
+            )
         return True
 
     # Try code parser first
@@ -811,6 +876,8 @@ def process_job(payload: Dict[str, Any], row_id: int) -> bool:
             "orig_system_prompt": orig_system_prompt or system_prompt,
             "orig_user_prompt": orig_user_prompt or user_prompt,
             "root_analysis": root_analysis,
+            "run_id": str(run_id) if run_id else None,
+            "kairos_mode": kairos_mode,
         }
         send(QUEUE, retry_payload)
         print(
@@ -847,7 +914,19 @@ def process_job(payload: Dict[str, Any], row_id: int) -> bool:
             f"missing={missing_fields}, parse_error={parse_error}"
         )
         # Even if Kairos failed, hand off to Hermes Join so the pipeline can continue.
-        enqueue_join_job(fan_msg_id)
+        enqueue_join_job(fan_msg_id, str(run_id) if run_id else None)
+        if run_id:
+            upsert_step(
+                run_id=str(run_id),
+                step="kairos",
+                attempt=attempt,
+                status="failed",
+                client=SB,
+                message_id=int(fan_msg_id),
+                mode=kairos_mode,
+                ended_at=datetime.now(timezone.utc).isoformat(),
+                error="parse_or_validation_failed",
+            )
         return True
 
     upsert_kairos_details(
@@ -867,7 +946,32 @@ def process_job(payload: Dict[str, Any], row_id: int) -> bool:
         "id", fan_msg_id
     ).execute()
 
-    enqueue_join_job(fan_msg_id)
+    if run_id and not is_run_active(str(run_id), client=SB):
+        upsert_step(
+            run_id=str(run_id),
+            step="kairos",
+            attempt=attempt,
+            status="canceled",
+            client=SB,
+            message_id=int(fan_msg_id),
+            mode=kairos_mode,
+            ended_at=datetime.now(timezone.utc).isoformat(),
+            error="run_canceled_post_compute",
+        )
+        return True
+
+    enqueue_join_job(fan_msg_id, str(run_id) if run_id else None)
+    if run_id:
+        upsert_step(
+            run_id=str(run_id),
+            step="kairos",
+            attempt=attempt,
+            status="ok",
+            client=SB,
+            message_id=int(fan_msg_id),
+            mode=kairos_mode,
+            ended_at=datetime.now(timezone.utc).isoformat(),
+        )
     return True
 
 

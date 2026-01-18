@@ -1,0 +1,13 @@
+app = "reply-supervisor-worker"
+primary_region = "fra"
+
+[build]
+  dockerfile = "../../base/Dockerfile"
+  context    = "../.."
+
+[processes]
+  app = "python -m workers.reply_supervisor.main"
+
+[deploy]
+  min_machines_running = 1
+
