@@ -9,7 +9,7 @@ import os
 import re
 import time
 import traceback
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 from urllib.parse import urlparse
@@ -73,6 +73,24 @@ RUNPOD_HEALTHCHECK_TIMEOUT_SECONDS = float(
 RUNPOD_GATE_SLEEP_SECONDS = float(os.getenv("CONTENT_RUNPOD_GATE_SLEEP_SECONDS", "5"))
 RUNPOD_HEALTHCHECK_CACHE_SECONDS = float(
     os.getenv("CONTENT_RUNPOD_HEALTHCHECK_CACHE_SECONDS", "5")
+)
+
+INGEST_SWEEPER_ENABLED = os.getenv("CONTENT_INGEST_SWEEPER_ENABLED", "true").lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
+INGEST_SWEEPER_INTERVAL_SECONDS = float(os.getenv("CONTENT_INGEST_SWEEPER_INTERVAL_SECONDS", "60"))
+INGEST_SWEEPER_BATCH_SIZE = int(os.getenv("CONTENT_INGEST_SWEEPER_BATCH_SIZE", "25"))
+INGEST_STALE_PROCESSING_SECONDS = int(os.getenv("CONTENT_INGEST_STALE_PROCESSING_SECONDS", "900"))
+
+WORKER_ID = (
+    os.getenv("WORKER_ID")
+    or os.getenv("FLY_ALLOC_ID")
+    or os.getenv("FLY_MACHINE_ID")
+    or os.getenv("HOSTNAME")
+    or "unknown"
 )
 
 MEDIA_TYPE_ALIASES = {
@@ -155,6 +173,38 @@ _last_runpod_check_at = 0.0
 _last_runpod_check_ok = False
 _last_runpod_check_error: Optional[str] = None
 _last_runpod_gate_notice: Optional[str] = None
+_last_sweep_at = 0.0
+
+_content_items_columns: Optional[set[str]] = None
+
+_UNSET = object()
+
+
+def _load_content_items_columns() -> set[str]:
+    global _content_items_columns
+    if _content_items_columns is not None:
+        return _content_items_columns
+    try:
+        rows = SB.table("content_items").select("*").limit(1).execute().data or []
+    except Exception:
+        rows = []
+    if rows and isinstance(rows[0], dict):
+        _content_items_columns = set(rows[0].keys())
+    else:
+        # Fall back to the core fields this worker relies on.
+        _content_items_columns = {
+            "id",
+            "ingest_status",
+            "ingest_error",
+            "ingest_attempts",
+            "ingest_updated_at",
+        }
+    return _content_items_columns
+
+
+def _filter_content_items_update(update: Dict[str, Any]) -> Dict[str, Any]:
+    allowed = _load_content_items_columns()
+    return {k: v for k, v in update.items() if k in allowed}
 
 
 def _runpod_healthcheck_url() -> str:
@@ -542,15 +592,127 @@ def _update_ingest_status(
     status: str,
     error: Optional[str],
     attempts: int,
+    started_at: Any = _UNSET,
+    completed_at: Any = _UNSET,
+    duration_ms: Any = _UNSET,
+    worker_id: Any = _UNSET,
+    model: Any = _UNSET,
+    prompt: Any = _UNSET,
+    error_details: Any = _UNSET,
 ) -> None:
-    SB.table("content_items").update(
-        {
-            "ingest_status": status,
-            "ingest_error": error,
-            "ingest_attempts": attempts,
-            "ingest_updated_at": datetime.now(timezone.utc).isoformat(),
-        }
-    ).eq("id", content_id).execute()
+    update: Dict[str, Any] = {
+        "ingest_status": status,
+        "ingest_error": error,
+        "ingest_attempts": attempts,
+        "ingest_updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    if started_at is not _UNSET:
+        update["ingest_started_at"] = started_at
+    if completed_at is not _UNSET:
+        update["ingest_completed_at"] = completed_at
+    if duration_ms is not _UNSET:
+        update["ingest_duration_ms"] = duration_ms
+    if worker_id is not _UNSET:
+        update["ingest_worker_id"] = worker_id
+    if model is not _UNSET:
+        update["ingest_model"] = model
+    if prompt is not _UNSET:
+        update["ingest_prompt"] = prompt
+    if error_details is not _UNSET:
+        update["ingest_error_details"] = error_details
+
+    SB.table("content_items").update(_filter_content_items_update(update)).eq("id", content_id).execute()
+
+
+def _reset_stale_processing_items(*, limit: int) -> int:
+    if limit <= 0:
+        return 0
+    cutoff = (datetime.now(timezone.utc) - timedelta(seconds=INGEST_STALE_PROCESSING_SECONDS)).isoformat()
+    try:
+        rows = (
+            SB.table("content_items")
+            .select("id,ingest_attempts,ingest_updated_at")
+            .eq("ingest_status", "processing")
+            .lt("ingest_updated_at", cutoff)
+            .order("id", desc=False)
+            .limit(limit)
+            .execute()
+            .data
+            or []
+        )
+    except Exception:
+        return 0
+
+    reset_count = 0
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        content_id = _coerce_int(row.get("id"))
+        if content_id is None:
+            continue
+        attempts = _coerce_int(row.get("ingest_attempts")) or 0
+        _update_ingest_status(
+            content_id,
+            status="pending",
+            error="stale_processing_reset",
+            attempts=attempts,
+            completed_at=datetime.now(timezone.utc).isoformat(),
+            worker_id=WORKER_ID,
+        )
+        send(QUEUE, {"content_id": content_id})
+        reset_count += 1
+    return reset_count
+
+
+def _enqueue_missing_pending_ingest_jobs(*, limit: int) -> int:
+    if limit <= 0:
+        return 0
+    try:
+        rows = (
+            SB.table("content_items")
+            .select("id,url_main,url_thumb,ingest_status")
+            .eq("ingest_status", "pending")
+            .order("id", desc=False)
+            .limit(limit)
+            .execute()
+            .data
+            or []
+        )
+    except Exception:
+        return 0
+
+    enqueued = 0
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        content_id = _coerce_int(row.get("id"))
+        if content_id is None:
+            continue
+        if not (row.get("url_main") or row.get("url_thumb")):
+            continue
+        if job_exists(QUEUE, content_id, client=SB, field="content_id"):
+            continue
+        send(QUEUE, {"content_id": content_id})
+        enqueued += 1
+    return enqueued
+
+
+def _maybe_run_sweeper() -> None:
+    global _last_sweep_at
+    if not INGEST_SWEEPER_ENABLED:
+        return
+    now = time.time()
+    if now - _last_sweep_at < INGEST_SWEEPER_INTERVAL_SECONDS:
+        return
+    _last_sweep_at = now
+
+    reset_count = _reset_stale_processing_items(limit=INGEST_SWEEPER_BATCH_SIZE)
+    enqueued = _enqueue_missing_pending_ingest_jobs(limit=INGEST_SWEEPER_BATCH_SIZE)
+    if reset_count or enqueued:
+        print(
+            f"[content_ingestor] sweeper: reset={reset_count} enqueued={enqueued}",
+            flush=True,
+        )
 
 
 def _maybe_enqueue_script_finalize(script_id: str) -> None:
@@ -642,10 +804,36 @@ def process_job(payload: Dict[str, Any]) -> bool:
         )
         return True
 
+    model = _select_model(media_type)
+    if not model:
+        _update_ingest_status(
+            content_id,
+            status="failed",
+            error="model_not_configured",
+            attempts=attempts,
+        )
+        return True
+
     # Mark row as in-flight only after we have everything we need.
-    _update_ingest_status(content_id, status="processing", error=None, attempts=attempts)
+    attempt_started_at = datetime.now(timezone.utc)
+    attempt_started_monotonic = time.monotonic()
+    _update_ingest_status(
+        content_id,
+        status="processing",
+        error=None,
+        attempts=attempts,
+        started_at=attempt_started_at.isoformat(),
+        completed_at=None,
+        duration_ms=None,
+        worker_id=WORKER_ID,
+        model=model,
+        prompt=prompt_name,
+        error_details=None,
+    )
 
     raw_text, error = _run_model(media_type, prompt, row, url)
+    duration_ms = int((time.monotonic() - attempt_started_monotonic) * 1000)
+    attempt_completed_at = datetime.now(timezone.utc).isoformat()
     if error:
         err_lower = str(error).lower()
         is_unavailable = err_lower.startswith("runpod_unreachable:") or err_lower.startswith(
@@ -660,13 +848,26 @@ def process_job(payload: Dict[str, Any]) -> bool:
                 status="pending",
                 error="runpod_unavailable",
                 attempts=attempts,
+                completed_at=attempt_completed_at,
+                duration_ms=duration_ms,
+                worker_id=WORKER_ID,
+                error_details=str(error),
             )
             # Returning False prevents ack; the same queue item will reappear after VT.
             return False
 
         attempts += 1
         status = "pending" if attempts <= MAX_RETRIES else "failed"
-        _update_ingest_status(content_id, status=status, error=error, attempts=attempts)
+        _update_ingest_status(
+            content_id,
+            status=status,
+            error=error,
+            attempts=attempts,
+            completed_at=attempt_completed_at,
+            duration_ms=duration_ms,
+            worker_id=WORKER_ID,
+            error_details=None,
+        )
         if status == "pending":
             send(QUEUE, {"content_id": content_id})
         return True
@@ -689,6 +890,10 @@ def process_job(payload: Dict[str, Any]) -> bool:
                 status=status,
                 error=str(error),
                 attempts=attempts,
+                completed_at=attempt_completed_at,
+                duration_ms=duration_ms,
+                worker_id=WORKER_ID,
+                error_details=None,
             )
             if status == "pending":
                 send(QUEUE, {"content_id": content_id})
@@ -709,7 +914,16 @@ def process_job(payload: Dict[str, Any]) -> bool:
     if update_payload:
         SB.table("content_items").update(update_payload).eq("id", content_id).execute()
 
-    _update_ingest_status(content_id, status="ok", error=None, attempts=attempts)
+    _update_ingest_status(
+        content_id,
+        status="ok",
+        error=None,
+        attempts=attempts,
+        completed_at=attempt_completed_at,
+        duration_ms=duration_ms,
+        worker_id=WORKER_ID,
+        error_details=None,
+    )
 
     script_id = row.get("script_id")
     if script_id:
@@ -722,6 +936,8 @@ if __name__ == "__main__":
     print("[content_ingestor] started - waiting for jobs", flush=True)
     prefer_finalize = True
     while True:
+        _maybe_run_sweeper()
+
         if RUNPOD_GATE_ENABLED:
             reachable, gate_error = _runpod_is_reachable()
             if not reachable:
