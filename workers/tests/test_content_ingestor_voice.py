@@ -37,8 +37,6 @@ Long Description
 Explicitness
 sfw
 
-Time of Day
-
 Mood Tags
 apologetic, reassuring, tired
 
@@ -64,10 +62,9 @@ Voice Transcript
         self.assertEqual(28, sanitized.get("duration_seconds"))
         self.assertEqual(["apologetic", "reassuring", "tired"], sanitized.get("mood_tags"))
         self.assertIn("voice_note", sanitized.get("action_tags", []))
-        # Time of day left blank should not be set.
+        # Time of day is intentionally omitted for voice notes.
         self.assertIsNone(sanitized.get("time_of_day"))
 
 
 if __name__ == "__main__":
     unittest.main()
-
