@@ -202,7 +202,10 @@ def _call_llm(prompt: str) -> str:
     }
     payload = {
         "model": RUNPOD_MODEL,
-        "messages": [{"role": "user", "content": prompt}],
+        "messages": [
+            {"role": "system", "content": "Reasoning: high"},
+            {"role": "user", "content": prompt},
+        ],
         "max_tokens": int(os.getenv("TIMELINE_MAX_TOKENS", "1200")),
         "temperature": float(os.getenv("TIMELINE_TEMPERATURE", "0.2")),
     }

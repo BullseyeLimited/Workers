@@ -79,6 +79,7 @@ def runpod_call(system_prompt: str, user_prompt: str) -> str:
     body = {
         "model": RUNPOD_MODEL,
         "messages": [
+            {"role": "system", "content": "Reasoning: high"},
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
         ],

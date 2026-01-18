@@ -41,7 +41,10 @@ def call_llm(prompt: str) -> str:
     }
     payload = {
         "model": RUNPOD_MODEL,
-        "messages": [{"role": "user", "content": prompt}],
+        "messages": [
+            {"role": "system", "content": "Reasoning: high"},
+            {"role": "user", "content": prompt},
+        ],
         "max_tokens": 900,
         "temperature": 0,
     }

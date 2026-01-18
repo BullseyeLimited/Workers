@@ -29,7 +29,10 @@ def call_llm(prompt: str) -> str:
     }
     payload = {
         "model": os.getenv("RUNPOD_MODEL_NAME", "gpt-oss-20b-uncensored"),
-        "messages": [{"role": "user", "content": prompt}],
+        "messages": [
+            {"role": "system", "content": "Reasoning: high"},
+            {"role": "user", "content": prompt},
+        ],
         "max_tokens": 350,
         "temperature": 0,
     }
