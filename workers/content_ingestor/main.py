@@ -60,6 +60,21 @@ VOICE_MODEL = os.getenv("CONTENT_VOICE_MODEL") or RUNPOD_MODEL_NAME
 
 MAX_RETRIES = int(os.getenv("CONTENT_INGEST_MAX_RETRIES", "2"))
 
+RUNPOD_GATE_ENABLED = os.getenv("CONTENT_RUNPOD_GATE_ENABLED", "true").lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
+RUNPOD_HEALTHCHECK_PATH = os.getenv("CONTENT_RUNPOD_HEALTHCHECK_PATH", "/v1/models")
+RUNPOD_HEALTHCHECK_TIMEOUT_SECONDS = float(
+    os.getenv("CONTENT_RUNPOD_HEALTHCHECK_TIMEOUT_SECONDS", "2")
+)
+RUNPOD_GATE_SLEEP_SECONDS = float(os.getenv("CONTENT_RUNPOD_GATE_SLEEP_SECONDS", "5"))
+RUNPOD_HEALTHCHECK_CACHE_SECONDS = float(
+    os.getenv("CONTENT_RUNPOD_HEALTHCHECK_CACHE_SECONDS", "5")
+)
+
 MEDIA_TYPE_ALIASES = {
     "image": "photo",
     "img": "photo",
@@ -135,6 +150,71 @@ def _clean_text(value: Any) -> Optional[str]:
 
 
 _LIST_SPLIT_RE = re.compile(r"[,\n;|]+")
+
+_last_runpod_check_at = 0.0
+_last_runpod_check_ok = False
+_last_runpod_check_error: Optional[str] = None
+_last_runpod_gate_notice: Optional[str] = None
+
+
+def _runpod_healthcheck_url() -> str:
+    path = RUNPOD_HEALTHCHECK_PATH or ""
+    if not path:
+        return RUNPOD_URL
+    if path.startswith("/"):
+        return f"{RUNPOD_URL}{path}"
+    return f"{RUNPOD_URL}/{path}"
+
+
+def _set_runpod_unavailable_cache(error: Optional[str]) -> None:
+    global _last_runpod_check_at, _last_runpod_check_ok, _last_runpod_check_error
+    _last_runpod_check_at = time.time()
+    _last_runpod_check_ok = False
+    _last_runpod_check_error = error
+
+
+def _runpod_is_reachable() -> Tuple[bool, Optional[str]]:
+    """
+    Cheap reachability probe so we don't consume/mark jobs while the pod is off.
+    Returns (reachable, error_code_or_message).
+    """
+    global _last_runpod_check_at, _last_runpod_check_ok, _last_runpod_check_error
+
+    now = time.time()
+    if now - _last_runpod_check_at < RUNPOD_HEALTHCHECK_CACHE_SECONDS:
+        return _last_runpod_check_ok, _last_runpod_check_error
+
+    _last_runpod_check_at = now
+
+    if not RUNPOD_URL:
+        _last_runpod_check_ok = False
+        _last_runpod_check_error = "runpod_url_missing"
+        return _last_runpod_check_ok, _last_runpod_check_error
+
+    # If auth/model config is missing, don't claim jobs. Keep everything pending until fixed.
+    if not RUNPOD_API_KEY:
+        _last_runpod_check_ok = False
+        _last_runpod_check_error = "runpod_api_key_missing"
+        return _last_runpod_check_ok, _last_runpod_check_error
+
+    if not (PHOTO_MODEL or VIDEO_MODEL or VOICE_MODEL):
+        _last_runpod_check_ok = False
+        _last_runpod_check_error = "model_not_configured"
+        return _last_runpod_check_ok, _last_runpod_check_error
+
+    health_url = _runpod_healthcheck_url()
+    headers = {"Authorization": f"Bearer {RUNPOD_API_KEY}"} if RUNPOD_API_KEY else {}
+    try:
+        # Any HTTP response means the server is up; we only care about network reachability here.
+        requests.get(health_url, headers=headers, timeout=RUNPOD_HEALTHCHECK_TIMEOUT_SECONDS)
+    except requests.exceptions.RequestException as exc:  # noqa: BLE001
+        _last_runpod_check_ok = False
+        _last_runpod_check_error = f"runpod_unreachable: {exc}"
+        return _last_runpod_check_ok, _last_runpod_check_error
+
+    _last_runpod_check_ok = True
+    _last_runpod_check_error = None
+    return _last_runpod_check_ok, _last_runpod_check_error
 
 
 def _normalize_tag(value: str) -> str:
@@ -404,6 +484,19 @@ def _runpod_call(
         resp = requests.post(url, headers=headers, json=payload, timeout=60)
         resp.raise_for_status()
         data = resp.json()
+    except requests.exceptions.Timeout as exc:
+        return "", f"runpod_timeout: {exc}"
+    except requests.exceptions.ConnectionError as exc:
+        return "", f"runpod_unreachable: {exc}"
+    except requests.exceptions.HTTPError as exc:
+        status_code = getattr(getattr(exc, "response", None), "status_code", None)
+        try:
+            code_int = int(status_code) if status_code is not None else None
+        except Exception:
+            code_int = None
+        if code_int is not None and code_int >= 500:
+            return "", f"runpod_unavailable_http: {code_int}"
+        return "", f"runpod_error: {exc}"
     except Exception as exc:  # noqa: BLE001
         return "", f"runpod_error: {exc}"
 
@@ -549,8 +642,28 @@ def process_job(payload: Dict[str, Any]) -> bool:
         )
         return True
 
+    # Mark row as in-flight only after we have everything we need.
+    _update_ingest_status(content_id, status="processing", error=None, attempts=attempts)
+
     raw_text, error = _run_model(media_type, prompt, row, url)
     if error:
+        err_lower = str(error).lower()
+        is_unavailable = err_lower.startswith("runpod_unreachable:") or err_lower.startswith(
+            "runpod_timeout:"
+        )
+        is_unavailable = is_unavailable or err_lower.startswith("runpod_unavailable_http:")
+        if is_unavailable:
+            # Pod is off/unreachable. Do not count attempts or mark failed.
+            _set_runpod_unavailable_cache(error)
+            _update_ingest_status(
+                content_id,
+                status="pending",
+                error="runpod_unavailable",
+                attempts=attempts,
+            )
+            # Returning False prevents ack; the same queue item will reappear after VT.
+            return False
+
         attempts += 1
         status = "pending" if attempts <= MAX_RETRIES else "failed"
         _update_ingest_status(content_id, status=status, error=error, attempts=attempts)
@@ -609,6 +722,19 @@ if __name__ == "__main__":
     print("[content_ingestor] started - waiting for jobs", flush=True)
     prefer_finalize = True
     while True:
+        if RUNPOD_GATE_ENABLED:
+            reachable, gate_error = _runpod_is_reachable()
+            if not reachable:
+                notice = gate_error or "runpod_unreachable"
+                if notice != _last_runpod_gate_notice:
+                    print(
+                        f"[content_ingestor] runpod not ready ({notice}); waiting…",
+                        flush=True,
+                    )
+                    _last_runpod_gate_notice = notice
+                time.sleep(RUNPOD_GATE_SLEEP_SECONDS)
+                continue
+
         if HANDLE_SCRIPT_FINALIZE:
             queue_order = (SCRIPT_QUEUE, QUEUE) if prefer_finalize else (QUEUE, SCRIPT_QUEUE)
             job = receive(queue_order[0], 30) or receive(queue_order[1], 30)
