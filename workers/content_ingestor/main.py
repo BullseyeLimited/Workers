@@ -472,19 +472,7 @@ def _sanitize_update(update: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _build_user_content(media_type: str, row: Dict[str, Any], url: str):
-    if media_type == "photo":
-        return [
-            {
-                "type": "text",
-                "text": f"IMAGE_URL:\n{url}",
-            },
-            {"type": "image_url", "image_url": {"url": url}},
-        ]
-    if media_type == "video":
-        return f"VIDEO_URL:\n{url}"
-    if media_type == "voice":
-        return f"VOICE_URL:\n{url}"
-    return ""
+    raise NotImplementedError
 
 
 def _select_model(media_type: str) -> Optional[str]:
@@ -500,8 +488,7 @@ def _select_model(media_type: str) -> Optional[str]:
 def _runpod_call(
     *,
     model: str,
-    system_prompt: str,
-    user_content: Any,
+    messages: List[Dict[str, Any]],
     temperature: float = 0.2,
     max_tokens: int = 2000,
 ) -> Tuple[str, Optional[str]]:
@@ -523,12 +510,9 @@ def _runpod_call(
     }
     payload = {
         "model": model,
-        "messages": [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_content},
-        ],
-        "temperature": float(os.getenv("CONTENT_TEMPERATURE", str(temperature))),
-        "max_tokens": int(os.getenv("CONTENT_MAX_TOKENS", str(max_tokens))),
+        "messages": messages,
+        "temperature": temperature,
+        "max_tokens": max_tokens,
     }
     try:
         resp = requests.post(url, headers=headers, json=payload, timeout=60)
@@ -566,18 +550,58 @@ def _runpod_call(
     return raw_text.strip(), None
 
 
-def _run_model(media_type: str, prompt: str, row: Dict[str, Any], url: str) -> Tuple[str, Optional[str]]:
-    model = _select_model(media_type)
-    if not model:
-        return "", "model_not_configured"
+def _build_messages(media_type: str, prompt: str, row: Dict[str, Any], url: str) -> List[Dict[str, Any]]:
+    if media_type == "video":
+        # Video models often require the media to be attached via `video_url` content.
+        # We also include VIDEO_URL text to stay compatible with the prompt format.
+        user_text = f"{prompt}\n\nVIDEO_URL:\n{url}"
+        return [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": user_text},
+                    {"type": "video_url", "video_url": {"url": url}},
+                ],
+            }
+        ]
 
-    user_content = _build_user_content(media_type, row, url)
+    if media_type == "photo":
+        return [
+            {"role": "system", "content": prompt},
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": f"IMAGE_URL:\n{url}"},
+                    {"type": "image_url", "image_url": {"url": url}},
+                ],
+            },
+        ]
+
+    if media_type == "voice":
+        return [
+            {"role": "system", "content": prompt},
+            {"role": "user", "content": f"VOICE_URL:\n{url}"},
+        ]
+
+    return [{"role": "system", "content": prompt}, {"role": "user", "content": str(url)}]
+
+
+def _run_model(
+    media_type: str, prompt: str, row: Dict[str, Any], url: str, *, model: str
+) -> Tuple[str, Optional[str]]:
+    messages = _build_messages(media_type, prompt, row, url)
+
+    temperature = float(os.getenv("CONTENT_TEMPERATURE", "0.2"))
+    if media_type == "video":
+        max_tokens = int(os.getenv("CONTENT_VIDEO_MAX_TOKENS", "1000000"))
+    else:
+        max_tokens = int(os.getenv("CONTENT_MAX_TOKENS", "2000"))
+
     raw_text, error = _runpod_call(
         model=model,
-        system_prompt=prompt,
-        user_content=user_content,
-        temperature=0.2,
-        max_tokens=2000,
+        messages=messages,
+        temperature=temperature,
+        max_tokens=max_tokens,
     )
     if error:
         return "", error
@@ -831,7 +855,7 @@ def process_job(payload: Dict[str, Any]) -> bool:
         error_details=None,
     )
 
-    raw_text, error = _run_model(media_type, prompt, row, url)
+    raw_text, error = _run_model(media_type, prompt, row, url, model=model)
     duration_ms = int((time.monotonic() - attempt_started_monotonic) * 1000)
     attempt_completed_at = datetime.now(timezone.utc).isoformat()
     if error:
