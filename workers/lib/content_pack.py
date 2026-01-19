@@ -992,8 +992,18 @@ def build_content_index(
         core_rows = items_by_script.get(sid_key, [])
         shoot_id = script.get("shoot_id")
         ammo_rows = items_by_shoot.get(str(shoot_id), []) if shoot_id else []
-        if not core_rows and not ammo_rows:
+        if not core_rows:
+            # Do not expose script ammo until core items are finalized.
             continue
+        core_ready = [
+            row
+            for row in core_rows
+            if row.get("stage") and isinstance(row.get("sequence_position"), int)
+        ]
+        if len(core_ready) != len(core_rows):
+            # Fail-safe: hide scripts until every core item has stage + sequence_position.
+            continue
+        core_rows = core_ready
         meta = meta_by_script_id.get(sid_key, {})
         header = _build_hermes_script_header(
             script, meta, core_rows=core_rows, ammo_rows=ammo_rows
