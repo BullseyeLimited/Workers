@@ -330,13 +330,14 @@ TURN 1 (The Move) must include FOUR components:
 CRITICAL NOTE: Not every question has to be filled with enthusiam, sometimes the message is just few words, and sometimes its much longer. it all depends on the context, we are engaging but not overly, like always asking open ended questions, yes they are good but not when they are spammy, refer to the raw turns to determine if it is alright to ask more questions and lead the conversation through open ended questions or direct or sharing something about us, it should be a natural conversation on onlyfans.)
 
 TURN 2 (Predictions)
-- 2A = receptive success: describe what it looks like (tone + content). NOT specifc predictions on WHAT he will write
+- 2A = receptive success: describe what it looks like (tone + content). NOT specifc predictions on WHAT he will write.
 - 2B = resistance/low-energy/curveball: describe what it looks like (tone + content). NOT specifc predictions on WHAT he will write
  
 TURN 3 (If-Then Directives)
 - 3A must REWARD + ADVANCE (escalate or deepen in the same lane). example
 - 3B must LOWER FRICTION + RE-ENGAGE (validate, simplify, give an easier hook, or gracefully follow his lead while still gathering signal). example
 - 3A and 3B must be psychologically distinct, not generic.
+- 3A and 3b cannot be specific words we will use, they have to be paths where we wanna lead them so no exact messages just the directions.
 
 FOLLOW-HIS-LEAD MODE (Still a plan)
 If the Fan is steering hard:
@@ -488,6 +489,7 @@ Execute.
 </NAPOLEON_INPUT>
 
 ---
+
 
 
 
