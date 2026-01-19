@@ -78,6 +78,18 @@ RUNPOD_GATE_SLEEP_SECONDS = float(os.getenv("CONTENT_RUNPOD_GATE_SLEEP_SECONDS",
 RUNPOD_HEALTHCHECK_CACHE_SECONDS = float(
     os.getenv("CONTENT_RUNPOD_HEALTHCHECK_CACHE_SECONDS", "5")
 )
+RUNPOD_HEALTHCHECK_CACHE_OK_SECONDS = float(
+    os.getenv(
+        "CONTENT_RUNPOD_HEALTHCHECK_CACHE_OK_SECONDS",
+        str(RUNPOD_HEALTHCHECK_CACHE_SECONDS),
+    )
+)
+RUNPOD_HEALTHCHECK_CACHE_FAIL_SECONDS = float(
+    os.getenv(
+        "CONTENT_RUNPOD_HEALTHCHECK_CACHE_FAIL_SECONDS",
+        str(RUNPOD_HEALTHCHECK_CACHE_SECONDS),
+    )
+)
 
 VIDEO_DURATION_ENABLED = os.getenv("CONTENT_VIDEO_DURATION_ENABLED", "true").lower() in {
     "1",
@@ -955,7 +967,12 @@ def _runpod_is_reachable() -> Tuple[bool, Optional[str]]:
     global _last_runpod_check_at, _last_runpod_check_ok, _last_runpod_check_error
 
     now = time.time()
-    if now - _last_runpod_check_at < RUNPOD_HEALTHCHECK_CACHE_SECONDS:
+    cache_window = (
+        RUNPOD_HEALTHCHECK_CACHE_OK_SECONDS
+        if _last_runpod_check_ok
+        else RUNPOD_HEALTHCHECK_CACHE_FAIL_SECONDS
+    )
+    if now - _last_runpod_check_at < cache_window:
         return _last_runpod_check_ok, _last_runpod_check_error
 
     _last_runpod_check_at = now
