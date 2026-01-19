@@ -8,10 +8,13 @@ Everything in this document is system instruction that defines your role, your s
 
 RUNTIME INPUT (WHAT YOU WILL RECEIVE)
 
-At runtime, you will receive ONE video to analyze, provided as a URL reference in the form:
+At runtime, you will receive ONE video to analyze, provided as a URL reference + the true duration in seconds in the form:
 
 VIDEO_URL:
 <url>
+
+VIDEO_DURATION_SECONDS:
+<integer seconds>
 
 That video (visuals + audio) is the only source of truth for what you describe.
 
@@ -359,10 +362,10 @@ Purpose: Simply the length of the video in seconds. This is used for internal tr
 Format: An integer number of seconds (no need for units or words, just a number). For example, a 2 minute 30 second video = 150. A 15 second clip = 15.
 
 Guidelines:
-	•	Be accurate. If the video is, say, 2:05 (2 minutes 5 seconds), that’s 125 seconds. If it’s 2:00 exactly, 120 seconds.
-	•	Round to the nearest whole second (most videos will be whole seconds anyway).
-	•	This field is straightforward; ensure it matches the timestamps you used in the Long Description (e.g., if your last timestamp was 01:55 and video ends by 02:00, duration likely 120s if it ends at 2:00 mark).
-	•	If you don’t have an exact count, estimate from the given data or assume based on content (but ideally, you have the actual video length). It’s important for synchronization if needed.
+	•	DO NOT estimate or guess this value.
+	•	Use the provided VIDEO_DURATION_SECONDS value from the input.
+	•	Output Duration Seconds exactly equal to VIDEO_DURATION_SECONDS.
+	•	Your Long Description timestamps MUST NOT exceed the provided VIDEO_DURATION_SECONDS.
 
 Voice Transcript
 
@@ -680,7 +683,7 @@ Lighting
 <one term>
 
 Duration Seconds
-<integer seconds>
+<integer seconds (must equal VIDEO_DURATION_SECONDS)>
 
 Voice Transcript
 <verbatim transcript + key sounds, in order; stop after this section>

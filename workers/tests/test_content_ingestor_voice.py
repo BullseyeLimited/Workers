@@ -3,6 +3,7 @@ import unittest
 
 os.environ.setdefault("SUPABASE_URL", "http://localhost")
 os.environ.setdefault("SUPABASE_SERVICE_ROLE_KEY", "test-key")
+os.environ.setdefault("RUNPOD_MODEL_NAME", "test-model")
 
 from workers.content_ingestor.main import _infer_media_type, _parse_header_output, _sanitize_update
 

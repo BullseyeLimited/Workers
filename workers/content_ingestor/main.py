@@ -75,6 +75,18 @@ RUNPOD_HEALTHCHECK_CACHE_SECONDS = float(
     os.getenv("CONTENT_RUNPOD_HEALTHCHECK_CACHE_SECONDS", "5")
 )
 
+VIDEO_DURATION_ENABLED = os.getenv("CONTENT_VIDEO_DURATION_ENABLED", "true").lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
+VIDEO_DURATION_PROBE_BYTES = int(os.getenv("CONTENT_VIDEO_DURATION_PROBE_BYTES", "2097152"))
+VIDEO_DURATION_TIMEOUT_SECONDS = float(os.getenv("CONTENT_VIDEO_DURATION_TIMEOUT_SECONDS", "10"))
+VIDEO_DURATION_FULL_DOWNLOAD_MAX_BYTES = int(
+    os.getenv("CONTENT_VIDEO_DURATION_FULL_DOWNLOAD_MAX_BYTES", "100000000")
+)
+
 INGEST_SWEEPER_ENABLED = os.getenv("CONTENT_INGEST_SWEEPER_ENABLED", "true").lower() in {
     "1",
     "true",
@@ -156,6 +168,145 @@ def _coerce_int(value: Any) -> Optional[int]:
         return int(value)
     except Exception:
         return None
+
+
+def _extract_mp4_duration_seconds_from_bytes(data: bytes) -> Optional[int]:
+    """
+    Extract duration from an MP4/MOV by parsing the `mvhd` atom.
+    Returns integer seconds or None if not found.
+    """
+    if not data:
+        return None
+
+    start = 0
+    needle = b"mvhd"
+    while True:
+        idx = data.find(needle, start)
+        if idx == -1:
+            return None
+
+        box_start = idx - 4
+        if box_start < 0:
+            start = idx + 4
+            continue
+
+        if box_start + 8 > len(data):
+            start = idx + 4
+            continue
+
+        size = int.from_bytes(data[box_start : box_start + 4], "big", signed=False)
+        header_size = 8
+        if size == 1:
+            # 64-bit extended size
+            if box_start + 16 > len(data):
+                start = idx + 4
+                continue
+            size = int.from_bytes(data[box_start + 8 : box_start + 16], "big", signed=False)
+            header_size = 16
+
+        fields_start = box_start + header_size
+        if fields_start + 4 > len(data):
+            start = idx + 4
+            continue
+
+        version = data[fields_start]
+        if version == 0:
+            # version/flags (4) + creation (4) + modification (4) + timescale (4) + duration (4)
+            needed = 4 + 4 + 4 + 4 + 4
+            if fields_start + needed > len(data):
+                start = idx + 4
+                continue
+            timescale = int.from_bytes(data[fields_start + 12 : fields_start + 16], "big", signed=False)
+            duration = int.from_bytes(data[fields_start + 16 : fields_start + 20], "big", signed=False)
+        elif version == 1:
+            # version/flags (4) + creation (8) + modification (8) + timescale (4) + duration (8)
+            needed = 4 + 8 + 8 + 4 + 8
+            if fields_start + needed > len(data):
+                start = idx + 4
+                continue
+            timescale = int.from_bytes(data[fields_start + 20 : fields_start + 24], "big", signed=False)
+            duration = int.from_bytes(data[fields_start + 24 : fields_start + 32], "big", signed=False)
+        else:
+            start = idx + 4
+            continue
+
+        if timescale <= 0 or duration <= 0:
+            start = idx + 4
+            continue
+
+        seconds = duration / timescale
+        if seconds <= 0:
+            start = idx + 4
+            continue
+
+        return max(1, int(round(seconds)))
+
+
+def _fetch_url_bytes(url: str, *, range_header: str, max_bytes: int) -> Optional[bytes]:
+    headers = {"Range": range_header}
+    try:
+        with requests.get(url, headers=headers, stream=True, timeout=VIDEO_DURATION_TIMEOUT_SECONDS) as resp:
+            if resp.status_code not in {200, 206}:
+                return None
+            chunks: List[bytes] = []
+            received = 0
+            for chunk in resp.iter_content(chunk_size=64 * 1024):
+                if not chunk:
+                    break
+                if received + len(chunk) > max_bytes:
+                    chunk = chunk[: max_bytes - received]
+                chunks.append(chunk)
+                received += len(chunk)
+                if received >= max_bytes:
+                    break
+            return b"".join(chunks) if chunks else b""
+    except Exception:
+        return None
+
+
+def _get_video_duration_seconds(url: str) -> Optional[int]:
+    """
+    Best-effort duration extraction for MP4/MOV URLs using ranged reads.
+    """
+    if not url:
+        return None
+    path = urlparse(str(url)).path.lower()
+    if not any(path.endswith(ext) for ext in (".mp4", ".mov", ".m4v")):
+        return None
+
+    probe = max(64 * 1024, int(VIDEO_DURATION_PROBE_BYTES))
+
+    head = _fetch_url_bytes(url, range_header=f"bytes=0-{probe - 1}", max_bytes=probe)
+    if head is not None:
+        duration = _extract_mp4_duration_seconds_from_bytes(head)
+        if duration is not None:
+            return duration
+
+    tail = _fetch_url_bytes(url, range_header=f"bytes=-{probe}", max_bytes=probe)
+    if tail is not None:
+        duration = _extract_mp4_duration_seconds_from_bytes(tail)
+        if duration is not None:
+            return duration
+
+    # Fallback: download the full file only if reasonably small.
+    try:
+        with requests.head(url, allow_redirects=True, timeout=VIDEO_DURATION_TIMEOUT_SECONDS) as resp:
+            length_raw = resp.headers.get("Content-Length") or resp.headers.get("content-length")
+    except Exception:
+        length_raw = None
+
+    try:
+        length = int(length_raw) if length_raw else None
+    except Exception:
+        length = None
+
+    if length is None or length > VIDEO_DURATION_FULL_DOWNLOAD_MAX_BYTES:
+        return None
+
+    blob = _fetch_url_bytes(url, range_header=f"bytes=0-{length - 1}", max_bytes=length)
+    if blob is None:
+        return None
+    return _extract_mp4_duration_seconds_from_bytes(blob)
 
 
 def _clean_text(value: Any) -> Optional[str]:
@@ -550,11 +701,21 @@ def _runpod_call(
     return raw_text.strip(), None
 
 
-def _build_messages(media_type: str, prompt: str, row: Dict[str, Any], url: str) -> List[Dict[str, Any]]:
+def _build_messages(
+    media_type: str,
+    prompt: str,
+    row: Dict[str, Any],
+    url: str,
+    *,
+    duration_seconds: Optional[int] = None,
+) -> List[Dict[str, Any]]:
     if media_type == "video":
         # Video models often require the media to be attached via `video_url` content.
         # We also include VIDEO_URL text to stay compatible with the prompt format.
-        user_text = f"{prompt}\n\nVIDEO_URL:\n{url}"
+        duration_text = (
+            f"\n\nVIDEO_DURATION_SECONDS:\n{int(duration_seconds)}" if duration_seconds is not None else ""
+        )
+        user_text = f"{prompt}\n\nVIDEO_URL:\n{url}{duration_text}"
         return [
             {
                 "role": "user",
@@ -589,7 +750,13 @@ def _build_messages(media_type: str, prompt: str, row: Dict[str, Any], url: str)
 def _run_model(
     media_type: str, prompt: str, row: Dict[str, Any], url: str, *, model: str
 ) -> Tuple[str, Optional[str]]:
-    messages = _build_messages(media_type, prompt, row, url)
+    duration_seconds = None
+    if media_type == "video":
+        duration_seconds = _coerce_int(row.get("duration_seconds"))
+        if duration_seconds is not None and duration_seconds <= 0:
+            duration_seconds = None
+
+    messages = _build_messages(media_type, prompt, row, url, duration_seconds=duration_seconds)
 
     temperature = float(os.getenv("CONTENT_TEMPERATURE", "0.2"))
     if media_type == "video":
@@ -817,6 +984,14 @@ def process_job(payload: Dict[str, Any]) -> bool:
         )
         return True
 
+    if media_type == "video" and VIDEO_DURATION_ENABLED:
+        current_duration = _coerce_int(row.get("duration_seconds"))
+        duration = _get_video_duration_seconds(str(url))
+        if duration is not None:
+            if current_duration != duration:
+                SB.table("content_items").update({"duration_seconds": duration}).eq("id", content_id).execute()
+            row["duration_seconds"] = duration
+
     prompt_name = f"content_{media_type}.txt"
     prompt = _load_prompt(prompt_name)
     if not prompt:
@@ -935,6 +1110,9 @@ def process_job(payload: Dict[str, Any]) -> bool:
         return True
 
     update_payload = _sanitize_update(update)
+    # Duration is set from the media file (more reliable than model guesses).
+    if media_type == "video":
+        update_payload.pop("duration_seconds", None)
     if update_payload:
         SB.table("content_items").update(update_payload).eq("id", content_id).execute()
 

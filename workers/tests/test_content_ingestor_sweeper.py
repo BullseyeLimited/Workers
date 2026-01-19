@@ -5,6 +5,7 @@ from unittest.mock import patch
 
 os.environ.setdefault("SUPABASE_URL", "http://localhost")
 os.environ.setdefault("SUPABASE_SERVICE_ROLE_KEY", "test-key")
+os.environ.setdefault("RUNPOD_MODEL_NAME", "test-model")
 
 import workers.content_ingestor.main as content_ingestor
 

@@ -3,6 +3,7 @@ import unittest
 
 os.environ.setdefault("SUPABASE_URL", "http://localhost")
 os.environ.setdefault("SUPABASE_SERVICE_ROLE_KEY", "test-key")
+os.environ.setdefault("RUNPOD_MODEL_NAME", "test-model")
 
 from workers.content_ingestor.main import _build_messages
 
@@ -12,7 +13,7 @@ class ContentIngestorVideoPayloadTests(unittest.TestCase):
         url = "https://example.test/video.mp4"
         prompt = "TEST_PROMPT"
 
-        messages = _build_messages("video", prompt, {}, url)
+        messages = _build_messages("video", prompt, {}, url, duration_seconds=3)
         self.assertEqual(1, len(messages))
 
         msg0 = messages[0]
@@ -26,6 +27,8 @@ class ContentIngestorVideoPayloadTests(unittest.TestCase):
         self.assertIn(prompt, text_parts[0].get("text", ""))
         self.assertIn("VIDEO_URL", text_parts[0].get("text", ""))
         self.assertIn(url, text_parts[0].get("text", ""))
+        self.assertIn("VIDEO_DURATION_SECONDS", text_parts[0].get("text", ""))
+        self.assertIn("3", text_parts[0].get("text", ""))
 
         video_parts = [item for item in content if isinstance(item, dict) and item.get("type") == "video_url"]
         self.assertTrue(video_parts)
@@ -34,4 +37,3 @@ class ContentIngestorVideoPayloadTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-
