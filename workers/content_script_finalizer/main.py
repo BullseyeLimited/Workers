@@ -78,6 +78,41 @@ CONTROLLED_CAMERA_ANGLE = {
 CONTROLLED_STAGE = {"setup", "tease", "build", "climax", "after"}
 
 
+def _normalize_header(value: str) -> str:
+    cleaned = str(value).strip().lower()
+    cleaned = cleaned.strip(" \t:;-")
+    cleaned = cleaned.replace("_", " ")
+    cleaned = " ".join(cleaned.split())
+    return cleaned
+
+
+SCRIPT_HEADER_ALIASES = {
+    "title": ("title",),
+    "summary": ("summary",),
+    "time_of_day": ("time of day", "time_of_day"),
+    "location_primary": ("location primary", "location_primary"),
+    "outfit_category": ("outfit category", "outfit_category"),
+    "focus_tags": ("focus tags", "focus_tags"),
+}
+
+ITEM_HEADER_ALIASES = {
+    "id": ("id", "item id", "item_id"),
+    "stage": ("stage",),
+    "sequence_position": ("sequence position", "sequence_position", "sequence"),
+}
+
+SCRIPT_FIELD_MAP = {
+    _normalize_header(alias): field
+    for field, aliases in SCRIPT_HEADER_ALIASES.items()
+    for alias in aliases
+}
+ITEM_FIELD_MAP = {
+    _normalize_header(alias): field
+    for field, aliases in ITEM_HEADER_ALIASES.items()
+    for alias in aliases
+}
+
+
 def _load_prompt(filename: str) -> str:
     path = PROMPTS_DIR / filename
     try:
@@ -162,6 +197,109 @@ def _extract_payload(data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     return data
 
 
+def _parse_header_output(text: str) -> Optional[Dict[str, Any]]:
+    lines = text.splitlines()
+    section: Optional[str] = None
+    current_field: Optional[str] = None
+    buffer: List[str] = []
+
+    script_update: Dict[str, Any] = {}
+    items: List[Dict[str, Any]] = []
+    current_item: Optional[Dict[str, Any]] = None
+
+    def flush_field() -> None:
+        nonlocal buffer, current_field
+        if not current_field:
+            buffer = []
+            return
+        value = "\n".join(buffer).strip()
+        if section == "script":
+            script_update[current_field] = value
+        elif section == "item" and current_item is not None:
+            current_item[current_field] = value
+        buffer = []
+
+    def flush_item() -> None:
+        nonlocal current_item
+        if current_item:
+            items.append(current_item)
+        current_item = None
+
+    for raw_line in lines:
+        line = raw_line.rstrip()
+        stripped = line.strip()
+        if not stripped:
+            if current_field:
+                buffer.append("")
+            continue
+
+        normalized = _normalize_header(stripped)
+
+        if normalized in {"script update", "script_update"}:
+            flush_field()
+            flush_item()
+            section = "script"
+            current_field = None
+            continue
+        if normalized in {"item updates", "item_updates", "items"}:
+            flush_field()
+            flush_item()
+            section = "item"
+            current_field = None
+            continue
+        if normalized in {"item", "item update", "item_update"}:
+            flush_field()
+            flush_item()
+            section = "item"
+            current_item = {}
+            current_field = None
+            continue
+        if normalized in {"end", "### end"}:
+            flush_field()
+            flush_item()
+            break
+
+        if ":" in stripped:
+            left, right = stripped.split(":", 1)
+            normalized_left = _normalize_header(left)
+            if section == "script" and normalized_left in SCRIPT_FIELD_MAP:
+                flush_field()
+                current_field = SCRIPT_FIELD_MAP[normalized_left]
+                buffer.append(right.strip())
+                continue
+            if section == "item" and normalized_left in ITEM_FIELD_MAP:
+                if current_item is None:
+                    current_item = {}
+                flush_field()
+                current_field = ITEM_FIELD_MAP[normalized_left]
+                buffer.append(right.strip())
+                continue
+
+        if section == "script" and normalized in SCRIPT_FIELD_MAP:
+            flush_field()
+            current_field = SCRIPT_FIELD_MAP[normalized]
+            continue
+        if section == "item" and normalized in ITEM_FIELD_MAP:
+            if current_item is None:
+                current_item = {}
+            flush_field()
+            current_field = ITEM_FIELD_MAP[normalized]
+            continue
+
+        if current_field:
+            buffer.append(stripped)
+
+    flush_field()
+    flush_item()
+
+    if not script_update and not items:
+        return None
+    return {
+        "content_scripts_update": script_update,
+        "content_items_updates": items,
+    }
+
+
 def _sanitize_script_update(update: Dict[str, Any]) -> Dict[str, Any]:
     allowed = {
         "title",
@@ -170,15 +308,13 @@ def _sanitize_script_update(update: Dict[str, Any]) -> Dict[str, Any]:
         "location_primary",
         "outfit_category",
         "focus_tags",
-        "script_summary",
-        "ammo_summary",
     }
     cleaned: Dict[str, Any] = {}
     for field in allowed:
         if field not in update:
             continue
         value = update[field]
-        if field in {"title", "summary", "location_primary", "script_summary", "ammo_summary"}:
+        if field in {"title", "summary", "location_primary"}:
             cleaned[field] = value.strip() if isinstance(value, str) else value
             continue
         if field == "time_of_day":
@@ -384,28 +520,20 @@ def process_job(payload: Dict[str, Any]) -> bool:
             send(QUEUE, {"script_id": script_id})
         return True
 
-    data, parse_error = safe_parse_model_json(raw_text)
-    if parse_error or not data:
+    payload_data = _parse_header_output(raw_text)
+    parse_error = None
+    if not payload_data:
+        data, parse_error = safe_parse_model_json(raw_text)
+        if not parse_error and data:
+            payload_data = _extract_payload(data)
+
+    if not payload_data:
         attempts += 1
         status = "pending" if attempts <= MAX_RETRIES else "failed"
-        _update_finalize_status(
-            script_id,
-            status=status,
-            error=f"parse_error:{parse_error}",
-            attempts=attempts,
-        )
+        error_text = f"parse_error:{parse_error}" if parse_error else "parse_error:header_missing"
+        _update_finalize_status(script_id, status=status, error=error_text, attempts=attempts)
         if status == "pending":
             send(QUEUE, {"script_id": script_id})
-        return True
-
-    payload_data = _extract_payload(data)
-    if not payload_data:
-        _update_finalize_status(
-            script_id,
-            status="failed",
-            error="invalid_payload",
-            attempts=attempts + 1,
-        )
         return True
 
     script_update_raw = payload_data.get("content_scripts_update") or {}

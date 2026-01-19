@@ -9,6 +9,7 @@ import os
 import re
 import time
 import traceback
+import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
@@ -118,6 +119,25 @@ MEDIA_TYPE_ALIASES = {
     "voicenote": "voice",
     "sound": "voice",
 }
+
+
+def _csv_set(env: str, default: str) -> set[str]:
+    raw = os.getenv(env, default)
+    parts = [p.strip().lower() for p in str(raw).split(",")]
+    return {p for p in parts if p}
+
+
+# Script folder conventions (Bubble 1)
+#   @handle/scripts/<script_slug>/core/<file>
+#   @handle/scripts/<script_slug>/ammo/<file>
+# Global ammo (Bubble 2)
+#   @handle/ammo/<file>
+SCRIPT_ROOT_FOLDERS = _csv_set("CONTENT_SCRIPT_ROOT_FOLDERS", "scripts")
+SCRIPT_CORE_FOLDERS = _csv_set("CONTENT_SCRIPT_CORE_FOLDERS", "core")
+SCRIPT_AMMO_FOLDERS = _csv_set("CONTENT_SCRIPT_AMMO_FOLDERS", "ammo")
+GLOBAL_AMMO_FOLDERS = _csv_set("CONTENT_GLOBAL_AMMO_FOLDERS", "ammo")
+
+SCRIPT_SHOOT_ID_NAMESPACE = uuid.NAMESPACE_URL
 
 
 def _load_prompt(filename: str) -> str:
@@ -327,6 +347,7 @@ _last_runpod_gate_notice: Optional[str] = None
 _last_sweep_at = 0.0
 
 _content_items_columns: Optional[set[str]] = None
+_content_scripts_columns: Optional[set[str]] = None
 
 _UNSET = object()
 
@@ -356,6 +377,245 @@ def _load_content_items_columns() -> set[str]:
 def _filter_content_items_update(update: Dict[str, Any]) -> Dict[str, Any]:
     allowed = _load_content_items_columns()
     return {k: v for k, v in update.items() if k in allowed}
+
+
+def _load_content_scripts_columns() -> set[str]:
+    global _content_scripts_columns
+    if _content_scripts_columns is not None:
+        return _content_scripts_columns
+    try:
+        rows = SB.table("content_scripts").select("*").limit(1).execute().data or []
+    except Exception:
+        rows = []
+    if rows and isinstance(rows[0], dict):
+        _content_scripts_columns = set(rows[0].keys())
+    else:
+        _content_scripts_columns = {
+            "id",
+            "creator_id",
+            "shoot_id",
+            "finalize_status",
+            "finalize_error",
+            "finalize_attempts",
+            "finalize_updated_at",
+        }
+    return _content_scripts_columns
+
+
+def _filter_content_scripts_update(update: Dict[str, Any]) -> Dict[str, Any]:
+    allowed = _load_content_scripts_columns()
+    return {k: v for k, v in update.items() if k in allowed}
+
+
+def _extract_storage_path(row: Dict[str, Any]) -> Optional[str]:
+    """
+    Prefer storage_path (if present). Fall back to parsing url_main/url_thumb.
+    Returns a bucket-relative path like: "@alice/scripts/script_1/core/video.mp4".
+    """
+
+    raw = row.get("storage_path")
+    if raw is not None and str(raw).strip():
+        return str(raw).strip()
+
+    url = row.get("url_main") or row.get("url_thumb")
+    if not url or not str(url).strip():
+        return None
+
+    try:
+        parsed = urlparse(str(url))
+    except Exception:
+        return None
+
+    path = parsed.path or ""
+    for marker in ("/object/public/", "/object/sign/"):
+        if marker not in path:
+            continue
+        rest = path.split(marker, 1)[1]
+        if not rest or "/" not in rest:
+            return None
+        # rest is "<bucket>/<path>"
+        return rest.split("/", 1)[1] or None
+    return None
+
+
+def _is_placeholder_storage_object(storage_path: Optional[str]) -> bool:
+    if not storage_path:
+        return False
+    name = str(storage_path).split("/")[-1]
+    return name == ".emptyFolderPlaceholder"
+
+
+def _parse_script_assignment(row: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """
+    Derive script assignment from Storage path.
+    Returns:
+      {
+        "shoot_id": <uuid-str>,
+        "is_ammo": bool,
+        "handle": str,
+        "root": str,
+        "shoot_slug": str,
+      }
+    """
+
+    storage_path = _extract_storage_path(row)
+    if not storage_path or _is_placeholder_storage_object(storage_path):
+        return None
+
+    parts = [p for p in str(storage_path).split("/") if p]
+    if len(parts) < 3:
+        return None
+
+    handle = parts[0].strip()
+    if not handle:
+        return None
+
+    root = parts[1].strip().lower()
+    if root in GLOBAL_AMMO_FOLDERS:
+        return None
+    if root not in SCRIPT_ROOT_FOLDERS:
+        return None
+
+    shoot_slug = parts[2].strip()
+    if not shoot_slug:
+        return None
+
+    role = parts[3].strip().lower() if len(parts) >= 4 else ""
+    if role in SCRIPT_AMMO_FOLDERS:
+        is_ammo = True
+    elif role in SCRIPT_CORE_FOLDERS:
+        is_ammo = False
+    elif not role and len(parts) == 3:
+        # If no explicit role folder, default to core.
+        is_ammo = False
+    else:
+        return None
+
+    creator_id = row.get("creator_id")
+    if creator_id is None:
+        return None
+
+    seed = f"{creator_id}:{root}:{shoot_slug}"
+    shoot_id = str(uuid.uuid5(SCRIPT_SHOOT_ID_NAMESPACE, seed))
+    return {
+        "shoot_id": shoot_id,
+        "is_ammo": is_ammo,
+        "handle": handle,
+        "root": root,
+        "shoot_slug": shoot_slug,
+    }
+
+
+def _get_or_create_script(
+    *, creator_id: Any, shoot_id: str, meta: Optional[Dict[str, Any]] = None
+) -> Optional[Dict[str, Any]]:
+    if creator_id is None or not shoot_id:
+        return None
+
+    try:
+        rows = (
+            SB.table("content_scripts")
+            .select("id,finalize_status,meta")
+            .eq("creator_id", creator_id)
+            .eq("shoot_id", shoot_id)
+            .limit(1)
+            .execute()
+            .data
+            or []
+        )
+    except Exception:
+        rows = []
+    script_row = rows[0] if rows and isinstance(rows[0], dict) else None
+
+    if not script_row:
+        payload = _filter_content_scripts_update(
+            {
+                "creator_id": creator_id,
+                "shoot_id": shoot_id,
+                "meta": meta,
+                "finalize_status": "pending",
+                "finalize_error": None,
+                "finalize_attempts": 0,
+                "finalize_updated_at": datetime.now(timezone.utc).isoformat(),
+            }
+        )
+        try:
+            inserted = SB.table("content_scripts").insert(payload).execute().data or []
+        except Exception:
+            inserted = []
+        script_row = inserted[0] if inserted and isinstance(inserted[0], dict) else None
+
+        if not script_row:
+            try:
+                rows = (
+                    SB.table("content_scripts")
+                    .select("id,finalize_status,meta")
+                    .eq("creator_id", creator_id)
+                    .eq("shoot_id", shoot_id)
+                    .limit(1)
+                    .execute()
+                    .data
+                    or []
+                )
+            except Exception:
+                rows = []
+            script_row = rows[0] if rows and isinstance(rows[0], dict) else None
+
+    return script_row
+
+
+def _maybe_attach_script_to_content_item(content_id: int, row: Dict[str, Any]) -> Dict[str, Any]:
+    assignment = _parse_script_assignment(row)
+    if not assignment:
+        return row
+
+    shoot_id = assignment["shoot_id"]
+    is_ammo = bool(assignment["is_ammo"])
+    meta = {
+        "handle": assignment.get("handle"),
+        "script_root": assignment.get("root"),
+        "script_slug": assignment.get("shoot_slug"),
+        "storage_prefix": "/".join(
+            p
+            for p in (
+                assignment.get("handle"),
+                assignment.get("root"),
+                assignment.get("shoot_slug"),
+            )
+            if p
+        ),
+    }
+
+    script_row = _get_or_create_script(
+        creator_id=row.get("creator_id"),
+        shoot_id=shoot_id,
+        meta=meta,
+    )
+    if not script_row:
+        return row
+
+    desired_script_id = None
+    if not is_ammo and script_row.get("id"):
+        desired_script_id = script_row.get("id")
+
+    updates: Dict[str, Any] = {}
+    if row.get("shoot_id") != shoot_id:
+        updates["shoot_id"] = shoot_id
+    if desired_script_id is not None and row.get("script_id") != desired_script_id:
+        updates["script_id"] = desired_script_id
+    if is_ammo and row.get("script_id") is not None:
+        updates["script_id"] = None
+
+    if updates:
+        filtered = _filter_content_items_update(updates)
+        if filtered:
+            try:
+                SB.table("content_items").update(filtered).eq("id", content_id).execute()
+            except Exception:
+                pass
+            row.update(filtered)
+
+    return row
 
 
 def _runpod_healthcheck_url() -> str:
@@ -943,7 +1203,7 @@ def _maybe_enqueue_script_finalize(script_id: str) -> None:
         return
     script_rows = (
         SB.table("content_scripts")
-        .select("id,finalize_status")
+        .select("id,finalize_status,meta")
         .eq("id", script_id)
         .limit(1)
         .execute()
@@ -955,6 +1215,8 @@ def _maybe_enqueue_script_finalize(script_id: str) -> None:
         return
     if script_rows and script_rows[0].get("finalize_status") == "ok":
         return
+
+    # Ensure core items are fully ingested before finalizing.
     pending = (
         SB.table("content_items")
         .select("id")
@@ -967,6 +1229,33 @@ def _maybe_enqueue_script_finalize(script_id: str) -> None:
     )
     if pending:
         return
+
+    # If we have script meta, also check for any core items that haven't been attached yet.
+    script_meta = script_rows[0].get("meta") or {}
+    storage_prefix = None
+    if isinstance(script_meta, dict):
+        storage_prefix = script_meta.get("storage_prefix")
+    if storage_prefix:
+        core_marker = f"/{storage_prefix}/core/"
+        try:
+            rows = (
+                SB.table("content_items")
+                .select("id,url_main,url_thumb,ingest_status")
+                .neq("ingest_status", "ok")
+                .or_(f"url_main.like.%{core_marker}%,url_thumb.like.%{core_marker}%")
+                .limit(5)
+                .execute()
+                .data
+                or []
+            )
+        except Exception:
+            rows = []
+        for row in rows:
+            url_main = str(row.get("url_main") or "")
+            url_thumb = str(row.get("url_thumb") or "")
+            if ".emptyFolderPlaceholder" in url_main or ".emptyFolderPlaceholder" in url_thumb:
+                continue
+            return
     send(SCRIPT_QUEUE, {"script_id": script_id})
 
 
@@ -992,6 +1281,9 @@ def process_job(payload: Dict[str, Any]) -> bool:
     attempts = _coerce_int(row.get("ingest_attempts")) or 0
     if status == "ok":
         return True
+
+    # Attach script metadata (core vs ammo) based on Storage path conventions.
+    row = _maybe_attach_script_to_content_item(content_id, row)
 
     media_type = _infer_media_type(row)
     if not media_type:
