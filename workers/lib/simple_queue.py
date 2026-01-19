@@ -17,9 +17,17 @@ WORKER_ID = (
 
 # ------------------------------------------------------------------
 def send(queue: str, payload: dict):
-    SB.table("job_queue").insert(
-        {"queue": queue, "payload": json.dumps(payload, ensure_ascii=False)}
-    ).execute()
+    # Store payload as JSON (dict) so Postgres JSON operators (payload->>'x') work.
+    # Older deployments stored payload as a JSON *string*; receive() still supports that.
+    try:
+        SB.table("job_queue").insert({"queue": queue, "payload": payload}).execute()
+    except Exception as exc:
+        msg = str(exc)
+        # If the DB has a unique index for idempotency, concurrent inserts can race.
+        # Treat duplicates as success.
+        if "duplicate key value violates unique constraint" in msg or "23505" in msg:
+            return
+        raise
 
 
 # ------------------------------------------------------------------

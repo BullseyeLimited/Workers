@@ -30,16 +30,22 @@ def job_exists(queue: str, message_id: Any, *, client=None, field: str = "messag
     Handles string/integer ids by comparing as text.
     """
     sb = _client(client)
-    jobs = (
-        sb.table("job_queue")
-        .select("id")
-        .eq("queue", queue)
-        .filter(f"payload->>{field}", "eq", str(message_id))
-        .limit(1)
-        .execute()
-        .data
-    )
-    return bool(jobs)
+    try:
+        jobs = (
+            sb.table("job_queue")
+            .select("id")
+            .eq("queue", queue)
+            .filter(f"payload->>{field}", "eq", str(message_id))
+            .limit(1)
+            .execute()
+            .data
+        )
+        return bool(jobs)
+    except Exception:
+        # If the DB has legacy rows where payload is a JSON string, the JSON operator
+        # query may not match. We treat that as "doesn't exist" and rely on DB-side
+        # cleanup/migration + uniqueness constraints to prevent explosions.
+        return False
 
 
 __all__ = ["job_exists"]

@@ -1780,7 +1780,9 @@ def process_job(payload: Dict[str, Any]) -> bool:
             error_details=None,
         )
         if status == "pending":
-            send(QUEUE, {"content_id": content_id})
+            # Avoid queue explosions when a worker is retrying.
+            if not job_exists(QUEUE, content_id, client=SB, field="content_id"):
+                send(QUEUE, {"content_id": content_id})
         return True
 
     data, parse_error = safe_parse_model_json(raw_text)
