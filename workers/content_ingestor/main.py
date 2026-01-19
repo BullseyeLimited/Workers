@@ -10,6 +10,8 @@ import re
 import time
 import traceback
 import uuid
+import subprocess
+import tempfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
@@ -97,6 +99,29 @@ INGEST_SWEEPER_ENABLED = os.getenv("CONTENT_INGEST_SWEEPER_ENABLED", "true").low
 INGEST_SWEEPER_INTERVAL_SECONDS = float(os.getenv("CONTENT_INGEST_SWEEPER_INTERVAL_SECONDS", "60"))
 INGEST_SWEEPER_BATCH_SIZE = int(os.getenv("CONTENT_INGEST_SWEEPER_BATCH_SIZE", "25"))
 INGEST_STALE_PROCESSING_SECONDS = int(os.getenv("CONTENT_INGEST_STALE_PROCESSING_SECONDS", "900"))
+
+CONTENT_WAV_SWEEPER_ENABLED = os.getenv("CONTENT_WAV_SWEEPER_ENABLED", "true").lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
+CONTENT_WAV_SWEEPER_INTERVAL_SECONDS = float(
+    os.getenv("CONTENT_WAV_SWEEPER_INTERVAL_SECONDS", str(INGEST_SWEEPER_INTERVAL_SECONDS))
+)
+CONTENT_WAV_SWEEPER_BATCH_SIZE = int(os.getenv("CONTENT_WAV_SWEEPER_BATCH_SIZE", "10"))
+CONTENT_WAV_MAX_ATTEMPTS = int(os.getenv("CONTENT_WAV_MAX_ATTEMPTS", "3"))
+CONTENT_WAV_SIGNED_URL_EXPIRES_SECONDS = int(
+    os.getenv("CONTENT_WAV_SIGNED_URL_EXPIRES_SECONDS", "3600")
+)
+CONTENT_WAV_SAMPLE_RATE = int(os.getenv("CONTENT_WAV_SAMPLE_RATE", "16000"))
+CONTENT_WAV_CHANNELS = int(os.getenv("CONTENT_WAV_CHANNELS", "1"))
+CONTENT_WAV_AUTOGEN_ON_INGEST = os.getenv("CONTENT_WAV_AUTOGEN_ON_INGEST", "true").lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
 
 WORKER_ID = (
     os.getenv("WORKER_ID")
@@ -345,6 +370,7 @@ _last_runpod_check_ok = False
 _last_runpod_check_error: Optional[str] = None
 _last_runpod_gate_notice: Optional[str] = None
 _last_sweep_at = 0.0
+_last_wav_sweep_at = 0.0
 
 _content_items_columns: Optional[set[str]] = None
 _content_scripts_columns: Optional[set[str]] = None
@@ -436,6 +462,292 @@ def _extract_storage_path(row: Dict[str, Any]) -> Optional[str]:
         # rest is "<bucket>/<path>"
         return rest.split("/", 1)[1] or None
     return None
+
+
+def _parse_storage_url(url: str) -> Optional[Tuple[str, str, Optional[bool]]]:
+    if not url:
+        return None
+    try:
+        parsed = urlparse(str(url))
+    except Exception:
+        return None
+    path = parsed.path or ""
+    for marker, is_public in (
+        ("/storage/v1/object/public/", True),
+        ("/storage/v1/object/sign/", False),
+        ("/storage/v1/object/", None),
+    ):
+        if marker not in path:
+            continue
+        rest = path.split(marker, 1)[1]
+        if not rest or "/" not in rest:
+            return None
+        bucket, obj_path = rest.split("/", 1)
+        return bucket, obj_path, is_public
+    return None
+
+
+def _extract_storage_bucket_and_path(row: Dict[str, Any]) -> Optional[Tuple[str, str, bool]]:
+    url = row.get("url_main") or row.get("url_thumb")
+    parsed = _parse_storage_url(str(url)) if url else None
+    if not parsed:
+        return None
+    bucket, obj_path, is_public = parsed
+    storage_path = row.get("storage_path")
+    if storage_path is not None and str(storage_path).strip():
+        obj_path = str(storage_path).strip()
+    return bucket, obj_path, bool(is_public)
+
+
+def _build_wav_storage_path(source_path: str) -> str:
+    if not source_path:
+        return ""
+    source_path = str(source_path).strip().lstrip("/")
+    if not source_path:
+        return ""
+    folder = ""
+    name = source_path
+    if "/" in source_path:
+        folder, name = source_path.rsplit("/", 1)
+    root, ext = os.path.splitext(name)
+    if ext.lower() == ".wav":
+        return source_path
+    root = root or name
+    wav_name = f"{root}.wav"
+    return f"{folder}/{wav_name}" if folder else wav_name
+
+
+def _public_storage_url(bucket: str, obj_path: str) -> str:
+    base = SUPABASE_URL.rstrip("/")
+    return f"{base}/storage/v1/object/public/{bucket}/{obj_path}"
+
+
+def _signed_storage_url(bucket: str, obj_path: str) -> Optional[str]:
+    base = SUPABASE_URL.rstrip("/")
+    sign_url = f"{base}/storage/v1/object/sign/{bucket}/{obj_path}"
+    headers = {
+        "Authorization": f"Bearer {SUPABASE_KEY}",
+        "apikey": SUPABASE_KEY,
+        "Content-Type": "application/json",
+    }
+    try:
+        resp = requests.post(
+            sign_url,
+            headers=headers,
+            json={"expiresIn": CONTENT_WAV_SIGNED_URL_EXPIRES_SECONDS},
+            timeout=10,
+        )
+        resp.raise_for_status()
+        data = resp.json() if resp.content else {}
+    except Exception:
+        return None
+    signed = (
+        data.get("signedURL")
+        or data.get("signedUrl")
+        or data.get("signed_url")
+        or ""
+    )
+    if not signed:
+        return None
+    if signed.startswith("http"):
+        return signed
+    if signed.startswith("/"):
+        return f"{base}{signed}"
+    return f"{base}/{signed.lstrip('/')}"
+
+
+def _download_url_to_file(url: str, dest_path: str, *, headers: Optional[Dict[str, str]] = None) -> None:
+    with requests.get(url, headers=headers, stream=True, timeout=30) as resp:
+        resp.raise_for_status()
+        with open(dest_path, "wb") as handle:
+            for chunk in resp.iter_content(chunk_size=1024 * 1024):
+                if chunk:
+                    handle.write(chunk)
+
+
+def _download_storage_object(bucket: str, obj_path: str, dest_path: str) -> None:
+    base = SUPABASE_URL.rstrip("/")
+    url = f"{base}/storage/v1/object/{bucket}/{obj_path}"
+    headers = {"Authorization": f"Bearer {SUPABASE_KEY}", "apikey": SUPABASE_KEY}
+    _download_url_to_file(url, dest_path, headers=headers)
+
+
+def _convert_to_wav(input_path: str) -> str:
+    output_file = tempfile.NamedTemporaryFile(delete=False, suffix=".wav")
+    output_file.close()
+    cmd = [
+        "ffmpeg",
+        "-y",
+        "-i",
+        input_path,
+        "-vn",
+        "-acodec",
+        "pcm_s16le",
+        "-ar",
+        str(CONTENT_WAV_SAMPLE_RATE),
+        "-ac",
+        str(CONTENT_WAV_CHANNELS),
+        output_file.name,
+    ]
+    try:
+        subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    except Exception:
+        try:
+            os.unlink(output_file.name)
+        except Exception:
+            pass
+        raise
+    return output_file.name
+
+
+def _upload_wav_to_storage(bucket: str, obj_path: str, wav_path: str) -> None:
+    base = SUPABASE_URL.rstrip("/")
+    url = f"{base}/storage/v1/object/{bucket}/{obj_path}"
+    headers = {
+        "Authorization": f"Bearer {SUPABASE_KEY}",
+        "apikey": SUPABASE_KEY,
+        "Content-Type": "audio/wav",
+        "x-upsert": "true",
+    }
+    with open(wav_path, "rb") as handle:
+        resp = requests.post(url, headers=headers, data=handle, timeout=120)
+    resp.raise_for_status()
+
+
+def _audio_wav_meta(row: Dict[str, Any]) -> Dict[str, Any]:
+    meta = row.get("meta")
+    if not isinstance(meta, dict):
+        return {}
+    wav_meta = meta.get("audio_wav")
+    return wav_meta if isinstance(wav_meta, dict) else {}
+
+
+def _write_audio_wav_meta(content_id: int, row: Dict[str, Any], wav_meta: Dict[str, Any]) -> None:
+    meta = row.get("meta")
+    if not isinstance(meta, dict):
+        meta = {}
+    else:
+        meta = dict(meta)
+    meta["audio_wav"] = wav_meta
+    SB.table("content_items").update({"meta": meta}).eq("id", content_id).execute()
+
+
+def _build_wav_payload_url(bucket: str, obj_path: str, *, is_public: bool) -> Optional[str]:
+    if not bucket or not obj_path:
+        return None
+    if is_public:
+        return _public_storage_url(bucket, obj_path)
+    return _signed_storage_url(bucket, obj_path)
+
+
+def _ensure_audio_wav(
+    row: Dict[str, Any], media_type: str, source_url: str
+) -> Optional[str]:
+    if media_type not in {"video", "voice"}:
+        return None
+    if not source_url:
+        return None
+    content_id = _coerce_int(row.get("id"))
+    if content_id is None:
+        return None
+
+    wav_meta = _audio_wav_meta(row)
+    status = str(wav_meta.get("status") or "").lower()
+    attempts = _coerce_int(wav_meta.get("attempts")) or 0
+    if status == "ok":
+        bucket = wav_meta.get("bucket")
+        obj_path = wav_meta.get("path")
+        is_public = bool(wav_meta.get("is_public"))
+        if bucket and obj_path:
+            return _build_wav_payload_url(bucket, obj_path, is_public=is_public)
+        return None
+    if status == "processing":
+        return None
+    if attempts >= CONTENT_WAV_MAX_ATTEMPTS:
+        return None
+
+    parsed = _extract_storage_bucket_and_path(row)
+    if not parsed:
+        return None
+    bucket, source_path, is_public = parsed
+    if not bucket or not source_path:
+        return None
+
+    wav_path = _build_wav_storage_path(source_path)
+    if not wav_path:
+        return None
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    wav_meta = {
+        "status": "processing",
+        "attempts": attempts + 1,
+        "bucket": bucket,
+        "path": wav_path,
+        "is_public": bool(is_public),
+        "updated_at": now_iso,
+    }
+    _write_audio_wav_meta(content_id, row, wav_meta)
+
+    if wav_path == source_path:
+        wav_meta["status"] = "ok"
+        wav_meta["generated_at"] = now_iso
+        wav_meta["updated_at"] = now_iso
+        _write_audio_wav_meta(content_id, row, wav_meta)
+        return _build_wav_payload_url(bucket, wav_path, is_public=bool(is_public))
+
+    source_tmp = None
+    wav_tmp = None
+    try:
+        source_tmp = tempfile.NamedTemporaryFile(delete=False)
+        source_tmp.close()
+        _download_url_to_file(source_url, source_tmp.name)
+    except Exception:
+        if source_tmp:
+            try:
+                os.unlink(source_tmp.name)
+            except Exception:
+                pass
+        try:
+            source_tmp = tempfile.NamedTemporaryFile(delete=False)
+            source_tmp.close()
+            _download_storage_object(bucket, source_path, source_tmp.name)
+        except Exception as exc:
+            if source_tmp:
+                try:
+                    os.unlink(source_tmp.name)
+                except Exception:
+                    pass
+            wav_meta["status"] = "failed"
+            wav_meta["error"] = f"download_failed: {exc}"
+            wav_meta["updated_at"] = datetime.now(timezone.utc).isoformat()
+            _write_audio_wav_meta(content_id, row, wav_meta)
+            return None
+
+    try:
+        wav_tmp = _convert_to_wav(source_tmp.name)
+        _upload_wav_to_storage(bucket, wav_path, wav_tmp)
+        wav_meta["status"] = "ok"
+        wav_meta["generated_at"] = datetime.now(timezone.utc).isoformat()
+        wav_meta["updated_at"] = datetime.now(timezone.utc).isoformat()
+        _write_audio_wav_meta(content_id, row, wav_meta)
+        return _build_wav_payload_url(bucket, wav_path, is_public=bool(is_public))
+    except Exception as exc:
+        wav_meta["status"] = "failed"
+        wav_meta["error"] = f"wav_failed: {exc}"
+        wav_meta["updated_at"] = datetime.now(timezone.utc).isoformat()
+        _write_audio_wav_meta(content_id, row, wav_meta)
+        return None
+    finally:
+        if source_tmp:
+            try:
+                os.unlink(source_tmp.name)
+            except Exception:
+                pass
+        if wav_tmp:
+            try:
+                os.unlink(wav_tmp)
+            except Exception:
+                pass
 
 
 def _is_placeholder_storage_object(storage_path: Optional[str]) -> bool:
@@ -997,6 +1309,7 @@ def _build_messages(
     url: str,
     *,
     duration_seconds: Optional[int] = None,
+    wav_url: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     if media_type == "video":
         # Video models often require the media to be attached via `video_url` content.
@@ -1005,13 +1318,16 @@ def _build_messages(
             f"\n\nVIDEO_DURATION_SECONDS:\n{int(duration_seconds)}" if duration_seconds is not None else ""
         )
         user_text = f"{prompt}\n\nVIDEO_URL:\n{url}{duration_text}"
+        content = [
+            {"type": "text", "text": user_text},
+            {"type": "video_url", "video_url": {"url": url}},
+        ]
+        if wav_url:
+            content.append({"type": "audio_url", "audio_url": {"url": wav_url}})
         return [
             {
                 "role": "user",
-                "content": [
-                    {"type": "text", "text": user_text},
-                    {"type": "video_url", "video_url": {"url": url}},
-                ],
+                "content": content,
             }
         ]
 
@@ -1028,16 +1344,27 @@ def _build_messages(
         ]
 
     if media_type == "voice":
-        return [
-            {"role": "system", "content": prompt},
-            {"role": "user", "content": f"VOICE_URL:\n{url}"},
-        ]
+        user_content: List[Dict[str, Any]] | str
+        if wav_url:
+            user_content = [
+                {"type": "text", "text": f"VOICE_URL:\n{url}"},
+                {"type": "audio_url", "audio_url": {"url": wav_url}},
+            ]
+        else:
+            user_content = f"VOICE_URL:\n{url}"
+        return [{"role": "system", "content": prompt}, {"role": "user", "content": user_content}]
 
     return [{"role": "system", "content": prompt}, {"role": "user", "content": str(url)}]
 
 
 def _run_model(
-    media_type: str, prompt: str, row: Dict[str, Any], url: str, *, model: str
+    media_type: str,
+    prompt: str,
+    row: Dict[str, Any],
+    url: str,
+    *,
+    model: str,
+    wav_url: Optional[str] = None,
 ) -> Tuple[str, Optional[str]]:
     duration_seconds = None
     if media_type == "video":
@@ -1045,7 +1372,14 @@ def _run_model(
         if duration_seconds is not None and duration_seconds <= 0:
             duration_seconds = None
 
-    messages = _build_messages(media_type, prompt, row, url, duration_seconds=duration_seconds)
+    messages = _build_messages(
+        media_type,
+        prompt,
+        row,
+        url,
+        duration_seconds=duration_seconds,
+        wav_url=wav_url,
+    )
 
     temperature = float(os.getenv("CONTENT_TEMPERATURE", "0.2"))
     if media_type == "video":
@@ -1193,6 +1527,55 @@ def _maybe_run_sweeper() -> None:
             f"[content_ingestor] sweeper: reset={reset_count} enqueued={enqueued}",
             flush=True,
         )
+
+
+def _sweep_missing_wav_assets(*, limit: int) -> int:
+    if limit <= 0:
+        return 0
+    try:
+        rows = (
+            SB.table("content_items")
+            .select("id,media_type,url_main,url_thumb,meta,storage_path")
+            .in_("media_type", ["video", "voice"])
+            .order("id", desc=False)
+            .limit(limit)
+            .execute()
+            .data
+            or []
+        )
+    except Exception:
+        return 0
+
+    generated = 0
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        media_type = _infer_media_type(row)
+        if media_type not in {"video", "voice"}:
+            continue
+        wav_meta = _audio_wav_meta(row)
+        if str(wav_meta.get("status") or "").lower() == "ok":
+            continue
+        url = row.get("url_main") or row.get("url_thumb")
+        if not url:
+            continue
+        wav_url = _ensure_audio_wav(row, media_type, str(url))
+        if wav_url:
+            generated += 1
+    return generated
+
+
+def _maybe_run_wav_sweeper() -> None:
+    global _last_wav_sweep_at
+    if not CONTENT_WAV_SWEEPER_ENABLED:
+        return
+    now = time.time()
+    if now - _last_wav_sweep_at < CONTENT_WAV_SWEEPER_INTERVAL_SECONDS:
+        return
+    _last_wav_sweep_at = now
+    generated = _sweep_missing_wav_assets(limit=CONTENT_WAV_SWEEPER_BATCH_SIZE)
+    if generated:
+        print(f"[content_ingestor] wav sweeper: generated={generated}", flush=True)
 
 
 def _maybe_enqueue_script_finalize(script_id: str) -> None:
@@ -1351,7 +1734,15 @@ def process_job(payload: Dict[str, Any]) -> bool:
         error_details=None,
     )
 
-    raw_text, error = _run_model(media_type, prompt, row, url, model=model)
+    wav_url = None
+    if CONTENT_WAV_AUTOGEN_ON_INGEST:
+        try:
+            wav_url = _ensure_audio_wav(row, media_type, str(url))
+        except Exception as exc:  # noqa: BLE001
+            print(f"[content_ingestor] wav generation failed: {exc}", flush=True)
+            wav_url = None
+
+    raw_text, error = _run_model(media_type, prompt, row, url, model=model, wav_url=wav_url)
     duration_ms = int((time.monotonic() - attempt_started_monotonic) * 1000)
     attempt_completed_at = datetime.now(timezone.utc).isoformat()
     if error:
@@ -1460,6 +1851,7 @@ if __name__ == "__main__":
     prefer_finalize = True
     while True:
         _maybe_run_sweeper()
+        _maybe_run_wav_sweeper()
 
         if HANDLE_SCRIPT_FINALIZE:
             queue_order = (SCRIPT_QUEUE, QUEUE) if prefer_finalize else (QUEUE, SCRIPT_QUEUE)
