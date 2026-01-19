@@ -641,7 +641,8 @@ def latest_kairos_json(thread_id: int, *, client=None) -> str:
 
 def latest_plan_fields(thread_id: int, *, client=None) -> dict:
     sb = _resolve_client(client)
-    # Prefer canonical plans stored on the thread; fall back to last Napoleon snapshot.
+    # Prefer canonical plans stored on the thread; use the latest Napoleon snapshot
+    # for tactical continuity and as a fallback for missing horizon plans.
     thread_row = (
         sb.table("threads")
         .select(
@@ -654,33 +655,88 @@ def latest_plan_fields(thread_id: int, *, client=None) -> dict:
         or {}
     )
 
-    if any(
-        thread_row.get(col) for col in
-        ("episode_plan", "chapter_plan", "season_plan", "year_plan", "lifetime_plan")
-    ):
-        row = thread_row
-    else:
-        snapshot = (
+    # Tactical plan should come from the latest successful Napoleon output so the
+    # model can "continue where it left off" (TURN3 -> next TURN1). Using the
+    # newest message_ai_details row is unreliable because Hermes seeds a placeholder
+    # row for the current fan message before Napoleon runs.
+    snapshot_row: dict = {}
+    try:
+        snapshot_rows = (
             sb.table("message_ai_details")
             .select(
-                "tactical_plan_3turn,"
+                "message_id,extracted_at,tactical_plan_3turn,"
                 "plan_episode,plan_chapter,plan_season,plan_year,plan_lifetime"
             )
             .eq("thread_id", thread_id)
-            .order("created_at", desc=True)
+            .eq("sender", "fan")
+            .eq("napoleon_status", "ok")
+            .order("extracted_at", desc=True)
             .limit(1)
             .execute()
             .data
+            or []
         )
-        row = snapshot[0] if snapshot else {}
+        if snapshot_rows and isinstance(snapshot_rows[0], dict):
+            snapshot_row = snapshot_rows[0]
+    except Exception:
+        # Fail open: if the schema differs (older DB) or the query fails, try a more
+        # forgiving fallback; otherwise keep the snapshot empty.
+        try:
+            snapshot_rows = (
+                sb.table("message_ai_details")
+                .select(
+                    "message_id,tactical_plan_3turn,"
+                    "plan_episode,plan_chapter,plan_season,plan_year,plan_lifetime"
+                )
+                .eq("thread_id", thread_id)
+                .eq("sender", "fan")
+                .eq("napoleon_status", "ok")
+                .order("message_id", desc=True)
+                .limit(1)
+                .execute()
+                .data
+                or []
+            )
+            if snapshot_rows and isinstance(snapshot_rows[0], dict):
+                snapshot_row = snapshot_rows[0]
+        except Exception:
+            # Last-chance fallback: do not rely on napoleon_status existing; scan a
+            # small recent window for any non-empty tactical plan.
+            try:
+                snapshot_rows = (
+                    sb.table("message_ai_details")
+                    .select(
+                        "message_id,tactical_plan_3turn,"
+                        "plan_episode,plan_chapter,plan_season,plan_year,plan_lifetime"
+                    )
+                    .eq("thread_id", thread_id)
+                    .eq("sender", "fan")
+                    .order("message_id", desc=True)
+                    .limit(25)
+                    .execute()
+                    .data
+                    or []
+                )
+                for row in snapshot_rows:
+                    if isinstance(row, dict) and row.get("tactical_plan_3turn"):
+                        snapshot_row = row
+                        break
+            except Exception:
+                snapshot_row = {}
+
+    def _plan_value(thread_key: str, snapshot_key: str):
+        thread_value = thread_row.get(thread_key)
+        if thread_value not in (None, ""):
+            return thread_value
+        return snapshot_row.get(snapshot_key) or ""
 
     return {
-        "CREATOR_TACTICAL_PLAN_3TURN": row.get("tactical_plan_3turn") or "",
-        "CREATOR_EPISODE_PLAN": row.get("plan_episode") or row.get("episode_plan") or "",
-        "CREATOR_CHAPTER_PLAN": row.get("plan_chapter") or row.get("chapter_plan") or "",
-        "CREATOR_SEASON_PLAN": row.get("plan_season") or row.get("season_plan") or "",
-        "CREATOR_YEAR_PLAN": row.get("plan_year") or row.get("year_plan") or "",
-        "CREATOR_LIFETIME_PLAN": row.get("plan_lifetime") or row.get("lifetime_plan") or "",
+        "CREATOR_TACTICAL_PLAN_3TURN": snapshot_row.get("tactical_plan_3turn") or "",
+        "CREATOR_EPISODE_PLAN": _plan_value("episode_plan", "plan_episode"),
+        "CREATOR_CHAPTER_PLAN": _plan_value("chapter_plan", "plan_chapter"),
+        "CREATOR_SEASON_PLAN": _plan_value("season_plan", "plan_season"),
+        "CREATOR_YEAR_PLAN": _plan_value("year_plan", "plan_year"),
+        "CREATOR_LIFETIME_PLAN": _plan_value("lifetime_plan", "plan_lifetime"),
     }
 
 
