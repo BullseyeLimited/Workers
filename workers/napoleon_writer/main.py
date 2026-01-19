@@ -42,6 +42,28 @@ QUEUE = "napoleon.compose"
 PROMPTS_DIR = Path(__file__).resolve().parents[2] / "prompts"
 WRITER_PROMPT_PATH = PROMPTS_DIR / "napoleon_writer.txt"
 
+_message_ai_details_columns: set[str] | None = None
+
+
+def _load_message_ai_details_columns() -> set[str]:
+    global _message_ai_details_columns
+    if _message_ai_details_columns is not None:
+        return _message_ai_details_columns
+    try:
+        rows = SB.table("message_ai_details").select("*").limit(1).execute().data or []
+    except Exception:
+        rows = []
+    if rows and isinstance(rows[0], dict):
+        _message_ai_details_columns = set(rows[0].keys())
+    else:
+        _message_ai_details_columns = {"message_id", "extras", "napoleon_status", "extract_error"}
+    return _message_ai_details_columns
+
+
+def _filter_message_ai_details_update(update: dict) -> dict:
+    allowed = _load_message_ai_details_columns()
+    return {k: v for k, v in update.items() if k in allowed}
+
 
 def _load_writer_prompt() -> str:
     return WRITER_PROMPT_PATH.read_text(encoding="utf-8")
@@ -524,6 +546,7 @@ def upsert_writer_details(
     prompt_log: str,
     raw_text: str,
     chunks: List[str],
+    final_text: str,
 ) -> None:
     existing_row = (
         SB.table("message_ai_details")
@@ -543,15 +566,20 @@ def upsert_writer_details(
             "napoleon_writer_prompt_raw": prompt_log,
             "napoleon_prompt_preview": (prompt_log or "")[:2000],
             "creator_reply_message_id": creator_message_id,
+            "creator_reply_text": final_text,
         }
     )
+    update_fields = {
+        # Preserve planner fields; only add writer data via extras and status flip.
+        "napoleon_status": "ok",
+        "extract_error": None,
+        "extras": merged_extras,
+        # Optional columns if present (avoid hard dependency on schema changes).
+        "creator_reply_message_id": creator_message_id,
+        "creator_reply_text": final_text,
+    }
     SB.table("message_ai_details").update(
-        {
-            # Preserve planner fields; only add writer data via extras and status flip.
-            "napoleon_status": "ok",
-            "extract_error": None,
-            "extras": merged_extras,
-        }
+        _filter_message_ai_details_update(update_fields)
     ).eq("message_id", fan_message_id).execute()
 
     # Store writer output on the creator message for debugging.
@@ -713,6 +741,7 @@ def process_job(payload: Dict[str, Any]) -> bool:
         prompt_log=full_prompt_log,
         raw_text=raw_text,
         chunks=chunks,
+        final_text=final_text,
     )
     if run_id:
         mark_run_committed(str(run_id), creator_message_id=creator_message_id, client=SB)
