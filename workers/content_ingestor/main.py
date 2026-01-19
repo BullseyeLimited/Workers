@@ -70,6 +70,7 @@ RUNPOD_GATE_ENABLED = os.getenv("CONTENT_RUNPOD_GATE_ENABLED", "true").lower() i
     "on",
 }
 RUNPOD_HEALTHCHECK_PATH = os.getenv("CONTENT_RUNPOD_HEALTHCHECK_PATH", "/v1/models")
+RUNPOD_HEALTHCHECK_MODE = os.getenv("CONTENT_RUNPOD_HEALTHCHECK_MODE", "models").lower().strip()
 RUNPOD_HEALTHCHECK_TIMEOUT_SECONDS = float(
     os.getenv("CONTENT_RUNPOD_HEALTHCHECK_TIMEOUT_SECONDS", "2")
 )
@@ -975,11 +976,54 @@ def _runpod_is_reachable() -> Tuple[bool, Optional[str]]:
         _last_runpod_check_error = "model_not_configured"
         return _last_runpod_check_ok, _last_runpod_check_error
 
-    health_url = _runpod_healthcheck_url()
-    headers = {"Authorization": f"Bearer {RUNPOD_API_KEY}"} if RUNPOD_API_KEY else {}
+    # The "models" endpoint can be 200 even when chat completions are failing (500).
+    # Optionally probe a tiny chat completion to ensure the server is actually usable.
     try:
-        # Any HTTP response means the server is up; we only care about network reachability here.
-        requests.get(health_url, headers=headers, timeout=RUNPOD_HEALTHCHECK_TIMEOUT_SECONDS)
+        if RUNPOD_HEALTHCHECK_MODE in {"chat", "completions"}:
+            model = RUNPOD_MODEL_NAME or VIDEO_MODEL or PHOTO_MODEL or VOICE_MODEL or ""
+            if not model:
+                _last_runpod_check_ok = False
+                _last_runpod_check_error = "model_not_configured"
+                return _last_runpod_check_ok, _last_runpod_check_error
+
+            url = f"{RUNPOD_URL.rstrip('/')}/v1/chat/completions"
+            resp = requests.post(
+                url,
+                headers={
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {RUNPOD_API_KEY}",
+                },
+                json={
+                    "model": model,
+                    "messages": [{"role": "user", "content": "ping"}],
+                    "max_tokens": 1,
+                    "temperature": 0,
+                },
+                timeout=RUNPOD_HEALTHCHECK_TIMEOUT_SECONDS,
+            )
+            resp.raise_for_status()
+        else:
+            health_url = _runpod_healthcheck_url()
+            headers = {"Authorization": f"Bearer {RUNPOD_API_KEY}"} if RUNPOD_API_KEY else {}
+            resp = requests.get(
+                health_url,
+                headers=headers,
+                timeout=RUNPOD_HEALTHCHECK_TIMEOUT_SECONDS,
+            )
+            resp.raise_for_status()
+    except requests.exceptions.HTTPError as exc:
+        status_code = getattr(getattr(exc, "response", None), "status_code", None)
+        try:
+            code_int = int(status_code) if status_code is not None else None
+        except Exception:
+            code_int = None
+        if code_int is not None and code_int >= 500:
+            _last_runpod_check_ok = False
+            _last_runpod_check_error = f"runpod_unavailable_http: {code_int}"
+            return _last_runpod_check_ok, _last_runpod_check_error
+        _last_runpod_check_ok = False
+        _last_runpod_check_error = f"runpod_error: {exc}"
+        return _last_runpod_check_ok, _last_runpod_check_error
     except requests.exceptions.RequestException as exc:  # noqa: BLE001
         _last_runpod_check_ok = False
         _last_runpod_check_error = f"runpod_unreachable: {exc}"
@@ -1473,7 +1517,8 @@ def _reset_stale_processing_items(*, limit: int) -> int:
             completed_at=datetime.now(timezone.utc).isoformat(),
             worker_id=WORKER_ID,
         )
-        send(QUEUE, {"content_id": content_id})
+        if not job_exists(QUEUE, content_id, client=SB, field="content_id"):
+            send(QUEUE, {"content_id": content_id})
         reset_count += 1
     return reset_count
 
@@ -1852,6 +1897,23 @@ if __name__ == "__main__":
     print("[content_ingestor] started - waiting for jobs", flush=True)
     prefer_finalize = True
     while True:
+        # If the pod is down/broken (including 5xx from chat completions), do not:
+        # - enqueue more work via the sweeper
+        # - claim jobs only to release them again
+        # Just sleep until the pod is usable, then drain the queue normally.
+        if RUNPOD_GATE_ENABLED:
+            reachable, gate_error = _runpod_is_reachable()
+            if not reachable:
+                notice = gate_error or "runpod_unreachable"
+                if notice != _last_runpod_gate_notice:
+                    print(
+                        f"[content_ingestor] runpod not ready ({notice}); sleeping…",
+                        flush=True,
+                    )
+                    _last_runpod_gate_notice = notice
+                time.sleep(RUNPOD_GATE_SLEEP_SECONDS)
+                continue
+
         _maybe_run_sweeper()
         _maybe_run_wav_sweeper()
 
@@ -1867,26 +1929,6 @@ if __name__ == "__main__":
         row_id = job["row_id"]
         queue_name = job.get("queue") or QUEUE
         payload = job["payload"]
-
-        if RUNPOD_GATE_ENABLED and queue_name == QUEUE:
-            reachable, gate_error = _runpod_is_reachable()
-            if not reachable:
-                notice = gate_error or "runpod_unreachable"
-                if notice != _last_runpod_gate_notice:
-                    print(
-                        f"[content_ingestor] runpod not ready ({notice}); waiting…",
-                        flush=True,
-                    )
-                    _last_runpod_gate_notice = notice
-                try:
-                    # Release the job immediately so we don't hold it invisible while the pod is off.
-                    SB.table("job_queue").update(
-                        {"available_at": datetime.now(timezone.utc).isoformat()}
-                    ).eq("id", row_id).execute()
-                except Exception:
-                    pass
-                time.sleep(RUNPOD_GATE_SLEEP_SECONDS)
-                continue
 
         try:
             if queue_name == QUEUE:
