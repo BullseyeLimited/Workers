@@ -151,21 +151,16 @@ Be consistent: this field is not about how sexy or erotic the vibe is, but what 
 
 Time of Day
 
-Purpose: Indicates when the scene in the video appears to take place (morning, afternoon, evening, night, or unspecified). This helps with continuity and contextual matching – e.g., not sending a “morning” video during a late-night chat unless it’s intended. It’s usually inferred from lighting and context clues .
+Purpose: Indicates when the scene in the video appears to take place, using a simple classification that is mainly driven by lighting. This helps with continuity and contextual matching – e.g., not sending a clearly daytime clip during a late-night chat unless intended.
 
 Values: Use one of the standard categories:
-	•	morning – Bright early-day context: soft morning light, sunrise glow, maybe she’s in pajamas or just woke up vibes .
-	•	afternoon – Stronger daylight, sun high or neutral lighting. Could be outdoor day or well-lit indoor with sun overhead .
-	•	evening – Late day or early night: signs of sunset or golden hour light, or indoor cozy lamp light suggesting after dark but not pitch black outside . Candles or low warm lighting often imply evening.
-	•	night – Clearly nighttime: dark outside windows, city lights visible, or very low-light scene. Could be lit by artificial light (neon sign, lamp, etc.) with darkness beyond .
-	•	anytime (unspecified) – Use sparingly. Only if no clear indicators exist in the video. For example, if it’s a studio with a plain backdrop and you truly can’t tell time, or the content is purely close-up with no environmental cues. Even then, if the vibe suggests a time (sexy lingerie content often could be imagined as evening), you may choose one of the main categories for consistency . Use “anytime” or “unspecified” only when absolutely necessary.
+	•	day – Any clear natural daylight context. This includes morning + midday + afternoon. Use day when the scene has broad, bright, diffuse “daylight” illumination (especially if it appears to come from windows or outdoors). If it looks clearly like daytime, do NOT output anytime.
+	•	night – Clear after-dark context. This includes sunset/twilight (“sun falling”) and full night. Use night when outside appears dark (if visible), or when lighting is dominated by artificial sources (lamps/overhead/LED/neon/ring light) and the environment falls into darker corners/shadows, giving an after-dark look.
+	•	anytime – Use sparingly. Only when you truly cannot tell day vs night due to missing cues (e.g., windowless/boxed-in rooms like bathrooms, studio/backdrop, tight close-ups with no environment). If the scene is evenly bright and looks like daytime, prefer day over anytime.
 
-How to determine: Look at clues in the video:
-	•	Lighting color and quality: e.g., morning often has soft golden light, long shadows; afternoon bright white light; evening orange sunset or dim indoor lighting; night dark backgrounds or high contrast artificial lights .
-	•	Context: Is she in pajamas or just waking up? That hints morning. Drinking coffee or the clock says 8 AM? morning. City skyline at night outside window? night. A sunset visible? evening. No windows but she says “Good night” in the video? That’s a clue too.
-	•	If the video doesn’t directly show time but is part of a known series (e.g., “morning routine” vs “late-night chat”), use that context if available. But usually rely on visuals and audio.
-
-Pick the category that best fits the intended setting of the video. If uncertain, default to what matches the mood: e.g., a romantic candlelit bedroom might be labeled evening by default.
+How to determine (simple rules):
+	•	If windows/outside are visible: bright sky/sunlight → day; dark outside/city lights → night; sunset/twilight glow → night.
+	•	If no outside cues: broad natural-looking brightness → day; obvious artificial lighting + darker falloff in corners/background → night.
 
 Location Primary
 
@@ -420,7 +415,7 @@ Explicitness
 <sfw | tease | nsfw | unknown>
 
 Time of Day  
-<morning | afternoon | evening | night | anytime>
+<day | night | anytime>
 
 Location Primary  
 <primary setting, e.g. bedroom, beach, kitchen>
@@ -479,7 +474,7 @@ Long Description:
 
 Explicitness: sfw
 
-Time of Day: morning
+Time of Day: day
 
 Location Primary: balcony
 
@@ -528,7 +523,7 @@ Long Description:
 
 Explicitness: tease  (no explicit nudity, but very suggestive with sheer lingerie and provocative poses)
 
-Time of Day: morning  (implied by the soft light and it being a wake-up stretch)
+Time of Day: day  (implied by the soft natural light)
 
 Location Primary: bedroom
 
@@ -588,7 +583,7 @@ Long Description:
 
 Explicitness: nsfw  (full nudity and explicit masturbation visible)
 
-Time of Day: night  (dark room, candlelight suggests nighttime)
+Time of Day: night  (dark room, candlelight suggests after-dark)
 
 Location Primary: bedroom
 
@@ -650,7 +645,7 @@ Explicitness
 <sfw | tease | nsfw | unknown>
 
 Time of Day
-<morning | afternoon | evening | night | anytime>
+<day | night | anytime>
 
 Location Primary
 <single, specific location noun>

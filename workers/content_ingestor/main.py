@@ -508,6 +508,32 @@ def _normalize_token(value: Any) -> Optional[str]:
     return text or None
 
 
+def _normalize_time_of_day(value: Any) -> Optional[str]:
+    """
+    Normalize time_of_day to our current 3-way vocabulary: day | night | anytime.
+    Accept legacy values (morning/afternoon/evening) and common synonyms.
+    """
+
+    token = _normalize_token(value)
+    if not token:
+        return None
+
+    if token in {"day", "daytime", "day_time", "daylight"}:
+        return "day"
+    if token in {"night", "nighttime", "night_time"}:
+        return "night"
+    if token in {"any", "anytime", "unspecified", "unknown"}:
+        return "anytime"
+
+    # Legacy values from older prompts.
+    if token in {"morning", "afternoon", "noon"}:
+        return "day"
+    if token in {"evening", "sunset", "twilight", "dusk"}:
+        return "night"
+
+    return token if token in {"day", "night", "anytime"} else None
+
+
 def _extract_update(data: Dict[str, Any], content_id: int) -> Optional[Dict[str, Any]]:
     if not isinstance(data, dict):
         return None
@@ -612,8 +638,15 @@ def _sanitize_update(update: Dict[str, Any]) -> Dict[str, Any]:
         if field == "duration_seconds":
             cleaned[field] = _coerce_int(value)
             continue
-        if field in {"explicitness", "time_of_day", "outfit_category", "camera_angle", "shot_type", "lighting"}:
-            cleaned[field] = _normalize_token(value)
+        if field == "time_of_day":
+            normalized = _normalize_time_of_day(value)
+            if normalized is not None:
+                cleaned[field] = normalized
+            continue
+        if field in {"explicitness", "outfit_category", "camera_angle", "shot_type", "lighting"}:
+            normalized = _normalize_token(value)
+            if normalized is not None:
+                cleaned[field] = normalized
             continue
     # Drop empty lists to avoid noisy updates.
     for field in list(cleaned.keys()):

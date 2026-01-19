@@ -48,7 +48,7 @@ SCRIPT_MODEL = os.getenv("CONTENT_SCRIPT_MODEL") or RUNPOD_MODEL_NAME
 MAX_RETRIES = int(os.getenv("CONTENT_SCRIPT_MAX_RETRIES", "2"))
 
 CONTROLLED_EXPLICITNESS = {"sfw", "tease", "nsfw"}
-CONTROLLED_TIME_OF_DAY = {"morning", "afternoon", "evening", "night", "anytime"}
+CONTROLLED_TIME_OF_DAY = {"day", "night", "anytime"}
 CONTROLLED_OUTFIT_CATEGORY = {
     "casual",
     "sleepwear",
@@ -147,6 +147,31 @@ def _normalize_controlled(value: Any, allowed: set[str]) -> Optional[str]:
     return text if text in allowed else None
 
 
+def _normalize_time_of_day(value: Any) -> Optional[str]:
+    """
+    Normalize time_of_day to our 3-way vocabulary: day | night | anytime.
+    Accept legacy values (morning/afternoon/evening) and common synonyms.
+    """
+
+    token = _normalize_tag(value)
+    if not token:
+        return None
+
+    if token in {"day", "daytime", "day time", "daylight"}:
+        return "day"
+    if token in {"night", "nighttime", "night time"}:
+        return "night"
+    if token in {"any", "anytime", "unspecified", "unknown"}:
+        return "anytime"
+
+    if token in {"morning", "afternoon", "noon"}:
+        return "day"
+    if token in {"evening", "sunset", "twilight", "dusk"}:
+        return "night"
+
+    return token if token in CONTROLLED_TIME_OF_DAY else None
+
+
 def _coerce_int(value: Any) -> Optional[int]:
     try:
         return int(value)
@@ -180,7 +205,9 @@ def _sanitize_script_update(update: Dict[str, Any]) -> Dict[str, Any]:
             cleaned[field] = value.strip() if isinstance(value, str) else value
             continue
         if field == "time_of_day":
-            cleaned[field] = _normalize_controlled(value, CONTROLLED_TIME_OF_DAY)
+            normalized = _normalize_time_of_day(value)
+            if normalized is not None:
+                cleaned[field] = normalized
             continue
         if field == "outfit_category":
             cleaned[field] = _normalize_controlled(value, CONTROLLED_OUTFIT_CATEGORY)
@@ -229,7 +256,9 @@ def _sanitize_item_update(update: Dict[str, Any]) -> Optional[Dict[str, Any]]:
             cleaned[field] = _normalize_controlled(value, CONTROLLED_EXPLICITNESS)
             continue
         if field == "time_of_day":
-            cleaned[field] = _normalize_controlled(value, CONTROLLED_TIME_OF_DAY)
+            normalized = _normalize_time_of_day(value)
+            if normalized is not None:
+                cleaned[field] = normalized
             continue
         if field == "outfit_category":
             cleaned[field] = _normalize_controlled(value, CONTROLLED_OUTFIT_CATEGORY)

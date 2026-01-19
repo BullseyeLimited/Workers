@@ -10,7 +10,7 @@ Expected structure example:
   "content_scripts_update": {
     "title": "Cozy evening → bedroom tease",
     "summary": "...",
-    "time_of_day": "evening",
+    "time_of_day": "night",
     "location_primary": "bedroom",
     "outfit_category": "sleepwear",
     "focus_tags": ["cozy", "bedroom"],

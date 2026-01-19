@@ -110,29 +110,18 @@ Be accurate and consistent. This field is not about how “sexy” the image fee
 
 Time of Day (time_of_day)
 
-The Time of Day field specifies when the scene in the photo appears to take place (morning, afternoon, evening, or night). It helps set context and can be used for story continuity (e.g., not sending a “morning” photo during midnight chat). This is often inferred from lighting and context clues in the image.
+The Time of Day field specifies when the scene in the photo appears to take place, using a simple lighting-driven classification. It helps set context and can be used for story continuity (e.g., not sending a clearly daytime photo during a late-night chat unless intended).
 
 Use one of the standard categories:
-	•	Morning: The scene looks like early day. Clues include bright, soft sunlight (often with a warm golden tone if early morning) coming through windows, long shadows, maybe the subject is in sleepwear or just woke up. Morning light tends to be softer or coming in at an angle (depending on time).
-	•	Afternoon: Bright daylight with sun higher in the sky (shadows shorter). Colors are clear and neutral. Could be outdoors with strong sun, or indoors with plenty of light. No signs of sunset yet.
-	•	Evening: This covers roughly late day and early night. Could include sunset glow (orange/red sky light) or just after sunset (twilight). If indoors, lights might be on but some dusk light may appear. Often a warm, low light ambiance. If the scene has a relaxed or romantic indoor vibe with lamps or candles, it could be evening.
-	•	Night: The scene is clearly at night. Dark outside windows, or very low overall lighting. Often fully artificial light sources (lamps, candles, neon signs, streetlights) dominate. If outdoors, sky is dark or filled with city lights. If indoors, windows show darkness or there are strong shadows.
-	•	Unspecified/Any: Only use if no clear indicators exist. For example, a studio shot against a plain backdrop gives no time cues. In such cases, you might choose a neutral value like "anytime" or "unspecified". But if you can glean even a small hint (like slight shadow direction or the vibe of lighting), it’s better to pick one of the four main categories for consistency. In absence of clues, default to the time that best fits the intended mood of the content (e.g., a sexy lingerie shoot often could be imagined as evening). Use anytime or unspecified sparingly.
+	•	day: Any clear natural daylight context (morning + midday + afternoon are all day). Use day when the lighting looks like broad natural daylight (especially if it appears to come from windows/outdoors). If it looks clearly daytime, do NOT output anytime.
+	•	night: Clear after-dark context (sunset/twilight + full night). Use night when outside appears dark (if visible), or when lighting is dominated by artificial sources (lamps/overhead/LED/neon/ring light) and the environment falls into darker corners/shadows.
+	•	anytime: Use sparingly. Only when you truly cannot tell day vs night due to missing cues (e.g., windowless/boxed-in rooms like bathrooms, studio/backdrop, tight close-ups with no environment).
 
-How to determine from the photo: Look at lighting and context:
-	•	If sunbeams or a bright white light are coming through a window and the shadows are soft and horizontal, likely morning.
-	•	If the photo has a high sun or very bright neutral lighting (especially outdoors), afternoon.
-	•	Warm golden/orange light or long shadows cast in late day or presence of a sunset sky, likely evening. Also indoor cozy lamplight could imply evening.
-	•	Very dim scenes, or things like city lights in background, or pitch black windows with indoor lamp light => night.
+Simple rules:
+	•	If windows/outside are visible: bright sky/sunlight → day; dark outside/city lights → night.
+	•	If no outside cues: broad natural-looking brightness → day; obvious artificial lighting + darker falloff → night; if truly ambiguous → anytime.
 
-Examples:
-	•	Sunlight streaming through a window and the subject in pajamas: time_of_day: morning.
-	•	Harsh overhead sun on a beach picture: time_of_day: afternoon.
-	•	A photo with candlelight and the window shows a sunset sky: time_of_day: evening.
-	•	City skyline visible in dark with lights, or subject under neon club lights: time_of_day: night.
-	•	Photo in a studio with no background: time_of_day: anytime (no context, so we could leave it unspecified or infer from vibe if any).
-
-Keep it simple – just one of those words. We use lowercase or all-lowercase for these values (unless the system expects capitalized, but usually lowercase is fine, e.g., “morning”).
+Keep it simple – output exactly one of: day, night, anytime (lowercase).
 
 Location (Primary) (location_primary)
 
@@ -438,7 +427,7 @@ Good Example Annotation
 	•	Short Description: Lying across her bed in a red lace lingerie set, she smiles and kicks her feet up in the warm lamplight.
 	•	Long Description: It’s early evening in her cozy bedroom, illuminated by the soft glow of a bedside lamp. She lies on her stomach atop the rumpled white sheets, wearing a matching red lace bra and panty set. One bra strap slips casually down her shoulder, revealing more of her smooth skin. With her legs bent up and feet playfully crossed in the air, she props herself up on her elbows. A coy smile dances on her lips as she gazes into the camera, her eyes full of warmth and invitation. The soft lighting and faint city lights twinkling outside create an intimate, seductive atmosphere.
 	•	Explicitness: tease (her lingerie covers her, but it’s very revealing and suggestive)
-	•	Time of Day: evening
+	•	Time of Day: night
 	•	Location Primary: bedroom
 	•	Location Tags: [“bed”, “pillows”, “lamp”, “window_city_lights”]
 	•	Outfit Category: lingerie
@@ -450,14 +439,14 @@ Good Example Annotation
 	•	Shot Type: wide_shot (her full body is visible from head to toes, though toes up behind her)
 	•	Lighting: soft warm lamp light
 
-Why this is good: All fields are filled with specific, relevant information. The title is short but descriptive. The short description captures the essence in one sentence. The long description is detailed and vivid, covering pose, outfit, setting, and mood. Tags are appropriate: explicitness “tease” fits the level of nudity, time_of_day “evening” from context, location is correctly “bedroom” with supporting tags. Outfit, mood, action, and body focus tags all align with the image described. Camera angle and shot type correctly reflect a normal bedside perspective showing her whole body. Lighting is identified as warm lamplight. Nothing contradicts the scenario and everything is in the proper format (lowercase tags, etc.).
+Why this is good: All fields are filled with specific, relevant information. The title is short but descriptive. The short description captures the essence in one sentence. The long description is detailed and vivid, covering pose, outfit, setting, and mood. Tags are appropriate: explicitness “tease” fits the level of nudity, time_of_day “night” from context (dusk/city lights/lamplight), location is correctly “bedroom” with supporting tags. Outfit, mood, action, and body focus tags all align with the image described. Camera angle and shot type correctly reflect a normal bedside perspective showing her whole body. Lighting is identified as warm lamplight. Nothing contradicts the scenario and everything is in the proper format (lowercase tags, etc.).
 
 Bad Example Annotation
 	•	Title: sexy pic
 	•	Short Description: She is on the bed looking hot.
 	•	Long Description: She is on her bed in lingerie. It is evening. She looks at the camera. The room is nice.
 	•	Explicitness: sfw
-	•	Time of Day: afternoon
+	•	Time of Day: day
 	•	Location Primary: indoors
 	•	Location Tags: [“sexy”, “bed”]
 	•	Outfit Category: underwear
@@ -474,7 +463,7 @@ Problems with the bad example:
 	•	Short Description: “She is on the bed looking hot.” is very generic, uses a flat adjective “hot” without detail, and repeats info (we know she’s on a bed from context, but nothing specific is mentioned like what she’s wearing or doing). It’s not evocative.
 	•	Long Description: It’s too short and choppy, with little detail. It fails to mention key specifics (bra color, her pose with feet up, the slipping strap, her smile expression, etc.). Saying “The room is nice” is meaningless filler. It’s not painting a clear picture.
 	•	Explicitness: Marked SFW, which is incorrect because she is in revealing lingerie (that should be “tease”). This misclassification could lead to inappropriate content being treated as tame.
-	•	Time of Day: Chosen “afternoon” despite the scenario clearly being evening with city lights visible and a lamp on. This inconsistency shows lack of attention to visual cues.
+	•	Time of Day: Chosen “day” despite the scenario clearly being after-dark (dusk/city lights + lamplight). This inconsistency shows lack of attention to visual cues.
 	•	Location Primary: Just “indoors” is too broad; it misses the specific setting (bedroom). Even though it is indoors, we prefer the actual room.
 	•	Location Tags: Using “sexy” as a location tag is wrong (sexy is not a location). Only “bed” is somewhat okay, but the list is incomplete (no mention of lamp, window, etc.), and “sexy” is not an environment detail.
 	•	Outfit Category: “underwear” is not the worst, but since it’s lacy lingerie, the category could be “lingerie”. Also consistency: if we use “lingerie” as category elsewhere, we should stick to it rather than “underwear”.
@@ -526,7 +515,7 @@ Explicitness
 <sfw | tease | nsfw | unknown>
 
 Time of Day
-<morning | afternoon | evening | night | anytime>
+<day | night | anytime>
 
 Location Primary
 <single, specific location noun>

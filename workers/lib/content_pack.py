@@ -82,8 +82,31 @@ def _apply_array_filter(query, column: str, values: List[str], mode: str = "any"
 def _apply_time_filter(query, time_values: List[str], mode: str | None = None):
     if not time_values:
         return query
+
+    def expand(values: List[str]) -> List[str]:
+        expanded: List[str] = []
+        seen: set[str] = set()
+        for raw in values:
+            token = str(raw or "").strip().lower()
+            if not token:
+                continue
+            if token in {"day", "daytime", "morning", "afternoon", "noon"}:
+                options = ["day", "morning", "afternoon"]
+            elif token in {"night", "nighttime", "evening"}:
+                options = ["night", "evening"]
+            elif token in {"anytime", "unspecified", "any"}:
+                options = ["anytime"]
+            else:
+                options = [token]
+            for opt in options:
+                if opt in seen:
+                    continue
+                seen.add(opt)
+                expanded.append(opt)
+        return expanded
+
     mode_value = (mode or "loose").lower()
-    values = list(time_values)
+    values = expand(list(time_values))
     if mode_value != "strict":
         if "anytime" not in values:
             values.append("anytime")
