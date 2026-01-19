@@ -77,6 +77,46 @@ CONTROLLED_CAMERA_ANGLE = {
 }
 CONTROLLED_STAGE = {"setup", "tease", "build", "climax", "after"}
 
+SCRIPT_INPUT_FIELDS = {
+    "id",
+    "creator_id",
+    "shoot_id",
+    "title",
+    "summary",
+    "time_of_day",
+    "location_primary",
+    "outfit_category",
+    "focus_tags",
+    "meta",
+    "finalize_status",
+    "finalize_error",
+    "finalize_attempts",
+    "finalize_updated_at",
+    "created_at",
+}
+
+ITEM_INPUT_FIELDS = {
+    "id",
+    "media_type",
+    "title",
+    "desc_short",
+    "desc_long",
+    "duration_seconds",
+    "voice_transcript",
+    "explicitness",
+    "time_of_day",
+    "location_primary",
+    "location_tags",
+    "outfit_category",
+    "outfit_layers",
+    "mood_tags",
+    "action_tags",
+    "body_focus",
+    "camera_angle",
+    "stage",
+    "sequence_position",
+}
+
 
 def _normalize_header(value: str) -> str:
     cleaned = str(value).strip().lower()
@@ -300,6 +340,34 @@ def _parse_header_output(text: str) -> Optional[Dict[str, Any]]:
     }
 
 
+def _compact_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
+    cleaned: Dict[str, Any] = {}
+    for key, value in payload.items():
+        if value is None:
+            continue
+        if isinstance(value, str) and not value.strip():
+            continue
+        if isinstance(value, list) and not value:
+            continue
+        cleaned[key] = value
+    return cleaned
+
+
+def _prepare_script_input(script_row: Dict[str, Any]) -> Dict[str, Any]:
+    payload = {k: script_row.get(k) for k in SCRIPT_INPUT_FIELDS if k in script_row}
+    return _compact_payload(payload)
+
+
+def _prepare_item_input(item: Dict[str, Any]) -> Dict[str, Any]:
+    payload = {k: item.get(k) for k in ITEM_INPUT_FIELDS if k in item}
+    # Always include id even if empty checks would drop it.
+    payload["id"] = item.get("id")
+    cleaned = _compact_payload(payload)
+    if "id" not in cleaned:
+        cleaned["id"] = item.get("id")
+    return cleaned
+
+
 def _sanitize_script_update(update: Dict[str, Any]) -> Dict[str, Any]:
     allowed = {
         "title",
@@ -394,12 +462,15 @@ def _run_model(prompt: str, script_row: Dict[str, Any], items: List[Dict[str, An
     if not SCRIPT_MODEL:
         return "", "model_not_configured"
 
+    script_payload = _prepare_script_input(script_row)
+    items_payload = [_prepare_item_input(item) for item in items]
+
     user_content = (
         "<SCRIPT>\n"
-        f"{json.dumps(script_row, ensure_ascii=False)}\n"
+        f"{json.dumps(script_payload, ensure_ascii=False)}\n"
         "</SCRIPT>\n\n"
         "<SCRIPT_ITEMS>\n"
-        f"{json.dumps(items, ensure_ascii=False)}\n"
+        f"{json.dumps(items_payload, ensure_ascii=False)}\n"
         "</SCRIPT_ITEMS>"
     )
 

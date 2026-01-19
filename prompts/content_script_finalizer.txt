@@ -83,6 +83,7 @@ SCRIPT_ITEMS:
 - A list of core content_items for this script.
 - Items can be multiple media types (photo, video, voice).
 - Descriptions already exist (desc_short, desc_long, voice_transcript, etc.).
+- No media URLs or storage paths are provided. Only text and tags.
 - You must read these descriptions to order the items and assign stages.
 
 All items provided are core. Do not invent ammo or reference ammo.
