@@ -323,8 +323,7 @@ The Camera Angle describes the point of view or angle from which the photo is ta
 	•	Over-the-shoulder: The camera is behind the subject, looking over their shoulder. Often you see both the subject and what they’re looking at (like mirror or another person maybe).
 	•	From behind (back view): Camera is directly behind the subject, showing her back side. (If she’s turned away from camera, rather than looking over shoulder, and we see mainly her back or butt).
 	•	Side angle / Profile: The camera is directly to the side, showing subject’s profile.
-	•	Close POV: Not exactly an angle but sometimes the camera is extremely close to the subject (like an intimate close-up) which could be considered in tags as “close-up angle” or “intimate POV”. But better covered under shot_type as “close-up”.
-	•	(We will cover shot_type separately for close-ups etc., so under camera_angle stick to above/below/eye-level/pov).
+	•	Close POV: Not exactly an angle but sometimes the camera is extremely close to the subject (like an intimate close-up) which could be considered in tags as “close-up angle” or “intimate POV”. If closeness/framing matters, mention it in the long description and tags (e.g., body_focus, location_tags).
 	•	Dutch angle: If the camera is tilted (horizon not level), which gives a quirky feel. Rare in our context, but if clearly tilted, could mention “dutch_angle”.
 	•	Choosing an angle: Look at the photo:
 	•	If subject is looking straight and proportions look normal, probably eye-level.
@@ -348,71 +347,7 @@ The Camera Angle describes the point of view or angle from which the photo is ta
 
 Keep the terminology consistent. We commonly use: eye-level, low_angle, high_angle, top_down, POV, selfie, back_view, side_view, over_shoulder as needed. If none of those stand out, default to “eye-level”.
 
-Shot Type (shot_type)
-
-The Shot Type describes the framing or composition size of the photo – basically how much of the subject is visible and at what distance. It complements camera_angle by giving a sense of how close or wide the shot is. This helps the AI and content manager know if it’s a close-up detail, a full body shot, etc.
-
-Common shot types to choose from:
-	•	Close-up: A very tight frame around a particular detail or part of the subject. This could be a close-up on the face (headshot) or another body part (e.g., just the chest, or lips). If majority of the frame is one part of the body or the face, it’s a close-up. Variants:
-	•	Extreme close-up: even tighter, like just eyes or just mouth, etc. (We might not need to differentiate too much; “close-up” covers it generally, but you can mention if it’s extreme in long desc.)
-	•	Headshot: specifically a close-up of the face (head and shoulders possibly).
-	•	Medium shot: A mid-range framing. Often this means roughly waist-up or half-body is visible. The subject is neither extremely close nor far. If you see from head to hips or knees roughly, it’s a medium shot.
-	•	Wide shot (Full body): The subject’s full body is in frame with some surroundings. If you can see the entire person head to toe, that’s a wide shot. Also called a long shot if there’s even more environment around them. For our purposes, if full body is visible, use wide or full-body.
-	•	Three-quarter shot: sometimes used to mean from head to somewhere mid-calf or so. But you can just simplify to medium or wide.
-	•	Establishing shot / Very wide: The person is small in frame and environment dominates (not common for intimate content, but maybe if scenic). Probably not needed often.
-	•	Over-the-shoulder shot: If composition is over shoulder including their back of head/shoulder and something else (like mirror or another person). This might be more of an angle thing than shot type, but you could mention if needed.
-	•	Two-shot / Group shot: If more than one person is clearly in frame, “two_shot” or “group” might be applicable. But most content may be solo.
-	•	POV detail: If the shot is from a first-person view focusing on a body part (like a view looking down at one’s own body), but this is specialized. Possibly covered by POV + close-up.
-	•	Format: A short phrase, like the ones listed, probably we keep them lowercase and use underscores if needed (e.g., “close_up”, “medium_shot”, “wide_shot”, “full_body”).
-	•	How to choose:
-	•	Determine how much of the subject’s body is visible:
-	•	Only face or chest or a specific area = close_up.
-	•	About half body (maybe head to hips) = medium_shot.
-	•	Full body (head to feet) = wide_shot (or “full_body”).
-	•	More than full body (lots of scenery around, subject is smaller in frame) = still wide_shot, or you could say “wide_shot” regardless to mean including surroundings.
-	•	If unsure, default to medium_shot if it’s not clearly full body or clearly close-up.
-	•	Examples:
-	•	A selfie that shows just her face and shoulders = “close_up” (specifically a headshot close-up).
-	•	Photo from mid-thigh up = “medium_shot”.
-	•	Photo where you see her entire figure lying on a bed = “wide_shot” (full-body visible).
-	•	Photo focusing only on her lower torso (no head in frame, just waist down) = “close_up” (close-up on body part).
-	•	Two people fully visible head to toe = “wide_shot” (and possibly note it’s a two-person scene elsewhere).
-	•	She’s small in the frame under a waterfall, body visible but lots around = “wide_shot” (emphasizing environment too).
-	•	Special cases: If something like a mirror shot where you see her full body in mirror, it’s still wide_shot (since full body is shown). If the shot is an artistic cropped frame (like just hips and below shown), that counts as a close_up (because it’s focusing on a part).
-
-Using these terms consistently will help. Likely the project expects something like one of: "close_up", "medium_shot", "wide_shot" (and maybe "full_body" as synonym for wide_shot). We can use underscores or spaces; but since other tags seem underscored, we’ll use underscored phrases for multi-word tags.
-
-Lighting
-
-The Lighting field describes the lighting conditions and style in the photo. Lighting greatly affects the mood and appearance of the scene, so capturing it in a tag helps the AI understand the scene’s atmosphere (e.g., bright and cheerful vs. dark and moody). It can also inform continuity (not describing bright sunlight when the image is actually candlelit, etc.).
-	•	Format: A short descriptive phrase about the lighting. Could be 1-3 words. Examples: “bright daylight”, “soft indoor lighting”, “candlelight”, “neon lighting”, “low light”, “studio lighting”. Use lowercase.
-	•	Content: Identify key characteristics of the light:
-	•	Intensity: Is it bright or dim? e.g., bright, low_light, soft_light, harsh_light.
-	•	Source/Nature: natural sunlight vs. artificial:
-	•	If outdoors or sun through window, sunlight, daylight, golden_hour (if sun near sunset/sunrise), twilight, moonlight (if visible).
-	•	If indoors with lamps, lamp_light, soft_lamplight, warm_indoor_light.
-	•	If candles, candlelight.
-	•	If colored lights (like neon signs or LED colored lights), neon_pink_light, colored_lighting (specify color if obvious like “red_light”, “blue_hue”).
-	•	If flash photography or very even bright (like studio flash), studio_light, well_lit.
-	•	If it’s dark with some highlights, low_light, dim, shadowy.
-	•	Direction/Effect: Perhaps mention if backlit (light coming from behind subject, making a silhouette or halo), or silhouette if subject is mostly dark against bright background. If the lighting creates shadows or dramatic contrast (high contrast lighting).
-	•	Mood from lighting: e.g., romantic_candlelight, moody_low_light, soft_morning_light, fluorescent_light (if in office or bathroom with that vibe). If it’s natural and soft = soft_natural, if it’s very sharp = harsh_light.
-	•	We might combine elements: e.g., “soft morning sunlight”, “dim blue neon”, “warm candlelight”, “bright fluorescent”.
-	•	Be specific but succinct: 1-2 descriptors usually suffice. “soft warm lighting” or “dimly lit room”, etc.
-	•	Examples:
-	•	Sunlight through a window at morning: “soft morning sunlight”.
-	•	Outdoors at noon: “bright daylight” or “harsh midday sun” (if shadows are sharp).
-	•	Sunset outdoors: “golden hour sunlight”.
-	•	Nightclub vibe with neon signs: “neon lighting” (you could specify color, e.g., “pink neon lighting” if it’s clear).
-	•	Candlelit bedroom: “candlelight” (implies warm, flickering shadows).
-	•	Dimly lit room with one lamp: “low warm light” or “dim lamp light”.
-	•	Professional studio with even front flash: “bright studio lighting”.
-	•	Black & white high contrast photo: “monochrome high-contrast lighting” (monochrome indicates B&W which isn’t exactly lighting but style; if B&W, you might mention in desc_long, but lighting could just be “high contrast”).
-	•	A lot of color gel lighting (like a photoshoot with colored lights): “colored studio lighting”.
-
-If uncertain (e.g., plain background but well lit), “studio lighting” is a safe guess. If definitely inside but no obvious source, “soft indoor lighting” or “even lighting” can work. Always match the vibe: e.g., if explicit content shot often they use brighter lighting to show details (so maybe “bright indoor lighting”), whereas a romantic bedroom scene might rely on “dim warm lighting”.
-
-This field is somewhat open, but avoid extremely long phrases. 1-3 words (maybe 4 if including adjectives) is ideal. For instance, “soft morning sunlight” (3 words) or “dimly lit” (2 words) are good.
+Note: There are no dedicated “Shot Type” or “Lighting” output fields. If framing or lighting is relevant, mention it in Long Description and/or tags (location_tags, body_focus, action_tags) as appropriate.
 
 ⸻
 
@@ -436,10 +371,8 @@ Good Example Annotation
 	•	Action Tags: [“lying_down”, “smiling”, “looking_at_camera”]
 	•	Body Focus: [“butt”, “cleavage”] (she’s on her tummy, butt visible, and showing cleavage from the bra)
 	•	Camera Angle: eye-level (camera is level with her on the bed)
-	•	Shot Type: wide_shot (her full body is visible from head to toes, though toes up behind her)
-	•	Lighting: soft warm lamp light
 
-Why this is good: All fields are filled with specific, relevant information. The title is short but descriptive. The short description captures the essence in one sentence. The long description is detailed and vivid, covering pose, outfit, setting, and mood. Tags are appropriate: explicitness “tease” fits the level of nudity, time_of_day “night” from context (dusk/city lights/lamplight), location is correctly “bedroom” with supporting tags. Outfit, mood, action, and body focus tags all align with the image described. Camera angle and shot type correctly reflect a normal bedside perspective showing her whole body. Lighting is identified as warm lamplight. Nothing contradicts the scenario and everything is in the proper format (lowercase tags, etc.).
+Why this is good: All fields are filled with specific, relevant information. The title is short but descriptive. The short description captures the essence in one sentence. The long description is detailed and vivid, covering pose, outfit, setting, and mood. Tags are appropriate: explicitness “tease” fits the level of nudity, time_of_day “night” from context (dusk/city lights/lamplight), location is correctly “bedroom” with supporting tags. Outfit, mood, action, and body focus tags all align with the image described. Camera angle reflects a normal bedside perspective. Nothing contradicts the scenario and everything is in the proper format (lowercase tags, etc.).
 
 Bad Example Annotation
 	•	Title: sexy pic
@@ -455,8 +388,6 @@ Bad Example Annotation
 	•	Action Tags: []
 	•	Body Focus: []
 	•	Camera Angle: normal
-	•	Shot Type: full body shot
-	•	Lighting: lamp light
 
 Problems with the bad example:
 	•	Title: “sexy pic” is vague and uninformative; it doesn’t specify anything about the content (and is all lowercase, not in title format).
@@ -472,8 +403,7 @@ Problems with the bad example:
 	•	Action Tags: None provided, though she is clearly doing something (lying down, smiling). Not tagging any action is a missed opportunity to describe pose.
 	•	Body Focus: None provided. We know butt and cleavage were focus; leaving it empty loses that info.
 	•	Camera Angle: “normal” is not a defined term we decided on (should use eye-level, high_angle, etc.). “Normal” is vague.
-	•	Shot Type: “full body shot” – this is actually okay as a concept, but the format should be wide_shot or full_body consistently. Also, consistency in style: if we use snake_case for others, do the same here (e.g., “full_body” instead of “full body shot”).
-	•	Lighting: “lamp light” is on the right track but not specific (“soft warm lamp light” would be better). Also, with city lights visible, we could have included something like “dim ambient light” or “warm lamp light with city glow”. The bad example didn’t capture the nuance.
+	•	Framing/lighting details are not captured in tags/description as clearly as they could be (e.g., warm lamplight + dusk/city lights can be mentioned in the long description and location tags).
 
 Overall, the bad annotation is incomplete, inconsistent, and sometimes incorrect. It fails to follow the guidelines: the descriptions are not detailed or engaging, tags are either wrong, missing, or too generic, and the formatting/terminology is not consistent with our defined standards. If our AI produced output like the bad example, it would not effectively serve the system – Hermes might mis-route (because explicitness was wrong or location unclear), and Napoleon would have scant material to work with to describe the photo to the user, resulting in a poor user experience.
 
@@ -539,12 +469,6 @@ Body Focus
 <comma-separated tags>
 
 Camera Angle
-<one term from the controlled list>
-
-Shot Type
-<one term from the controlled list>
-
-Lighting
 <one term from the controlled list>
 
 Duration Seconds

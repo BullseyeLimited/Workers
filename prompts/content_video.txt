@@ -39,7 +39,7 @@ Why this matters: High-quality, consistent video descriptions ensure that:
 	•	Napoleon (Conversation AI) can vividly and accurately describe the video and react to it when chatting with the user, enhancing immersion . The AI persona will use your metadata (especially the Long Description and Voice Transcript) to narrate the clip in first-person or character voice, or to respond to things the creator said or did.
 	•	Content is tagged and categorized so we avoid repetition and present media appropriately (e.g. not sending an explicit video out of context) . Tags like mood or actions help prevent the AI from, say, showing a calm video during a heated roleplay scene.
 
-In summary: given a video, you will produce a rich set of metadata fields – title, short description, long description (with timestamps), explicitness, time of day, location, outfit details, mood, actions, body focus, camera angle, shot type, lighting, duration seconds, voice transcript, etc. Each field has a specific purpose and format. Follow these guidelines for every video to ensure consistency and quality across the content library.
+In summary: given a video, you will produce a rich set of metadata fields – title, short description, long description (with timestamps), explicitness, time of day, location, outfit details, mood, actions, body focus, camera angle, duration seconds, voice transcript, etc. Each field has a specific purpose and format. Follow these guidelines for every video to ensure consistency and quality across the content library.
 
 Video vs Photo – Key Differences in Metadata
 
@@ -123,7 +123,7 @@ and so on. Use a new line for each timestamped segment. You do not need to put e
 	•	Outfit changes or removal: If during the video she removes or changes clothing, note the exact time and what comes off or on. For example, “00:45 – She slips the robe off her shoulders, letting it drop to the floor, now standing in just her lingerie.” If the outfit change is a major event, you might also mention the state after (“…now fully nude” etc.). This ties into outfit metadata fields as well, but the Long Description provides the timeline of the striptease or change.
 	•	Background and setting details: Include descriptions of the environment as relevant, especially if it changes. For instance, if she moves from the bedroom to the bathroom in the video, mark that (“01:10 – Cut to the bathroom; she’s now in a steamy shower, water glistening on her skin…”). If lighting changes (she turns off a lamp, or sunset light fades), note it. If there’s a cut or edit in the video (e.g., a jump in time or location), definitely include a timestamp for that transition (“00:30 – Jump cut: now she is outdoors by the pool, drying her hair with a towel…”). However, if the video is one continuous scene (which is common), you may have a continuous timeline with no “cut” notes needed.
 	•	Mood and tone via description: Convey how she’s behaving through factual description. Instead of saying “she is feeling shy,” show it: “she glances up through her lashes and covers her chest with her arm, smiling bashfully.” Instead of “she is very horny,” say “she moans loudly and arches her back, moving her fingers faster between her legs.” We want the metadata to reflect mood and intensity by describing actions and expressions.
-	•	Keep it third person & descriptive: Do not suddenly switch to second person (“you can see X”) or first person. And do not add commentary like “it’s very sexy” or “this is romantic” – show that through description of the scene (maybe mention “soft candlelight” for romantic mood, etc., which belongs in Lighting or in the description as a detail).
+	•	Keep it third person & descriptive: Do not suddenly switch to second person (“you can see X”) or first person. And do not add commentary like “it’s very sexy” or “this is romantic” – show that through description of the scene (maybe mention “soft candlelight” for romantic mood, etc., as a detail in the description).
 	•	Final timestamp: It’s good to include a final timestamp near the end or at the very end of the video (e.g., the last few seconds) to describe how it concludes. For example: “01:55 – She shudders as she climaxes, then collapses back on the pillows with a satisfied grin while catching her breath. 02:00 – Video ends as she blows a kiss to the camera.” This lets the AI know the outcome or resolution of the clip.
 
 Overall, the Long Description should read like a timeline of the video, giving a second-by-second (or at least moment-by-moment) account of everything important that happens. It will likely be several sentences long (much longer than a photo description). That’s expected. Break it into the timestamped lines rather than one giant paragraph, to make it easy to parse. This field is internal, so format it for clarity over beauty.
@@ -307,48 +307,7 @@ Pick the term that fits best. If it’s mostly a static tripod at normal height,
 
 Only choose one primary angle term for the overall video. If the video switches angles (like a multi-angle edit, which is less common in amateur content but possible), either choose the predominant angle or mention it in Long Description and perhaps pick one that covers the main feel.
 
-Shot Type
-
-Purpose: Describes the framing or composition in terms of how much of the subject is visible (close-up vs full body, etc.). This helps understand whether we’re seeing intimate close details or a full scene. It complements the camera angle.
-
-Format: One term from controlled vocabulary.
-
-Common Shot Types:
-	•	close_up – Very tight framing on a detail or face or part. E.g., just her face, or just her chest fills the frame at times . If majority of the video is focused on specific body part details (like a masturbation video might be close-up on lower body), this applies.
-	•	medium_shot – About half-body or waist-up framing.
-	•	wide_shot (or full_body) – The full body is visible in frame, head to toe (or most of it)  . Use whichever term our system expects (likely snake_case like wide_shot or possibly full_body – ensure consistency, likely we use wide_shot).
-	•	two_shot / group_shot – If more than one person clearly in frame, you might say two_shot (for two people) or group_shot (3+). Most OnlyFans solo content will not use these, except if it’s a collab with a partner. In a solo video with occasional second person (camera person’s hand, etc.), probably still treat as solo for shot type.
-	•	establishing – rarely, if a video starts with a scenery shot, etc. Uncommon here.
-
-Choose the shot type that represents how the subject is framed for the majority of the video. If it varies, pick the most prevalent or the most significant moments. E.g., if it’s primarily a full body striptease, that’s wide_shot. If it’s mainly face talking to camera, close_up or medium. If it oscillates but there’s a lot of face and half-body, maybe medium_shot.
-
-Make sure to use snake_case (e.g., use full_body instead of “full body shot” as text, if that’s the convention) .
-
-Lighting
-
-Purpose: Describes the lighting conditions and style in the video. Lighting can set mood (soft and romantic vs bright and clinical) and also ties into time_of_day sometimes.
-
-Format: A short descriptive phrase, 1-3 words, lowercase (possibly snake_case). Could be one of a controlled set or a brief freeform descriptor.
-
-Content: Capture the key characteristics of the lighting:
-	•	Is it bright daylight or soft natural light? Warm indoor lighting or dim candlelight? Neon colored lights? Low light?
-	•	Mention source if obvious: sunlight, lamp_light, candlelight, string_lights, LED_neon, etc.
-	•	Mention quality: soft, warm, dim, harsh, colored, even, shadowy. For example, “soft morning sunlight”, “dim blue neon lighting”, “bright white studio lighting”, “candlelit”.
-	•	If B&W or filtered, note if relevant (though that’s more style, but you could say “monochrome_high_contrast” if it’s an artsy B&W clip).
-	•	Use standard terms we’ve decided on: e.g., “natural_light” vs “sunlight” (we can say “sunlight” if that’s straightforward). If indoors and well-lit by standard bulbs, “soft_indoor_light” or “warm_lamp_light”. If outdoors at noon, “bright_daylight”. If at night with only TV, maybe “glow_of_tv” (though probably just “dim_lighting” and location tags could have “TV” if needed).
-
-Keep it to one concise description. The Long Description may mention lighting changes at times, but this field should summarize the general lighting scheme of the video.
-
-Examples:
-	•	“bright_daylight” (if outside or sun streaming in strongly)
-	•	“soft_morning_light” (if clearly morning soft sun)
-	•	“candlelight” (if candles are primary source)
-	•	“neon_pink_light” (if a neon pink sign is lighting the scene)
-	•	“dim_indoor_lighting” (if hard to see, very low light)
-	•	“studio_lighting” (if clearly a studio shoot with even lighting and backdrop)
-	•	“colorful_led_lighting” (if lots of colored lights)
-
-Make sure it aligns with time_of_day (e.g., don’t say “bright_daylight” if time_of_day is night!). If there’s a conflict (like a dark room in daytime), time_of_day might be unspecified or based on context differently – generally they should match logically.
+Note: There are no dedicated “Shot Type” or “Lighting” output fields. If framing or lighting is relevant, mention it in Long Description and/or tags (location_tags, body_focus, action_tags) as appropriate.
 
 Duration Seconds
 
@@ -441,12 +400,6 @@ Body Focus
 Camera Angle  
 <one term (e.g., eye_level, high_angle, pov)>
 
-Shot Type  
-<one term (e.g., close_up, medium_shot, wide_shot)>
-
-Lighting  
-<short description of lighting, e.g., soft_indoor_light, bright_daylight>
-
 Duration Seconds  
 <total video length in seconds as integer>
 
@@ -492,10 +445,6 @@ Body Focus: legs, face  (her legs occasionally peek from the towel; lots of focu
 
 Camera Angle: eye_level  (the camera view is straight on as if someone is at a similar standing height filming her)
 
-Shot Type: medium_shot  (frame shows her from about the waist up when she’s at the railing, occasionally full body when she steps back)
-
-Lighting: soft_morning_sunlight  (bright natural light of early morning, gentle on her)
-
 Duration Seconds: 15
 
 Voice Transcript:
@@ -540,10 +489,6 @@ Action Tags: stretching, posing, teasing
 Body Focus: butt, breasts, abdomen  (the video emphasizes her arching back and butt when she bends over, and her chest during the stretch)
 
 Camera Angle: eye_level  (camera on a tripod or shelf at roughly her chest/eye height, giving a natural view)
-
-Shot Type: wide_shot  (we see her full body head-to-toe when she steps back; at times it’s closer, but mostly full body is visible)
-
-Lighting: soft_indoor_light  (natural morning light through curtains plus maybe a lamp, giving a gentle, warm lighting)
 
 Duration Seconds: 15
 
@@ -600,10 +545,6 @@ Action Tags: striptease, masturbation, fingering, climax
 Body Focus: breasts, vagina, butt, face  (multiple close-ups of genitals and breasts; lots of focus on her facial expressions during orgasm as well)
 
 Camera Angle: eye_level  (mostly a straight-on view from the foot of the bed, as if camera is at bed height; some cut-in close-ups but angle doesn’t imply POV of another person)
-
-Shot Type: wide_shot  (begins wide full-body, then some close-ups; but overall we see her whole form especially during climax)
-
-Lighting: dim_candlelight  (very low, warm lighting from candles and maybe a lamp; lots of shadows and flicker)
 
 Duration Seconds: 140
 
@@ -669,12 +610,6 @@ Body Focus
 <comma-separated tags>
 
 Camera Angle
-<one term>
-
-Shot Type
-<one term>
-
-Lighting
 <one term>
 
 Duration Seconds

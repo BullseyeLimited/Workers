@@ -462,8 +462,6 @@ HEADER_ALIASES = {
     "action_tags": ("action tags", "action_tags"),
     "body_focus": ("body focus", "body_focus"),
     "camera_angle": ("camera angle", "camera_angle"),
-    "shot_type": ("shot type", "shot_type"),
-    "lighting": ("lighting",),
     "duration_seconds": ("duration seconds", "duration_seconds", "duration"),
     "voice_transcript": ("voice transcript", "voice_transcript", "transcript"),
 }
@@ -621,8 +619,6 @@ def _sanitize_update(update: Dict[str, Any]) -> Dict[str, Any]:
         "action_tags",
         "body_focus",
         "camera_angle",
-        "shot_type",
-        "lighting",
     }
     cleaned: Dict[str, Any] = {}
     for field in allowed_fields:
@@ -643,7 +639,7 @@ def _sanitize_update(update: Dict[str, Any]) -> Dict[str, Any]:
             if normalized is not None:
                 cleaned[field] = normalized
             continue
-        if field in {"explicitness", "outfit_category", "camera_angle", "shot_type", "lighting"}:
+        if field in {"explicitness", "outfit_category", "camera_angle"}:
             normalized = _normalize_token(value)
             if normalized is not None:
                 cleaned[field] = normalized

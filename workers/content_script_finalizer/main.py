@@ -75,29 +75,6 @@ CONTROLLED_CAMERA_ANGLE = {
     "tripod_static",
     "handheld",
 }
-CONTROLLED_SHOT_TYPE = {
-    "establishing_wide",
-    "wide",
-    "full_body",
-    "three_quarter",
-    "medium",
-    "medium_close",
-    "close_up",
-    "detail_close",
-    "face_close",
-}
-CONTROLLED_LIGHTING = {
-    "natural_daylight",
-    "golden_hour",
-    "warm_indoor",
-    "cool_indoor",
-    "mixed_light",
-    "low_light",
-    "flash",
-    "ring_light",
-    "bathroom_vanity",
-    "neon_or_colored",
-}
 CONTROLLED_STAGE = {"setup", "tease", "build", "climax", "after"}
 
 
@@ -238,8 +215,6 @@ def _sanitize_item_update(update: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         "action_tags",
         "body_focus",
         "camera_angle",
-        "shot_type",
-        "lighting",
     }
     cleaned: Dict[str, Any] = {"id": content_id}
     for field in allowed:
@@ -265,12 +240,6 @@ def _sanitize_item_update(update: Dict[str, Any]) -> Optional[Dict[str, Any]]:
             continue
         if field == "camera_angle":
             cleaned[field] = _normalize_controlled(value, CONTROLLED_CAMERA_ANGLE)
-            continue
-        if field == "shot_type":
-            cleaned[field] = _normalize_controlled(value, CONTROLLED_SHOT_TYPE)
-            continue
-        if field == "lighting":
-            cleaned[field] = _normalize_controlled(value, CONTROLLED_LIGHTING)
             continue
         if field in {"location_primary"}:
             cleaned[field] = value.strip() if isinstance(value, str) else value
