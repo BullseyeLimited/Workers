@@ -313,6 +313,16 @@ def process_job(payload: Dict[str, Any]) -> bool:
         web_status,
     )
 
+    if not need_kairos:
+        current_kairos = (details.get("kairos_status") or "").strip().lower()
+        if not current_kairos or current_kairos == "pending":
+            try:
+                SB.table("message_ai_details").update({"kairos_status": "ok"}).eq(
+                    "message_id", fan_msg_id
+                ).execute()
+            except Exception:
+                pass
+
     if not done:
         return True
 
