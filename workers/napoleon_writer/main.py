@@ -23,7 +23,7 @@ from workers.lib.reply_run_tracking import (
     step_started_at,
     upsert_step,
 )
-from workers.lib.simple_queue import receive, ack
+from workers.lib.simple_queue import receive, ack, send
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
@@ -43,6 +43,40 @@ PROMPTS_DIR = Path(__file__).resolve().parents[2] / "prompts"
 WRITER_PROMPT_PATH = PROMPTS_DIR / "napoleon_writer.txt"
 
 _message_ai_details_columns: set[str] | None = None
+
+
+def _maybe_kick_followup(*, run_id: str | None, thread_id: int) -> None:
+    if not run_id:
+        return
+    try:
+        rows = (
+            SB.table("reply_runs")
+            .select("metadata")
+            .eq("run_id", str(run_id))
+            .limit(1)
+            .execute()
+            .data
+            or []
+        )
+    except Exception:
+        rows = []
+    metadata = rows[0].get("metadata") if rows and isinstance(rows[0], dict) else {}
+    if not isinstance(metadata, dict):
+        metadata = {}
+    followup = metadata.get("followup") or {}
+    if not isinstance(followup, dict):
+        followup = {}
+    if not followup.get("requested"):
+        return
+    mode = str(followup.get("mode") or "fast")
+    send("reply.supervise", {"thread_id": int(thread_id), "mode": mode})
+    # Best-effort: clear the flag so a committed run doesn't keep retriggering.
+    followup["requested"] = False
+    metadata["followup"] = followup
+    try:
+        SB.table("reply_runs").update({"metadata": metadata}).eq("run_id", str(run_id)).execute()
+    except Exception:
+        return
 
 
 def _load_message_ai_details_columns() -> set[str]:
@@ -755,6 +789,7 @@ def process_job(payload: Dict[str, Any]) -> bool:
             ended_at=datetime.now(timezone.utc).isoformat(),
             meta={"creator_message_id": int(creator_message_id)},
         )
+        _maybe_kick_followup(run_id=str(run_id), thread_id=thread_id)
     return True
 
 

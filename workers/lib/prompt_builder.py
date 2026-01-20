@@ -57,7 +57,31 @@ ABSTRACT_KEYS = (
     "abstract_body",
 )
 MAX_RECENT_TURNS = 40
+MIN_RECENT_TURNS = 20
 FRESH_FAN_SUMMARY_LIMIT = 10
+
+
+def _turn_rollover_cutoff(boundary_turn: int | None) -> int:
+    """
+    Return the turn_index cutoff for the raw-turn rolling window.
+
+    Intended behavior: keep raw turns in a 20–40 window.
+    - <20 prior turns: show all.
+    - 20–39 prior turns: show all.
+    - At 40 prior turns: consume the oldest 20 (cutoff=20), leaving 20.
+    - Then grow again until the next 20-turn boundary, etc.
+    """
+    if boundary_turn is None:
+        return 0
+    try:
+        prior_turns = max(0, int(boundary_turn) - 1)
+    except Exception:
+        return 0
+    if MIN_RECENT_TURNS <= 0:
+        return 0
+    completed_blocks = prior_turns // MIN_RECENT_TURNS
+    consumed_blocks = max(0, completed_blocks - 1)
+    return consumed_blocks * MIN_RECENT_TURNS
 
 
 def _resolve_client(client=None):
@@ -181,7 +205,14 @@ def _consumed_threshold(thread_id: int, tier: str, *, client=None) -> int:
     return upper_count * chunk_size
 
 
-def make_block(thread_id: int, tier: str, limit: int = 4, *, client=None) -> str:
+def make_block(
+    thread_id: int,
+    tier: str,
+    limit: int = 4,
+    *,
+    client=None,
+    max_end_turn: int | None = None,
+) -> str:
     """Return a zebra block of summaries for a given tier."""
 
     sb = _resolve_client(client)
@@ -199,6 +230,8 @@ def make_block(thread_id: int, tier: str, limit: int = 4, *, client=None) -> str
     )
     if threshold:
         query = query.gt("tier_index", threshold)
+    if max_end_turn is not None:
+        query = query.lte("end_turn", max_end_turn)
 
     rows = (query.limit(limit).execute().data) or []
     if not rows:
@@ -350,7 +383,50 @@ def live_turn_window(
     exclude_message_id: int | None = None,
 ) -> str:
     sb = _resolve_client(client)
-    cutoff_turn = _latest_summary_end(thread_id, "episode", client=sb)
+
+    # Rolling window (20–40): always keep at least 20 raw turns once available,
+    # allow growth up to 40, then "consume" the oldest 20 into an Episode summary.
+    #
+    # IMPORTANT: Episode summaries may be created as soon as a 20-turn block completes,
+    # but they must NOT truncate the raw turn window until the 40-turn ceiling is hit.
+    # If the caller didn't provide a boundary, treat the latest stored message as
+    # the boundary so cutoff math still works.
+    if boundary_turn is None:
+        latest = (
+            sb.table("messages")
+            .select("turn_index")
+            .eq("thread_id", thread_id)
+            .order("turn_index", desc=True)
+            .limit(1)
+            .execute()
+            .data
+            or []
+        )
+        if latest:
+            try:
+                boundary_turn = int(latest[0].get("turn_index") or 0) + 1
+            except Exception:
+                boundary_turn = None
+
+    cutoff_turn = _turn_rollover_cutoff(boundary_turn)
+
+    # Safety: only apply a non-zero cutoff when the corresponding Episode summary exists.
+    if cutoff_turn:
+        try:
+            has_episode = (
+                sb.table("summaries")
+                .select("id")
+                .eq("thread_id", thread_id)
+                .eq("tier", "episode")
+                .eq("end_turn", cutoff_turn)
+                .limit(1)
+                .execute()
+                .data
+            )
+        except Exception:
+            has_episode = []
+        if not has_episode:
+            cutoff_turn = 0
 
     query = (
         sb.table("messages")
@@ -768,6 +844,7 @@ def _render_template(
     *,
     client=None,
     extra_context: Dict[str, str] | None = None,
+    boundary_turn: int | None = None,
     include_blocks: bool = True,
     include_plans: bool = True,
     include_analyst: bool = True,
@@ -784,8 +861,39 @@ def _render_template(
     }
 
     if include_blocks:
+        # For Episode summaries, mirror the 20–40 raw-turn rollover:
+        # the Episode summary can exist early (at 20 turns) but should only be
+        # shown once those 20 turns have been "consumed" (at 40 turns).
+        episode_visible_end_turn = _turn_rollover_cutoff(boundary_turn)
+        if episode_visible_end_turn:
+            try:
+                has_episode = (
+                    sb.table("summaries")
+                    .select("id")
+                    .eq("thread_id", thread_id)
+                    .eq("tier", "episode")
+                    .eq("end_turn", episode_visible_end_turn)
+                    .limit(1)
+                    .execute()
+                    .data
+                )
+            except Exception:
+                has_episode = []
+            if not has_episode:
+                episode_visible_end_turn = 0
+
         for macro, (tier, limit) in SUMMARY_BLOCK_SPEC.items():
-            context[macro] = make_block(thread_id, tier, limit, client=sb)
+            if tier == "episode":
+                # If cutoff is 0, this intentionally yields "[No Episode summaries yet]".
+                context[macro] = make_block(
+                    thread_id,
+                    tier,
+                    limit,
+                    client=sb,
+                    max_end_turn=episode_visible_end_turn or 0,
+                )
+            else:
+                context[macro] = make_block(thread_id, tier, limit, client=sb)
 
     context.update(_load_cards(thread_id, client=sb, worker_tier=worker_tier))
 
@@ -840,6 +948,7 @@ def build_prompt(
     *,
     client=None,
     extra_context: Dict[str, str] | None = None,
+    boundary_turn: int | None = None,
     include_blocks: bool = True,
     include_plans: bool = True,
     include_analyst: bool = True,
@@ -854,6 +963,7 @@ def build_prompt(
         latest_fan_text=latest_fan_text,
         client=client,
         extra_context=extra_context,
+        boundary_turn=boundary_turn,
         include_blocks=include_blocks,
         include_plans=include_plans,
         include_analyst=include_analyst,
@@ -870,6 +980,7 @@ def build_prompt_sections(
     *,
     client=None,
     extra_context: Dict[str, str] | None = None,
+    boundary_turn: int | None = None,
     include_blocks: bool = True,
     include_plans: bool = True,
     include_analyst: bool = True,
@@ -887,6 +998,7 @@ def build_prompt_sections(
         latest_fan_text=latest_fan_text,
         client=client,
         extra_context=extra_context,
+        boundary_turn=boundary_turn,
         include_blocks=include_blocks,
         include_plans=include_plans,
         include_analyst=include_analyst,

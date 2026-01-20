@@ -781,6 +781,7 @@ def process_job(payload: Dict[str, Any], row_id: int) -> bool:
             raw_turns,
             latest_fan_text=latest_fan_text,
             client=SB,
+            boundary_turn=turn_index,
         )
     except FileNotFoundError:
         system_prompt, user_prompt = build_prompt_sections(
@@ -789,6 +790,7 @@ def process_job(payload: Dict[str, Any], row_id: int) -> bool:
             raw_turns,
             latest_fan_text=latest_fan_text,
             client=SB,
+            boundary_turn=turn_index,
         )
 
     try:

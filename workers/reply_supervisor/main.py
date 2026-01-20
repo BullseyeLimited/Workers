@@ -48,6 +48,13 @@ AUTO_ABORT_SECONDS = float(os.getenv("REPLY_AUTO_ABORT_SECONDS", "10"))
 NAPOLEON_PROTECT_SECONDS = float(os.getenv("REPLY_NAPOLEON_PROTECT_SECONDS", "10"))
 FOLLOWUP_RECHECK_SECONDS = float(os.getenv("REPLY_FOLLOWUP_RECHECK_SECONDS", "10"))
 FOLLOWUP_FAST_RECHECK_SECONDS = float(os.getenv("REPLY_FOLLOWUP_FAST_RECHECK_SECONDS", "1"))
+REPLY_DECIDER_TIMEOUT_SECONDS = float(os.getenv("REPLY_DECIDER_TIMEOUT_SECONDS", "8"))
+ENABLE_DELAYED_FOLLOWUP = os.getenv("REPLY_SUPERVISOR_ENABLE_DELAYED_FOLLOWUP", "").lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
 
 PROMPTS_DIR = Path(__file__).resolve().parents[2] / "prompts"
 DECIDER_PROMPT_PATH = PROMPTS_DIR / "reply_interrupt_decider.txt"
@@ -211,6 +218,49 @@ def _cancel_run(run_id: str, *, reason: str, superseded_by: str | None = None) -
         SB.table("job_queue").delete().filter("payload->>run_id", "eq", str(run_id)).execute()
     except Exception:
         pass
+
+
+def _mark_followup_requested(
+    run_id: str, *, mode: str, triggering_message_id: int | None = None
+) -> None:
+    now_iso = _utcnow().isoformat()
+    try:
+        rows = (
+            SB.table("reply_runs")
+            .select("metadata")
+            .eq("run_id", str(run_id))
+            .limit(1)
+            .execute()
+            .data
+            or []
+        )
+    except Exception:
+        rows = []
+
+    metadata = rows[0].get("metadata") if rows and isinstance(rows[0], dict) else {}
+    if not isinstance(metadata, dict):
+        metadata = {}
+
+    followup = metadata.get("followup") or {}
+    if not isinstance(followup, dict):
+        followup = {}
+
+    followup.update(
+        {
+            "requested": True,
+            "mode": str(mode or "fast"),
+            "requested_at": now_iso,
+            "triggering_message_id": int(triggering_message_id)
+            if triggering_message_id is not None
+            else None,
+        }
+    )
+    metadata["followup"] = followup
+
+    try:
+        SB.table("reply_runs").update({"metadata": metadata}).eq("run_id", str(run_id)).execute()
+    except Exception:
+        return
 
 
 def _mark_superseded(old_run_id: str, new_run_id: str) -> None:
@@ -426,7 +476,7 @@ def _runpod_chat(system_prompt: str, user_prompt: str) -> tuple[str, dict]:
         "max_tokens": 250,
         "temperature": 0,
     }
-    resp = requests.post(url, headers=headers, json=payload, timeout=120)
+    resp = requests.post(url, headers=headers, json=payload, timeout=REPLY_DECIDER_TIMEOUT_SECONDS)
     resp.raise_for_status()
     data = resp.json()
 
@@ -644,6 +694,24 @@ def _handle_new_fan_message(message_id: int) -> bool:
     if napoleon_started and (now - napoleon_started).total_seconds() >= NAPOLEON_PROTECT_SECONDS:
         abort_allowed = False
 
+    # Once we hit the non-abortable window, keep this handler "bam bam bam":
+    # don't call the model; just request a follow-up after the current run commits.
+    if not abort_allowed:
+        _record_event(
+            run_id=run_id,
+            event_type="interrupt",
+            triggering_message_id=message_id,
+            decision=DECISION_FOLLOWUP_FAST,
+            reason="abort_not_allowed_followup_fast",
+        )
+        _mark_followup_requested(run_id, mode="fast", triggering_message_id=message_id)
+        if ENABLE_DELAYED_FOLLOWUP:
+            _enqueue_delayed(
+                {"thread_id": thread_id, "reason": "followup_fast", "mode": "fast"},
+                delay_seconds=FOLLOWUP_FAST_RECHECK_SECONDS,
+            )
+        return True
+
     message_text_for_decider = _format_turn_text(msg)
     if not message_text_for_decider and _has_media(msg):
         message_text_for_decider = "media attachment"
@@ -685,10 +753,12 @@ def _handle_new_fan_message(message_id: int) -> bool:
         return True
 
     if decision == DECISION_FOLLOWUP_FAST:
-        _enqueue_delayed(
-            {"thread_id": thread_id, "reason": "followup_fast", "mode": "fast"},
-            delay_seconds=FOLLOWUP_FAST_RECHECK_SECONDS,
-        )
+        _mark_followup_requested(run_id, mode="fast", triggering_message_id=message_id)
+        if ENABLE_DELAYED_FOLLOWUP:
+            _enqueue_delayed(
+                {"thread_id": thread_id, "reason": "followup_fast", "mode": "fast"},
+                delay_seconds=FOLLOWUP_FAST_RECHECK_SECONDS,
+            )
         return True
 
     # DEFER: do not follow up automatically (answer naturally on the next trigger).
@@ -696,14 +766,10 @@ def _handle_new_fan_message(message_id: int) -> bool:
 
 
 def _handle_followup(thread_id: int, *, mode: str = "normal") -> bool:
-    delay = FOLLOWUP_FAST_RECHECK_SECONDS if mode == "fast" else FOLLOWUP_RECHECK_SECONDS
-
     active = _active_run(thread_id)
     if active:
-        _enqueue_delayed(
-            {"thread_id": thread_id, "reason": "followup_still_active", "mode": mode},
-            delay_seconds=delay,
-        )
+        # Keep followups cheap: another worker (Napoleon writer) will kick the
+        # supervisor again after commit if needed.
         return True
 
     latest_fan = _latest_unreplied_fan_turn(thread_id)
