@@ -1428,6 +1428,7 @@ def process_job(payload):
         latest_fan_text=_format_fan_turn(msg),
         client=SB,
         boundary_turn=msg.get("turn_index"),
+        analysis_message_id=fan_message_id,
         extra_context={
             "WEB_RESEARCH_SECTION": web_research_section,
             "WEB_RESEARCH_NOTE": web_research_note,

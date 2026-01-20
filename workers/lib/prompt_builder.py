@@ -882,17 +882,42 @@ def _summary_time_bounds(
     return earliest, latest
 
 
-def latest_kairos_json(thread_id: int, *, client=None) -> str:
-    """Return the most recent Kairos analysis row for this thread."""
+def latest_kairos_json(
+    thread_id: int,
+    *,
+    client=None,
+    message_id: int | None = None,
+) -> str:
+    """Return the Kairos analysis snapshot for a specific fan message (preferred)."""
 
     sb = _resolve_client(client)
+    select_fields = "strategic_narrative,psychological_levers,risks"
+
+    if message_id is not None:
+        rows = (
+            sb.table("message_ai_details")
+            .select(select_fields)
+            .eq("thread_id", thread_id)
+            .eq("message_id", int(message_id))
+            .limit(1)
+            .execute()
+            .data
+            or []
+        )
+        row = rows[0] if rows else {}
+        payload = {
+            "STRATEGIC_NARRATIVE": row.get("strategic_narrative") or "",
+            "PSYCHOLOGICAL_LEVERS": row.get("psychological_levers") or "",
+            "RISKS": row.get("risks") or "",
+        }
+        if not any(str(v).strip() for v in payload.values()):
+            return "{}"
+        return json.dumps(payload, ensure_ascii=False)
+
+    # Fallback (older callers): use the freshest successful Kairos row in the thread.
     rows = (
         sb.table("message_ai_details")
-        .select(
-            "message_id,strategic_narrative,alignment_status,"
-            "conversation_criticality,tactical_signals,psychological_levers,"
-            "risks,turn_micro_note,kairos_summary"
-        )
+        .select(select_fields)
         .eq("thread_id", thread_id)
         .eq("sender", "fan")
         .eq("kairos_status", "ok")
@@ -902,24 +927,17 @@ def latest_kairos_json(thread_id: int, *, client=None) -> str:
         .data
         or []
     )
-
     if not rows:
-        return ""
-
+        return "{}"
     row = rows[0]
-    safe_keys = [
-        "message_id",
-        "strategic_narrative",
-        "alignment_status",
-        "conversation_criticality",
-        "tactical_signals",
-        "psychological_levers",
-        "risks",
-        "turn_micro_note",
-        "kairos_summary",
-    ]
-    clean = {k: row.get(k) for k in safe_keys if row.get(k) is not None}
-    return json.dumps(clean, ensure_ascii=False)
+    payload = {
+        "STRATEGIC_NARRATIVE": row.get("strategic_narrative") or "",
+        "PSYCHOLOGICAL_LEVERS": row.get("psychological_levers") or "",
+        "RISKS": row.get("risks") or "",
+    }
+    if not any(str(v).strip() for v in payload.values()):
+        return "{}"
+    return json.dumps(payload, ensure_ascii=False)
 
 
 def latest_plan_fields(thread_id: int, *, client=None) -> dict:
@@ -1052,6 +1070,7 @@ def _render_template(
     client=None,
     extra_context: Dict[str, str] | None = None,
     boundary_turn: int | None = None,
+    analysis_message_id: int | None = None,
     include_blocks: bool = True,
     include_plans: bool = True,
     include_analyst: bool = True,
@@ -1117,7 +1136,11 @@ def _render_template(
         context["FAN_LATEST_VERBATIM"] = first_line
 
     if include_analyst:
-        context["ANALYST_ANALYSIS_JSON"] = latest_kairos_json(thread_id, client=sb)
+        context["ANALYST_ANALYSIS_JSON"] = latest_kairos_json(
+            thread_id,
+            client=sb,
+            message_id=analysis_message_id,
+        )
 
     if include_plans:
         context.update(latest_plan_fields(thread_id, client=sb))
@@ -1156,6 +1179,7 @@ def build_prompt(
     client=None,
     extra_context: Dict[str, str] | None = None,
     boundary_turn: int | None = None,
+    analysis_message_id: int | None = None,
     include_blocks: bool = True,
     include_plans: bool = True,
     include_analyst: bool = True,
@@ -1171,6 +1195,7 @@ def build_prompt(
         client=client,
         extra_context=extra_context,
         boundary_turn=boundary_turn,
+        analysis_message_id=analysis_message_id,
         include_blocks=include_blocks,
         include_plans=include_plans,
         include_analyst=include_analyst,
@@ -1188,6 +1213,7 @@ def build_prompt_sections(
     client=None,
     extra_context: Dict[str, str] | None = None,
     boundary_turn: int | None = None,
+    analysis_message_id: int | None = None,
     include_blocks: bool = True,
     include_plans: bool = True,
     include_analyst: bool = True,
@@ -1206,6 +1232,7 @@ def build_prompt_sections(
         client=client,
         extra_context=extra_context,
         boundary_turn=boundary_turn,
+        analysis_message_id=analysis_message_id,
         include_blocks=include_blocks,
         include_plans=include_plans,
         include_analyst=include_analyst,

@@ -1,10 +1,13 @@
 import unittest
 
+import json
+
 
 from workers.lib.prompt_builder import (
     _ordinal,
     _recency_prefix,
     live_turn_window,
+    latest_kairos_json,
     make_block,
 )
 
@@ -172,6 +175,25 @@ class PromptBuilderHistoryLabelTests(unittest.TestCase):
         self.assertTrue(lines[0].startswith("Turn 3 @"))
         self.assertTrue(lines[1].startswith("Turn 2 @"))
         self.assertTrue(lines[2].startswith("Turn 1 @"))
+
+    def test_latest_kairos_json_uses_same_message_id(self):
+        client = _FakeClient(
+            tables={
+                "message_ai_details": [
+                    {
+                        "message_id": 123,
+                        "strategic_narrative": "SN",
+                        "psychological_levers": "PL",
+                        "risks": "R",
+                    }
+                ]
+            }
+        )
+        raw = latest_kairos_json(1, client=client, message_id=123)
+        parsed = json.loads(raw)
+        self.assertEqual("SN", parsed.get("STRATEGIC_NARRATIVE"))
+        self.assertEqual("PL", parsed.get("PSYCHOLOGICAL_LEVERS"))
+        self.assertEqual("R", parsed.get("RISKS"))
 
 
 if __name__ == "__main__":
