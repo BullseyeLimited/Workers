@@ -235,22 +235,30 @@ def parse_patch_output(raw_text: str) -> Tuple[List[dict], str]:
     lines = (raw_text or "").replace("\r", "").splitlines()
     idx = 0
     patches: List[dict] = []
-    last_block_end = 0
+    last_consumed = 0
 
     while idx < len(lines):
         header = _parse_header(lines[idx])
         if not header:
             idx += 1
             continue
+
         action, segment_id, segment_label, segment_full = header
         idx += 1
 
         block_lines: List[str] = []
-        while idx < len(lines) and not _parse_header(lines[idx]):
+        while idx < len(lines):
+            if _parse_header(lines[idx]):
+                break
+
             block_lines.append(lines[idx])
             idx += 1
 
-        last_block_end = idx
+            # Patch blocks are expected to end at the REASON line; anything after is summary.
+            if REASON_KEY_RE.match(block_lines[-1]):
+                break
+
+        last_consumed = idx
         text_body, confidence, reason, target_id, target_text = _parse_block(block_lines)
         if not text_body:
             continue
@@ -270,7 +278,7 @@ def parse_patch_output(raw_text: str) -> Tuple[List[dict], str]:
             }
         )
 
-    summary = "\n".join(lines[last_block_end:]).strip()
+    summary = "\n".join(lines[last_consumed:]).strip() if patches else "\n".join(lines).strip()
     if not summary:
         raise ValueError("summary section missing")
     return patches, summary
@@ -311,7 +319,11 @@ def _active_entry(entries: List[dict]) -> dict | None:
 
 
 def _strip_confidence(text: str) -> str:
-    return re.sub(r"\[[a-z]+\]\s*$", "", (text or "").strip(), flags=re.IGNORECASE).strip()
+    # Stored card entries end with multiple bracket tags, e.g. "[tentative] [EPISODE]".
+    # Strip all trailing bracket tags so fuzzy matching compares the underlying text.
+    clean = (text or "").strip()
+    clean = re.sub(r"(?:\[[^\]]+\]\s*)+$", "", clean).strip()
+    return clean
 
 
 def _find_best_match(entries: List[dict], text: str, *, min_ratio: float = 0.72) -> dict | None:
@@ -479,7 +491,7 @@ def apply_patches_to_card(
             continue
 
         if patch["action"] == "revise":
-            target = target_entry or _find_best_match(bucket, patch_text)
+            target = target_entry or _find_best_match(bucket, patch_text) or _active_entry(bucket)
             if not target:
                 # No existing entry to revise; fall back to ADD behavior.
                 entry_text = append_origin_tag(patch_text, worker_tier)
@@ -700,10 +712,7 @@ def _maybe_enqueue_next(thread_id: int, tier: str):
         "tier_index": next_tier_index,
         "raw_block": raw_block,
     }
-
-    SB.table("job_queue").insert(
-        {"queue": queue_name, "payload": json.dumps(payload, ensure_ascii=False)}
-    ).execute()
+    send(queue_name, payload)
 
 
 def process_job(payload: Dict) -> bool:
