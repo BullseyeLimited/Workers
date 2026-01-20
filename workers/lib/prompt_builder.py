@@ -337,6 +337,30 @@ def _latest_summary_end(thread_id: int, tier: str, *, client=None) -> int:
     return int(row[0].get("end_turn") or 0)
 
 
+def _ordinal(n: int) -> str:
+    """Return an ordinal like 1st, 2nd, 3rd, 4th, ..."""
+    try:
+        value = int(n)
+    except Exception:
+        return str(n)
+    suffix = "th"
+    if (value % 100) not in (11, 12, 13):
+        suffix = {1: "st", 2: "nd", 3: "rd"}.get(value % 10, "th")
+    return f"{value}{suffix}"
+
+
+def _recency_prefix(recency_number: int) -> str:
+    """
+    Return a human recency prefix for a list ordered newest → oldest.
+      1 => Newest
+      2 => 2nd newest
+      3 => 3rd newest
+    """
+    if recency_number == 1:
+        return "Newest"
+    return f"{_ordinal(recency_number)} newest"
+
+
 def _consumed_threshold(thread_id: int, tier: str, *, client=None) -> int:
     """
     Return the tier_index threshold of lower-tier summaries that have been rolled up.
@@ -402,12 +426,14 @@ def make_block(
 
     blocks = []
     total = len(rows)
+    # Summaries are shown oldest → newest (top to bottom), but labeled by recency
+    # (Newest / 2nd newest / ...), so "Newest" appears at the bottom.
     for idx, row in enumerate(reversed(rows), 1):
-        # Newest summary should be #1 (like turns), oldest gets the highest number.
         recency_number = total - idx + 1
+        recency = _recency_prefix(recency_number)
         start, end = row.get("start_turn"), row.get("end_turn")
         if start is not None and end is not None:
-            label = f"{tier.title()} {recency_number}"
+            label = f"{recency} {tier.title()}"
             start_ts, end_ts = _summary_time_bounds(thread_id, start, end, client=sb)
             if start_ts or end_ts:
                 label = (
@@ -418,13 +444,13 @@ def make_block(
                     f")"
                 )
         else:
-            label = f"{tier.title()} {recency_number} – #{row.get('id') or idx}"
+            label = f"{recency} {tier.title()} – #{row.get('id') or recency_number}"
         narrative = row.get("narrative_summary")
         abstract = row.get("abstract_summary")
-        if narrative:
-            blocks.append(f"{label} – Narrative:\n{narrative.strip()}")
         if abstract:
             blocks.append(f"{label} – Abstract:\n{abstract.strip()}")
+        if narrative:
+            blocks.append(f"{label} – Narrative:\n{narrative.strip()}")
     return "\n\n".join(blocks)
 
 

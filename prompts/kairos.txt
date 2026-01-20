@@ -423,13 +423,14 @@ relationship and current turn.
 Do NOT output anything inside <ANALYST_INPUT>. It is READ-ONLY input.
 You only WRITE your output later, as described in the output format section.
 
-Recent turns are shown oldest → newest (top to bottom), one per line, formatted as `Turn # (Fan|Creator): <text>` with raw text only (no summaries).
+Recent turns are shown oldest → newest (top to bottom). Turn numbers are by recency within this window (Turn 1 = newest, shown at the bottom). Each line is a single message with the sender and text.
 
  
 <ANALYST_INPUT>
 
 <CONTEXT>
 <SUMMARIES>
+--- Summaries inside each block are ordered oldest → newest (top → bottom). ---
 <LIFETIME_BLOCK>
 {LIFETIME_BLOCK}
 </LIFETIME_BLOCK>
@@ -452,7 +453,7 @@ Recent turns are shown oldest → newest (top to bottom), one per line, formatte
 </SUMMARIES>
 
 <RECENT_TURNS>
---- Recent Turns (oldest → newest) ---
+--- Recent Turns (oldest → newest; Turn 1 = newest / bottom) ---
 <TURNS>
 {RAW_TURNS}
 </TURNS>

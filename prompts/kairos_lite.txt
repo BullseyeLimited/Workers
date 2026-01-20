@@ -392,7 +392,7 @@ BEGIN ANALYST INPUT TEMPLATE
 At runtime, you will receive exactly one <ANALYST_INPUT>
 
 <RECENT_TURNS>
---- Recent Turns (oldest → newest) ---
+--- Recent Turns (oldest → newest; Turn 1 = newest / bottom) ---
 <TURNS>
 {RAW_TURNS}
 </TURNS>
@@ -408,8 +408,6 @@ END ANALYST INPUT TEMPLATE
 ────────────────────────────────────────────────────────────────────────
 
 Based on the input above, immediately generate the response using the required headers.
-
-
 
 
 

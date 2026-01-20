@@ -414,6 +414,7 @@ Execute.
 <NAPOLEON_INPUT>
   <CONTEXT>
     <SUMMARIES>
+    --- Summaries inside each block are ordered oldest → newest (top → bottom). ---
     <LIFETIME_BLOCK>
       {LIFETIME_BLOCK}
     </LIFETIME_BLOCK>
@@ -431,7 +432,7 @@ Execute.
     </EPISODE_BLOCK>
     </SUMMARIES>
     <RECENT_TURNS>
-      --- Recent Turns (oldest → newest) ---
+      --- Recent Turns (oldest → newest; Turn 1 = newest / bottom) ---
     <TURNS>
       {RAW_TURNS}
     </TURNS>
