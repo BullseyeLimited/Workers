@@ -18,6 +18,7 @@ import json
 import os
 import time
 import traceback
+import base64
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict
@@ -73,6 +74,31 @@ DECISION_FOLLOWUP_FAST = "FOLLOWUP_FAST"
 DECISION_DEFER = "DEFER"
 
 ALLOWED_DECISIONS = {DECISION_ABORT_REDO, DECISION_FOLLOWUP_FAST, DECISION_DEFER}
+
+
+def _decode_jwt_claims(token: str) -> dict:
+    try:
+        parts = token.split(".")
+        if len(parts) < 2:
+            return {}
+        payload = parts[1]
+        payload += "=" * (-len(payload) % 4)
+        decoded = base64.urlsafe_b64decode(payload.encode("utf-8")).decode("utf-8")
+        data = json.loads(decoded)
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def _log_supabase_identity() -> None:
+    claims = _decode_jwt_claims(SUPABASE_KEY or "")
+    ref = claims.get("ref")
+    role = claims.get("role")
+    iss = claims.get("iss")
+    print(
+        f"[reply_supervisor] supabase_url={SUPABASE_URL} jwt_iss={iss} jwt_ref={ref} jwt_role={role}",
+        flush=True,
+    )
 
 
 def _utcnow() -> datetime:
@@ -801,6 +827,7 @@ def process_job(payload: Dict[str, Any]) -> bool:
 
 
 if __name__ == "__main__":
+    _log_supabase_identity()
     print("[reply_supervisor] started - waiting for jobs", flush=True)
     while True:
         job = receive(QUEUE, 30)

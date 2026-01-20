@@ -14,6 +14,7 @@ WORKER_ID = (
     or os.getenv("FLY_MACHINE_ID")
     or os.getenv("HOSTNAME")
 )
+_LAST_RPC_ERROR_LOG_AT = 0.0
 
 # ------------------------------------------------------------------
 def send(queue: str, payload: dict):
@@ -33,10 +34,17 @@ def send(queue: str, payload: dict):
 # ------------------------------------------------------------------
 def receive(queue: str, vt_seconds: int = 30):
     if USE_RPC:
-        job = _receive_via_rpc(queue, vt_seconds)
+        rpc_error = None
+        try:
+            job = _receive_via_rpc(queue, vt_seconds)
+        except Exception as exc:
+            job = None
+            rpc_error = exc
         if job:
             return job
-        if not ALLOW_FALLBACK:
+        if rpc_error is not None:
+            _maybe_log_rpc_error(rpc_error)
+        if not ALLOW_FALLBACK and rpc_error is None:
             return None
 
     vt_until = (
@@ -78,17 +86,14 @@ def ack(row_id: int):
 
 
 def _receive_via_rpc(queue: str, vt_seconds: int):
-    try:
-        res = SB.rpc(
-            "claim_job",
-            {
-                "queue_name": queue,
-                "vt_seconds": int(vt_seconds),
-                "worker_id": WORKER_ID,
-            },
-        ).execute()
-    except Exception:
-        return None
+    res = SB.rpc(
+        "claim_job",
+        {
+            "queue_name": queue,
+            "vt_seconds": int(vt_seconds),
+            "worker_id": WORKER_ID,
+        },
+    ).execute()
 
     data = getattr(res, "data", None)
     if not data:
@@ -106,3 +111,16 @@ def _receive_via_rpc(queue: str, vt_seconds: int):
         except Exception:
             payload = {}
     return {"row_id": row_id, "queue": row.get("queue"), "payload": payload}
+
+
+def _maybe_log_rpc_error(exc: Exception) -> None:
+    global _LAST_RPC_ERROR_LOG_AT
+    now = time.time()
+    # Avoid log spam in tight polling loops.
+    if now - _LAST_RPC_ERROR_LOG_AT < 60:
+        return
+    _LAST_RPC_ERROR_LOG_AT = now
+    print(
+        f"[simple_queue] claim_job RPC failed ({type(exc).__name__}: {exc}); falling back to table polling",
+        flush=True,
+    )

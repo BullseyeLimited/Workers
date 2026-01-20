@@ -5,7 +5,9 @@ from fastapi import FastAPI, HTTPException, Request
 from postgrest.exceptions import APIError
 from supabase import create_client, ClientOptions
 from workers.lib.cards import new_base_card
+from workers.lib.job_utils import job_exists
 from workers.lib.link_utils import extract_urls
+from workers.lib.reply_run_tracking import upsert_step
 from workers.lib.simple_queue import send
 
 # connect to Supabase using secrets that Fly will provide
@@ -44,8 +46,203 @@ def enqueue_argus(mid: int):
     send("argus.analyse", {"message_id": mid})
 
 def enqueue_reply_supervisor(mid: int):
-    # reply supervisor manages run cancel/defer logic before starting the pipeline
+    # reply supervisor only handles mid-run interrupt/followup decisions
     send("reply.supervise", {"message_id": mid})
+
+
+def _active_reply_run(thread_id: int) -> dict | None:
+    try:
+        rows = (
+            SB.table("reply_runs")
+            .select("run_id,root_fan_message_id,created_at")
+            .eq("thread_id", int(thread_id))
+            .eq("status", "active")
+            .order("created_at", desc=True)
+            .limit(1)
+            .execute()
+            .data
+            or []
+        )
+    except Exception:
+        return None
+    return rows[0] if rows and isinstance(rows[0], dict) else None
+
+
+def _create_reply_run(*, thread_id: int, message_id: int, snapshot_end_turn_index: int) -> str | None:
+    payload = {
+        "thread_id": int(thread_id),
+        "trigger_source": "fan",
+        "root_fan_message_id": int(message_id),
+        "snapshot_end_turn_index": int(snapshot_end_turn_index),
+        "status": "active",
+        "current_step": "queued",
+        "metadata": {},
+    }
+    try:
+        row = SB.table("reply_runs").insert(payload).execute().data
+    except Exception:
+        return None
+    if not row or not isinstance(row, list) or not isinstance(row[0], dict):
+        return None
+    run_id = str(row[0].get("run_id") or "")
+    return run_id or None
+
+
+def _enqueue_reply_pipeline(*, message_id: int, run_id: str | None, has_media: bool) -> None:
+    payload = {"message_id": int(message_id)}
+    if run_id:
+        payload["run_id"] = str(run_id)
+
+    if has_media:
+        if not job_exists("argus.analyse", message_id, client=SB):
+            send("argus.analyse", payload)
+        if run_id:
+            upsert_step(
+                run_id=str(run_id),
+                step="argus",
+                attempt=0,
+                status="pending",
+                client=SB,
+                message_id=int(message_id),
+            )
+    else:
+        if run_id:
+            upsert_step(
+                run_id=str(run_id),
+                step="argus",
+                attempt=0,
+                status="skipped",
+                client=SB,
+                message_id=int(message_id),
+                mode="skip",
+                meta={"reason": "no_media"},
+            )
+
+    if not job_exists("hermes.route", message_id, client=SB):
+        send("hermes.route", payload)
+
+
+def _replied_boundary_turn(thread_id: int) -> int:
+    """
+    Best-effort "already replied" boundary for a thread.
+    Prefer the latest committed reply_run snapshot; fall back to the latest creator turn.
+    """
+    try:
+        committed = (
+            SB.table("reply_runs")
+            .select("snapshot_end_turn_index")
+            .eq("thread_id", int(thread_id))
+            .eq("status", "committed")
+            .order("created_at", desc=True)
+            .limit(1)
+            .execute()
+            .data
+            or []
+        )
+    except Exception:
+        committed = []
+
+    if committed and committed[0].get("snapshot_end_turn_index") is not None:
+        try:
+            return int(committed[0]["snapshot_end_turn_index"])
+        except Exception:
+            return 0
+
+    try:
+        latest_creator = (
+            SB.table("messages")
+            .select("turn_index")
+            .eq("thread_id", int(thread_id))
+            .eq("sender", "creator")
+            .order("turn_index", desc=True)
+            .limit(1)
+            .execute()
+            .data
+            or []
+        )
+    except Exception:
+        latest_creator = []
+
+    if latest_creator:
+        try:
+            return int(latest_creator[0].get("turn_index") or 0)
+        except Exception:
+            return 0
+    return 0
+
+
+def _kick_reply_flow(
+    *,
+    message_id: int,
+    thread_id: int,
+    turn_index: int,
+    has_media: bool,
+    is_retry: bool = False,
+) -> None:
+    """
+    Ensure the reply pipeline is started (when idle) or the interrupt decider runs (when busy).
+    """
+    if is_retry:
+        boundary = _replied_boundary_turn(int(thread_id))
+        if int(turn_index or 0) <= int(boundary):
+            return
+
+    active_run = _active_reply_run(int(thread_id))
+    if active_run:
+        active_root = active_run.get("root_fan_message_id")
+        # If this message is already the root of the active run, don't treat it as an interrupt.
+        if active_root is None or int(active_root) != int(message_id):
+            if not job_exists("reply.supervise", message_id, client=SB):
+                enqueue_reply_supervisor(int(message_id))
+        else:
+            _enqueue_reply_pipeline(
+                message_id=int(message_id),
+                run_id=str(active_run.get("run_id") or "") or None,
+                has_media=has_media,
+            )
+        return
+
+    run_id = _create_reply_run(
+        thread_id=int(thread_id),
+        message_id=int(message_id),
+        snapshot_end_turn_index=int(turn_index),
+    )
+    _enqueue_reply_pipeline(message_id=int(message_id), run_id=run_id, has_media=has_media)
+
+
+def _kick_existing_message(message_id: int) -> None:
+    try:
+        rows = (
+            SB.table("messages")
+            .select("id,thread_id,turn_index,sender,media_payload")
+            .eq("id", int(message_id))
+            .limit(1)
+            .execute()
+            .data
+            or []
+        )
+    except Exception:
+        return
+
+    if not rows:
+        return
+    row = rows[0] if isinstance(rows[0], dict) else {}
+    if (row.get("sender") or "").strip().lower() != "fan":
+        return
+
+    thread_id = int(row.get("thread_id") or 0)
+    turn_index = int(row.get("turn_index") or 0)
+    media_payload = row.get("media_payload") or {}
+    items = media_payload.get("items") if isinstance(media_payload, dict) else None
+    has_media = isinstance(items, list) and len(items) > 0
+
+    _kick_reply_flow(
+        message_id=int(message_id),
+        thread_id=int(thread_id),
+        turn_index=int(turn_index),
+        has_media=bool(has_media),
+        is_retry=True,
+    )
 
 
 def _latest_summary_end(thread_id: int, tier: str) -> int:
@@ -235,10 +432,9 @@ async def receive(request: Request):
                 or []
             )
             if existing:
-                # Best-effort: enqueue supervisor even on retries, so a transient
-                # failure between insert and enqueue doesn't permanently drop work.
+                # Best-effort: ensure work isn't dropped on retries.
                 try:
-                    enqueue_reply_supervisor(existing[0]["id"])
+                    _kick_existing_message(existing[0]["id"])
                 except Exception:
                     pass
                 return {"message_id": existing[0]["id"], "thread_id": existing[0]["thread_id"]}
@@ -250,8 +446,13 @@ async def receive(request: Request):
 
     msg_id = res[0]["id"]
     SB.table("threads").update({"turn_count": turn_index}).eq("id", thread_id).execute()
-    # Supervisor decides whether to start, abort, or defer the run.
-    enqueue_reply_supervisor(msg_id)
+
+    _kick_reply_flow(
+        message_id=int(msg_id),
+        thread_id=int(thread_id),
+        turn_index=int(turn_index),
+        has_media=has_media,
+    )
 
     _maybe_enqueue_episode_summary(thread_id, turn_index)
 
