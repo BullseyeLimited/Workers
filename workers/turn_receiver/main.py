@@ -24,6 +24,10 @@ SB = create_client(
 
 app = FastAPI()
 
+# If a run is marked active but has no queued jobs for a short grace period,
+# treat it as stale so new messages don't get misclassified as "interrupts".
+REPLY_RUN_STALE_SECONDS = int(os.getenv("REPLY_RUN_STALE_SECONDS", "15"))
+
 # -------------- helpers --------------
 def get_creator_id(handle: str) -> int:
     data = (
@@ -50,6 +54,63 @@ def enqueue_reply_supervisor(mid: int):
     send("reply.supervise", {"message_id": mid})
 
 
+def _utcnow() -> datetime.datetime:
+    return datetime.datetime.now(datetime.timezone.utc)
+
+
+def _parse_ts(value) -> datetime.datetime | None:
+    if not value:
+        return None
+    if isinstance(value, datetime.datetime):
+        return value
+    if isinstance(value, str):
+        raw = value.strip()
+        if not raw:
+            return None
+        if raw.endswith("Z"):
+            raw = raw[:-1] + "+00:00"
+        try:
+            return datetime.datetime.fromisoformat(raw)
+        except Exception:
+            return None
+    return None
+
+
+def _run_has_jobs(run_id: str) -> bool:
+    """
+    Best-effort check: if a run is truly in-flight, there should be at least one job_queue row
+    referencing its run_id (claimed jobs still exist; only ack deletes).
+    """
+    try:
+        rows = (
+            SB.table("job_queue")
+            .select("id")
+            .filter("payload->>run_id", "eq", str(run_id))
+            .limit(1)
+            .execute()
+            .data
+            or []
+        )
+    except Exception:
+        return True
+    return bool(rows)
+
+
+def _cancel_stale_run(run_id: str, *, reason: str) -> None:
+    now = _utcnow().isoformat()
+    try:
+        SB.table("reply_runs").update(
+            {
+                "status": "canceled",
+                "canceled_at": now,
+                "cancel_reason": str(reason or "stale"),
+                "current_step": "canceled",
+            }
+        ).eq("run_id", str(run_id)).execute()
+    except Exception:
+        return
+
+
 def _active_reply_run(thread_id: int) -> dict | None:
     try:
         rows = (
@@ -65,7 +126,22 @@ def _active_reply_run(thread_id: int) -> dict | None:
         )
     except Exception:
         return None
-    return rows[0] if rows and isinstance(rows[0], dict) else None
+    active = rows[0] if rows and isinstance(rows[0], dict) else None
+    if not active:
+        return None
+
+    run_id = str(active.get("run_id") or "")
+    created_at = _parse_ts(active.get("created_at"))
+    if run_id and created_at:
+        try:
+            age = (_utcnow() - created_at).total_seconds()
+        except Exception:
+            age = None
+        if age is not None and age >= REPLY_RUN_STALE_SECONDS and not _run_has_jobs(run_id):
+            _cancel_stale_run(run_id, reason="stale_active_run_no_jobs")
+            return None
+
+    return active
 
 
 def _create_reply_run(*, thread_id: int, message_id: int, snapshot_end_turn_index: int) -> str | None:
