@@ -61,6 +61,19 @@ MIN_RECENT_TURNS = 20
 FRESH_FAN_SUMMARY_LIMIT = 10
 
 
+_IDENTITY_PLACEHOLDERS = {
+    "n/a",
+    "na",
+    "none",
+    "[none]",
+    "null",
+    "nil",
+    "tbd",
+    "todo",
+    "unknown",
+}
+
+
 def _turn_rollover_cutoff(boundary_turn: int | None) -> int:
     """
     Return the turn_index cutoff for the raw-turn rolling window.
@@ -131,6 +144,156 @@ def _format_psychic_card(card: Any) -> str:
             return "Psychic card: empty"
         return "Psychic card:\n" + "\n".join(lines)
     return _stringify(card)
+
+
+def _format_identity_card_text(card_text: str) -> str:
+    """
+    Condense the fan identity card plain-text format by removing empty categories.
+
+    Expected input format (from fan_card_narrative_writer):
+      LONG_TERM
+      category:
+      fact line
+      ...
+
+      SHORT_TERM
+      ...
+    """
+    if not isinstance(card_text, str) or not card_text.strip():
+        return ""
+
+    section = None
+    category = None
+    order: dict[str, list[str]] = {"LONG_TERM": [], "SHORT_TERM": []}
+    entries: dict[str, dict[str, list[str]]] = {"LONG_TERM": {}, "SHORT_TERM": {}}
+
+    for raw in card_text.splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        upper = line.upper()
+        if upper in {"LONG_TERM", "SHORT_TERM"}:
+            section = upper
+            category = None
+            continue
+        if line.endswith(":"):
+            category = line[:-1].strip()
+            if section and category and category not in order[section]:
+                order[section].append(category)
+            continue
+        if section and category:
+            entries[section].setdefault(category, []).append(line)
+
+    output: list[str] = []
+    for sec in ("LONG_TERM", "SHORT_TERM"):
+        cats = [cat for cat in order[sec] if entries.get(sec, {}).get(cat)]
+        if not cats:
+            continue
+        output.append(sec)
+        for cat in cats:
+            output.append(f"{cat}:")
+            output.extend(entries[sec][cat])
+        output.append("")
+
+    return "\n".join(output).strip()
+
+
+def _format_identity_card_json(card: Any) -> str:
+    """
+    Best-effort condensation of an identity card JSON snapshot.
+
+    The stored identity card shape can be very large (mostly `null` / empty notes).
+    This formatter emits only non-empty leaf values so prompts don't get spammed
+    with `None`/`null` placeholders.
+    """
+
+    def _is_meaningful_string(value: str) -> bool:
+        stripped = (value or "").strip()
+        if not stripped:
+            return False
+        if stripped.lower() in _IDENTITY_PLACEHOLDERS:
+            return False
+        return True
+
+    facts: list[tuple[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+
+    def walk(node: Any, path: list[str]) -> None:
+        if node is None:
+            return
+        if isinstance(node, str):
+            if not _is_meaningful_string(node):
+                return
+            key = "/".join(path)
+            pair = (key, node.strip())
+            if pair not in seen:
+                seen.add(pair)
+                facts.append(pair)
+            return
+        if isinstance(node, (int, float, bool)):
+            key = "/".join(path)
+            pair = (key, str(node))
+            if pair not in seen:
+                seen.add(pair)
+                facts.append(pair)
+            return
+        if isinstance(node, list):
+            for idx, item in enumerate(node):
+                walk(item, path + [str(idx)])
+            return
+        if isinstance(node, dict):
+            notes = node.get("notes")
+            if isinstance(notes, str) and _is_meaningful_string(notes):
+                key = "/".join(path)
+                pair = (key, notes.strip())
+                if pair not in seen:
+                    seen.add(pair)
+                    facts.append(pair)
+            for k, v in node.items():
+                if k == "notes":
+                    continue
+                walk(v, path + [str(k)])
+            return
+
+    walk(card, [])
+
+    if not facts:
+        return ""
+
+    lines: list[str] = []
+    for key, value in facts:
+        label = key.replace("/", ".") if key else "fact"
+        lines.append(f"{label}: {value}")
+    return "\n".join(lines).strip()
+
+
+def _format_identity_card(card: Any, *, card_text: str | None = None) -> str:
+    if isinstance(card_text, str) and card_text.strip():
+        formatted = _format_identity_card_text(card_text)
+        if formatted:
+            return formatted
+
+    if card is None:
+        return "Identity card: empty"
+
+    if isinstance(card, str):
+        stripped = card.strip()
+        if not stripped:
+            return "Identity card: empty"
+        try:
+            parsed = json.loads(stripped)
+        except Exception:
+            parsed = None
+        if isinstance(parsed, (dict, list)):
+            formatted = _format_identity_card_json(parsed)
+            return formatted if formatted else "Identity card: empty"
+        return stripped
+
+    if isinstance(card, (dict, list)):
+        formatted = _format_identity_card_json(card)
+        return formatted if formatted else "Identity card: empty"
+
+    return _stringify(card) or "Identity card: empty"
 
 
 def _stringify(value: Any) -> str:
@@ -267,19 +430,35 @@ def make_block(
 
 def _load_cards(thread_id: int, *, client=None, worker_tier=None) -> Dict[str, str]:
     sb = _resolve_client(client)
-    row = (
-        sb.table("threads")
-        .select(
-            "fan_identity_card,fan_psychic_card,"
-            "creator_identity_card,creator_psychic_card,"
-            "creator_id"
+    try:
+        row = (
+            sb.table("threads")
+            .select(
+                "fan_identity_card,fan_identity_card_raw,fan_psychic_card,"
+                "creator_identity_card,creator_psychic_card,"
+                "creator_id"
+            )
+            .eq("id", thread_id)
+            .single()
+            .execute()
+            .data
+            or {}
         )
-        .eq("id", thread_id)
-        .single()
-        .execute()
-        .data
-        or {}
-    )
+    except Exception:
+        # Backwards-compatible fallback for schemas without fan_identity_card_raw.
+        row = (
+            sb.table("threads")
+            .select(
+                "fan_identity_card,fan_psychic_card,"
+                "creator_identity_card,creator_psychic_card,"
+                "creator_id"
+            )
+            .eq("id", thread_id)
+            .single()
+            .execute()
+            .data
+            or {}
+        )
 
     creator_row = {}
     creator_id = row.get("creator_id")
@@ -306,10 +485,9 @@ def _load_cards(thread_id: int, *, client=None, worker_tier=None) -> Dict[str, s
             # Fall back to the unfiltered card if tier parsing fails
             pass
 
-    creator_identity_card = (
+    creator_identity_card_value = (
         row.get("creator_identity_card")
         or creator_row.get("creator_identity_card")
-        or "Identity card: empty"
     )
     creator_psychic_card = (
         row.get("creator_psychic_card")
@@ -317,9 +495,12 @@ def _load_cards(thread_id: int, *, client=None, worker_tier=None) -> Dict[str, s
     )
 
     return {
-        "FAN_IDENTITY_CARD": row.get("fan_identity_card") or "Identity card: empty",
+        "FAN_IDENTITY_CARD": _format_identity_card(
+            row.get("fan_identity_card"),
+            card_text=row.get("fan_identity_card_raw"),
+        ),
         "FAN_PSYCHIC_CARD": _format_psychic_card(fan_psychic),
-        "CREATOR_IDENTITY_CARD": creator_identity_card,
+        "CREATOR_IDENTITY_CARD": _format_identity_card(creator_identity_card_value),
         "CREATOR_PSYCHIC_CARD": _format_psychic_card(creator_psychic_card),
     }
 
