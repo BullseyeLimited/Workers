@@ -694,24 +694,6 @@ def _handle_new_fan_message(message_id: int) -> bool:
     if napoleon_started and (now - napoleon_started).total_seconds() >= NAPOLEON_PROTECT_SECONDS:
         abort_allowed = False
 
-    # Once we hit the non-abortable window, keep this handler "bam bam bam":
-    # don't call the model; just request a follow-up after the current run commits.
-    if not abort_allowed:
-        _record_event(
-            run_id=run_id,
-            event_type="interrupt",
-            triggering_message_id=message_id,
-            decision=DECISION_FOLLOWUP_FAST,
-            reason="abort_not_allowed_followup_fast",
-        )
-        _mark_followup_requested(run_id, mode="fast", triggering_message_id=message_id)
-        if ENABLE_DELAYED_FOLLOWUP:
-            _enqueue_delayed(
-                {"thread_id": thread_id, "reason": "followup_fast", "mode": "fast"},
-                delay_seconds=FOLLOWUP_FAST_RECHECK_SECONDS,
-            )
-        return True
-
     message_text_for_decider = _format_turn_text(msg)
     if not message_text_for_decider and _has_media(msg):
         message_text_for_decider = "media attachment"
@@ -766,10 +748,17 @@ def _handle_new_fan_message(message_id: int) -> bool:
 
 
 def _handle_followup(thread_id: int, *, mode: str = "normal") -> bool:
+    delay = FOLLOWUP_FAST_RECHECK_SECONDS if mode == "fast" else FOLLOWUP_RECHECK_SECONDS
+
     active = _active_run(thread_id)
     if active:
-        # Keep followups cheap: another worker (Napoleon writer) will kick the
-        # supervisor again after commit if needed.
+        # Optional safety net: poll until the current run is done, then start follow-up.
+        # Default is off to keep `job_queue` clean and avoid "waiting around" rows.
+        if ENABLE_DELAYED_FOLLOWUP:
+            _enqueue_delayed(
+                {"thread_id": thread_id, "reason": "followup_still_active", "mode": mode},
+                delay_seconds=delay,
+            )
         return True
 
     latest_fan = _latest_unreplied_fan_turn(thread_id)
