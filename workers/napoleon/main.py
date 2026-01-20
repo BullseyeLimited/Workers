@@ -1726,7 +1726,7 @@ def process_job(payload):
         "fan_message_id": fan_message_id,
         "thread_id": thread_id,
         # Minimal context for the message composer (Napoleon Writer).
-        "creator_identity_card": thread_row.get("creator_identity_card") or "",
+        "creator_psychic_card": thread_row.get("creator_psychic_card") or {},
         "fan_psychic_card": thread_row.get("fan_psychic_card") or {},
         "thread_history": raw_turns,
         "latest_fan_message": msg.get("message_text") or "",
