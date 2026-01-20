@@ -195,6 +195,10 @@ class PromptBuilderHistoryLabelTests(unittest.TestCase):
         self.assertEqual("PL", parsed.get("PSYCHOLOGICAL_LEVERS"))
         self.assertEqual("R", parsed.get("RISKS"))
 
+    def test_latest_kairos_json_empty_when_missing(self):
+        client = _FakeClient(tables={"message_ai_details": []})
+        self.assertEqual("", latest_kairos_json(1, client=client, message_id=999))
+
 
 if __name__ == "__main__":
     unittest.main()

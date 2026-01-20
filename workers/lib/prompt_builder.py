@@ -911,7 +911,7 @@ def latest_kairos_json(
             "RISKS": row.get("risks") or "",
         }
         if not any(str(v).strip() for v in payload.values()):
-            return "{}"
+            return ""
         return json.dumps(payload, ensure_ascii=False)
 
     # Fallback (older callers): use the freshest successful Kairos row in the thread.
@@ -928,7 +928,7 @@ def latest_kairos_json(
         or []
     )
     if not rows:
-        return "{}"
+        return ""
     row = rows[0]
     payload = {
         "STRATEGIC_NARRATIVE": row.get("strategic_narrative") or "",
@@ -936,7 +936,7 @@ def latest_kairos_json(
         "RISKS": row.get("risks") or "",
     }
     if not any(str(v).strip() for v in payload.values()):
-        return "{}"
+        return ""
     return json.dumps(payload, ensure_ascii=False)
 
 
