@@ -22,6 +22,7 @@ from workers.lib.content_pack import build_content_index, format_content_pack
 from workers.lib.job_utils import job_exists
 from workers.lib.prompt_builder import live_turn_window
 from workers.lib.json_utils import safe_parse_model_json
+from workers.lib.ai_response_store import record_ai_response
 from workers.lib.reply_run_tracking import (
     is_run_active,
     set_run_current_step,
@@ -353,7 +354,7 @@ def parse_content_request(raw_text: str) -> dict | None:
     return request or None
 
 
-def _runpod_call(system_prompt: str, user_message: str) -> tuple[str, dict]:
+def _runpod_call(system_prompt: str, user_message: str) -> tuple[str, dict, dict]:
     """
     Call the RunPod vLLM OpenAI-compatible server using chat completions.
     Returns (raw_text, request_payload) for logging.
@@ -384,12 +385,13 @@ def _runpod_call(system_prompt: str, user_message: str) -> tuple[str, dict]:
     resp = requests.post(url, headers=headers, json=payload, timeout=30)
     resp.raise_for_status()
     data = resp.json()
+    response_payload = data
     raw_text = (
         data.get("choices", [{}])[0]
         .get("message", {})
         .get("content", "")
     )
-    return raw_text or "", payload
+    return raw_text or "", payload, response_payload
 
 
 def _merge_extras(existing: dict, patch: dict) -> dict:
@@ -587,8 +589,12 @@ def process_job(payload: Dict[str, Any]) -> bool:
 
         system_prompt = _load_prompt()
 
+        request_payload = None
+        response_payload = None
         try:
-            raw_text, _ = _runpod_call(system_prompt, user_block)
+            raw_text, request_payload, response_payload = _runpod_call(
+                system_prompt, user_block
+            )
             parsed, error = parse_hermes_output(raw_text)
         except Exception as exc:  # noqa: BLE001
             parsed, error = None, f"runpod_error: {exc}"
@@ -596,6 +602,19 @@ def process_job(payload: Dict[str, Any]) -> bool:
             status = "failed"
         else:
             status = "ok" if parsed else "failed"
+
+        record_ai_response(
+            SB,
+            worker="hermes",
+            thread_id=thread_id,
+            message_id=fan_msg_id,
+            run_id=str(run_id) if run_id else None,
+            model=(request_payload or {}).get("model"),
+            request_payload=request_payload,
+            response_payload=response_payload,
+            status=status,
+            error=error,
+        )
 
         if not parsed and attempt < 1:
             send(QUEUE, {"message_id": fan_msg_id, "hermes_retry": attempt + 1})

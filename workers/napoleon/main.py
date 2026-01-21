@@ -10,6 +10,7 @@ import requests
 from supabase import create_client, ClientOptions
 
 from workers.lib.cards import compact_psychic_card
+from workers.lib.ai_response_store import record_ai_response
 from workers.lib.content_pack import format_content_pack
 from workers.lib.json_utils import safe_parse_model_json
 from workers.lib.prompt_builder import build_prompt_sections, live_turn_window
@@ -438,7 +439,7 @@ def insert_creator_reply(thread_id: int, final_text: str) -> int:
     return msg["id"]
 
 
-def runpod_call(system_prompt: str, user_message: str) -> tuple[str, dict]:
+def runpod_call(system_prompt: str, user_message: str) -> tuple[str, dict, dict]:
     """
     Call the RunPod vLLM OpenAI-compatible server using chat completions.
     Returns (raw_text, request_payload) for logging/debugging.
@@ -470,6 +471,7 @@ def runpod_call(system_prompt: str, user_message: str) -> tuple[str, dict]:
     resp = requests.post(url, headers=headers, json=payload, timeout=600)
     resp.raise_for_status()
     data = resp.json()
+    response_payload = data
 
     raw_text = ""
     try:
@@ -489,7 +491,7 @@ def runpod_call(system_prompt: str, user_message: str) -> tuple[str, dict]:
     if not raw_text:
         raw_text = f"__DEBUG_FULL_RESPONSE__: {json.dumps(data)}"
 
-    return raw_text, payload
+    return raw_text, payload, response_payload
 
 
 def _redact_analyst_block(text: str) -> str:
@@ -1260,7 +1262,7 @@ def run_repair_call(
     missing_fields: list[str],
     original_system_prompt: str,
     original_user_prompt: str,
-) -> tuple[str, dict]:
+) -> tuple[str, dict, dict]:
     """
     Ask the model to repair an incomplete Napoleon output by filling only missing sections.
     Returns (raw_text, request_payload).
@@ -1444,7 +1446,20 @@ def process_job(payload):
     raw_hash = hashlib.sha256(full_prompt_log.encode("utf-8")).hexdigest()
 
     try:
-        raw_text, _request_payload = runpod_call(system_prompt, user_prompt)
+        raw_text, request_payload, response_payload = runpod_call(
+            system_prompt, user_prompt
+        )
+        record_ai_response(
+            SB,
+            worker="napoleon",
+            thread_id=thread_id,
+            message_id=fan_message_id,
+            run_id=str(run_id) if run_id else None,
+            model=(request_payload or {}).get("model"),
+            request_payload=request_payload,
+            response_payload=response_payload,
+            status="ok",
+        )
     except Exception as exc:  # noqa: BLE001
         record_napoleon_failure(
             fan_message_id=fan_message_id,
