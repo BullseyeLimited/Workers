@@ -15,6 +15,7 @@ import requests
 from openai import OpenAI
 from supabase import create_client, ClientOptions
 
+from workers.lib.ai_response_store import record_ai_response
 from workers.lib.prompt_builder import (
     build_prompt,
     build_prompt_sections,
@@ -137,7 +138,7 @@ def _format_fan_turn(row: dict) -> str:
     return "\n".join(parts) if parts else text
 
 
-def runpod_call(system_prompt: str, user_message: str) -> tuple[str, dict]:
+def runpod_call(system_prompt: str, user_message: str) -> tuple[str, dict, dict]:
     """
     Call the RunPod vLLM OpenAI-compatible server using chat completions.
     Returns (raw_text, request_payload) for logging.
@@ -169,6 +170,7 @@ def runpod_call(system_prompt: str, user_message: str) -> tuple[str, dict]:
     resp = requests.post(url, headers=headers, json=payload, timeout=600)
     resp.raise_for_status()
     data = resp.json()
+    response_payload = data
 
     raw_text = ""
     try:
@@ -198,7 +200,7 @@ def runpod_call(system_prompt: str, user_message: str) -> tuple[str, dict]:
     if not raw_text:
         raw_text = f"__DEBUG_FULL_RESPONSE__: {json.dumps(data)}"
 
-    return raw_text, payload
+    return raw_text, payload, response_payload
 
 
 def translate_kairos_output(raw_text: str) -> Tuple[dict | None, str | None]:
@@ -308,7 +310,7 @@ def run_repair_call(
     missing_fields: list[str],
     original_system_prompt: str,
     original_user_prompt: str,
-) -> tuple[str, dict]:
+) -> tuple[str, dict, dict]:
     """
     Ask the model to repair an incomplete Kairos output by filling only missing sections.
     Returns (raw_text, request_payload).
@@ -795,14 +797,38 @@ def process_job(payload: Dict[str, Any], row_id: int) -> bool:
 
     try:
         if is_repair:
-            raw_text, _request_payload = run_repair_call(
+            raw_text, request_payload, response_payload = run_repair_call(
                 root_raw_text or previous_raw_text or "",
                 previous_missing,
                 orig_system_prompt or system_prompt,
                 orig_user_prompt or user_prompt,
             )
+            record_ai_response(
+                SB,
+                worker="kairos",
+                thread_id=thread_id,
+                message_id=fan_msg_id,
+                run_id=str(run_id) if run_id else None,
+                model=(request_payload or {}).get("model"),
+                request_payload=request_payload,
+                response_payload=response_payload,
+                status="repair",
+            )
         else:
-            raw_text, _request_payload = runpod_call(system_prompt, user_prompt)
+            raw_text, request_payload, response_payload = runpod_call(
+                system_prompt, user_prompt
+            )
+            record_ai_response(
+                SB,
+                worker="kairos",
+                thread_id=thread_id,
+                message_id=fan_msg_id,
+                run_id=str(run_id) if run_id else None,
+                model=(request_payload or {}).get("model"),
+                request_payload=request_payload,
+                response_payload=response_payload,
+                status="ok",
+            )
     except Exception as exc:  # noqa: BLE001
         record_kairos_failure(
             message_id=fan_msg_id,

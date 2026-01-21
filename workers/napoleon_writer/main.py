@@ -17,6 +17,7 @@ import requests
 from supabase import create_client, ClientOptions
 
 from workers.lib.cards import compact_psychic_card
+from workers.lib.ai_response_store import record_ai_response
 from workers.lib.reply_run_tracking import (
     is_run_active,
     mark_run_committed,
@@ -104,7 +105,7 @@ def _load_writer_prompt() -> str:
     return WRITER_PROMPT_PATH.read_text(encoding="utf-8")
 
 
-def runpod_call(system_prompt: str, user_message: str) -> tuple[str, dict]:
+def runpod_call(system_prompt: str, user_message: str) -> tuple[str, dict, dict]:
     """
     Call the RunPod vLLM OpenAI-compatible server using chat completions.
     Returns (raw_text, request_payload) for logging/debugging.
@@ -136,6 +137,7 @@ def runpod_call(system_prompt: str, user_message: str) -> tuple[str, dict]:
     resp = requests.post(url, headers=headers, json=payload, timeout=300)
     resp.raise_for_status()
     data = resp.json()
+    response_payload = data
 
     raw_text = ""
     try:
@@ -155,7 +157,7 @@ def runpod_call(system_prompt: str, user_message: str) -> tuple[str, dict]:
     if not raw_text:
         raw_text = f"__DEBUG_FULL_RESPONSE__: {json.dumps(data)}"
 
-    return raw_text, payload
+    return raw_text, payload, response_payload
 
 
 CHUNK_PATTERN = re.compile(r"^\s*(\d+)\s*\[(.*)\]\s*$")
@@ -665,7 +667,20 @@ def process_job(payload: Dict[str, Any]) -> bool:
     full_prompt_log = json.dumps({"system": system_prompt, "user": user_block}, ensure_ascii=False)
 
     try:
-        raw_text, _ = runpod_call(system_prompt, user_block)
+        raw_text, request_payload, response_payload = runpod_call(
+            system_prompt, user_block
+        )
+        record_ai_response(
+            SB,
+            worker="napoleon_writer",
+            thread_id=thread_id,
+            message_id=fan_message_id,
+            run_id=str(run_id) if run_id else None,
+            model=(request_payload or {}).get("model"),
+            request_payload=request_payload,
+            response_payload=response_payload,
+            status="ok",
+        )
     except Exception as exc:  # noqa: BLE001
         record_writer_failure(
             fan_message_id=fan_message_id,
