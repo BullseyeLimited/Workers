@@ -125,7 +125,7 @@ def runpod_call(system_prompt: str, user_message: str) -> tuple[str, dict]:
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_message},
         ],
-        "max_tokens": 1000,
+        "max_tokens": 2500,
         "temperature": 0.6,
         "top_p": 0.95,
         "repetition_penalty": 1.0,
@@ -507,7 +507,7 @@ def _extract_turn1_directive(value: Any) -> str:
 def build_writer_user_block(payload: Dict[str, Any]) -> str:
     # Keep it readable for the model; JSON with context markers.
     block = {
-        "creator_identity_card": payload.get("creator_identity_card") or "",
+        "creator_psychic_card": payload.get("creator_psychic_card") or {},
         "thread_history": payload.get("thread_history") or "",
         "latest_fan_message": payload.get("latest_fan_message") or "",
         "turn_directive": _extract_turn1_directive(payload.get("turn_directive")),
