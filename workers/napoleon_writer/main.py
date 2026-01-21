@@ -16,6 +16,7 @@ from typing import Any, Dict, List
 import requests
 from supabase import create_client, ClientOptions
 
+from workers.lib.cards import compact_psychic_card
 from workers.lib.reply_run_tracking import (
     is_run_active,
     mark_run_committed,
@@ -507,11 +508,13 @@ def build_writer_user_block(payload: Dict[str, Any]) -> str:
     # Keep it readable for the model; JSON with context markers.
     block = {
         "creator_identity_card": payload.get("creator_identity_card") or "",
-        "fan_psychic_card": payload.get("fan_psychic_card") or {},
         "thread_history": payload.get("thread_history") or "",
         "latest_fan_message": payload.get("latest_fan_message") or "",
         "turn_directive": _extract_turn1_directive(payload.get("turn_directive")),
     }
+    fan_psychic_card = compact_psychic_card(payload.get("fan_psychic_card"))
+    if fan_psychic_card:
+        block["fan_psychic_card"] = fan_psychic_card
     return f"<NAPOLEON_INPUT>\n{json.dumps(block, ensure_ascii=False, indent=2)}\n</NAPOLEON_INPUT>"
 
 

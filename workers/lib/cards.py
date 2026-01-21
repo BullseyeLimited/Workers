@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from datetime import datetime, timezone
-from typing import Dict, List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional
 from uuid import uuid4
 
 from workers.lib.time_tier import TimeTier, parse_tier, tier_tag
@@ -193,6 +193,91 @@ def filter_card_by_tier(card: dict, max_origin_tier: TimeTier) -> dict:
         segments[seg_id] = visible_entries
 
     return filtered
+
+
+def compact_psychic_card(
+    card: Any,
+    *,
+    key_by: Literal["id", "name"] = "name",
+) -> dict | str | None:
+    """
+    Return a compact psychic card suitable for logs/prompts.
+
+    - Drops empty segments.
+    - Drops entries with blank `text` fields.
+    - If no segments remain, returns None.
+    - By default, keys segments by their human segment name (no numeric ids).
+    """
+
+    if card is None:
+        return None
+
+    if isinstance(card, str):
+        stripped = card.strip()
+        return stripped or None
+
+    if not isinstance(card, dict):
+        return card
+
+    segments = card.get("segments")
+    if not isinstance(segments, dict):
+        # Unknown shape; only keep it if it has non-empty data.
+        return card if any(v for v in card.values()) else None
+
+    segment_names = card.get("segment_names")
+    names: dict[str, str] = segment_names if isinstance(segment_names, dict) else {}
+
+    compact_segments: dict[str, list[Any]] = {}
+    for seg_id, entries in segments.items():
+        if not entries:
+            continue
+
+        cleaned_entries: list[Any] = []
+        if isinstance(entries, list):
+            for entry in entries:
+                if entry is None:
+                    continue
+                if isinstance(entry, str):
+                    text = entry.strip()
+                    if text:
+                        cleaned_entries.append(text)
+                    continue
+                if isinstance(entry, dict):
+                    maybe_text = entry.get("text")
+                    if isinstance(maybe_text, str) and not maybe_text.strip():
+                        continue
+                    cleaned_entries.append(entry)
+                    continue
+                if entry:
+                    cleaned_entries.append(entry)
+        else:
+            cleaned_entries = [entries]
+
+        if not cleaned_entries:
+            continue
+
+        seg_id_str = str(seg_id)
+        if key_by == "name":
+            seg_key = names.get(seg_id_str) or seg_id_str
+        else:
+            seg_key = seg_id_str
+        compact_segments[seg_key] = cleaned_entries
+
+    if not compact_segments:
+        return None
+
+    compact: dict[str, Any] = {"segments": compact_segments}
+    if card.get("version") is not None:
+        compact["version"] = card.get("version")
+    if card.get("cards_updated_at"):
+        compact["cards_updated_at"] = card.get("cards_updated_at")
+
+    if key_by == "id" and names:
+        compact["segment_names"] = {
+            seg_id: names.get(seg_id, seg_id) for seg_id in compact_segments
+        }
+
+    return compact
 
 
 def make_entry(

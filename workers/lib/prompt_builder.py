@@ -123,14 +123,14 @@ def _load_template(template_name: str) -> str:
 def _format_psychic_card(card: Any) -> str:
     """
     Return a condensed psychic card. If all segments are empty (or card missing),
-    render a clear placeholder so the prompt doesn't show an empty schema.
+    return an empty string so the prompt omits the card entirely.
     """
 
     if card is None:
-        return "Psychic card: empty"
+        return ""
     if isinstance(card, str):
         stripped = card.strip()
-        return stripped if stripped else "Psychic card: empty"
+        return stripped
     if isinstance(card, dict):
         segments = card.get("segments") or {}
         names = card.get("segment_names") or {}
@@ -141,7 +141,7 @@ def _format_psychic_card(card: Any) -> str:
             label = names.get(str(key)) or str(key)
             lines.append(f"{label}: {_stringify(value)}")
         if not lines:
-            return "Psychic card: empty"
+            return ""
         return "Psychic card:\n" + "\n".join(lines)
     return _stringify(card)
 
@@ -502,7 +502,7 @@ def _load_cards(thread_id: int, *, client=None, worker_tier=None) -> Dict[str, s
         except Exception:
             creator_row = {}
 
-    fan_psychic = row.get("fan_psychic_card") or "[Fan Psychic Card unavailable]"
+    fan_psychic = row.get("fan_psychic_card")
     if worker_tier is not None and isinstance(fan_psychic, dict):
         try:
             tier_enum = parse_tier(worker_tier)
