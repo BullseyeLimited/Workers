@@ -378,7 +378,7 @@ def _runpod_call(system_prompt: str, user_message: str) -> tuple[str, dict]:
             {"role": "user", "content": user_message},
         ],
         "temperature": float(os.getenv("HERMES_TEMPERATURE", "0.2")),
-        "max_tokens": int(os.getenv("HERMES_MAX_TOKENS", "800")),
+        "max_tokens": int(os.getenv("HERMES_MAX_TOKENS", "4000")),
     }
 
     # Keep Hermes consistent with Kairos/Napoleon: RunPod can be slow/queued and
