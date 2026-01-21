@@ -381,15 +381,31 @@ def _runpod_call(system_prompt: str, user_message: str) -> tuple[str, dict]:
         "max_tokens": int(os.getenv("HERMES_MAX_TOKENS", "800")),
     }
 
-    resp = requests.post(url, headers=headers, json=payload, timeout=30)
+    # Keep Hermes consistent with Kairos/Napoleon: RunPod can be slow/queued and
+    # Hermes should not fail closed just because it waited longer than 30s.
+    resp = requests.post(url, headers=headers, json=payload, timeout=600)
     resp.raise_for_status()
     data = resp.json()
-    raw_text = (
-        data.get("choices", [{}])[0]
-        .get("message", {})
-        .get("content", "")
-    )
-    return raw_text or "", payload
+
+    raw_text = ""
+    try:
+        if data.get("choices"):
+            msg = data["choices"][0].get("message") or {}
+            raw_text = (
+                msg.get("content")
+                or msg.get("reasoning")
+                or msg.get("reasoning_content")
+                or ""
+            )
+            if not raw_text:
+                raw_text = data["choices"][0].get("text") or ""
+    except Exception:
+        raw_text = ""
+
+    if not raw_text:
+        raw_text = f"__DEBUG_FULL_RESPONSE__: {json.dumps(data)}"
+
+    return raw_text, payload
 
 
 def _merge_extras(existing: dict, patch: dict) -> dict:
