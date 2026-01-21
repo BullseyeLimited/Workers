@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 import requests
 from supabase import create_client, ClientOptions
 
+from workers.lib.cards import compact_psychic_card
 from workers.lib.content_pack import format_content_pack
 from workers.lib.json_utils import safe_parse_model_json
 from workers.lib.prompt_builder import build_prompt_sections, live_turn_window
@@ -1722,17 +1723,19 @@ def process_job(payload):
     else:
         turn1_directive = str(tactical_plan or "")
 
+    fan_psychic_card = compact_psychic_card(thread_row.get("fan_psychic_card"))
     writer_payload = {
         "fan_message_id": fan_message_id,
         "thread_id": thread_id,
         # Minimal context for the message composer (Napoleon Writer).
         "creator_psychic_card": thread_row.get("creator_psychic_card") or {},
-        "fan_psychic_card": thread_row.get("fan_psychic_card") or {},
         "thread_history": raw_turns,
         "latest_fan_message": msg.get("message_text") or "",
         "turn_directive": turn1_directive,
         "content_actions": content_actions or {},
     }
+    if fan_psychic_card:
+        writer_payload["fan_psychic_card"] = fan_psychic_card
     if run_id:
         writer_payload["run_id"] = str(run_id)
     send(WRITER_QUEUE, writer_payload)
