@@ -1,6 +1,9 @@
 app = "hermesjoin-worker"
 primary_region = "fra"
 
+[env]
+  CONTENT_PACK_ENABLED = "true"
+
 [build]
   dockerfile = "../../base/Dockerfile"
   context    = "../.."
