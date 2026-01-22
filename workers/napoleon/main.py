@@ -11,7 +11,7 @@ from supabase import create_client, ClientOptions
 
 from workers.lib.cards import compact_psychic_card
 from workers.lib.ai_response_store import record_ai_response
-from workers.lib.content_pack import format_content_pack
+from workers.lib.content_pack import format_content_pack_for_napoleon
 from workers.lib.json_utils import safe_parse_model_json
 from workers.lib.prompt_builder import build_prompt_sections, live_turn_window
 from workers.lib.reply_run_tracking import (
@@ -139,10 +139,11 @@ def _format_fan_turn(row: dict) -> str:
 def _build_content_pack_block(content_pack: dict | None) -> str:
     if not content_pack:
         return ""
-    packed = format_content_pack(content_pack)
+    packed = format_content_pack_for_napoleon(content_pack)
     if not packed:
         return ""
-    return f"  <CONTENT_PACK>\n    {packed}\n  </CONTENT_PACK>"
+    indented = "\n".join(f"    {line}" if line.strip() else "" for line in packed.splitlines())
+    return f"  <CONTENT_PACK>\n{indented}\n  </CONTENT_PACK>"
 
 
 def _blank_horizon_plan(state: str = "") -> dict:

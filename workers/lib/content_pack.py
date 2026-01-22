@@ -689,6 +689,8 @@ def _sort_core_items(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return sorted(rows, key=sort_key)
 
 
+
+
 def _is_empty_field(value: Any) -> bool:
     if value is None:
         return True
@@ -1463,8 +1465,11 @@ def build_content_pack(
                 except Exception:
                     meta = {}
             meta_by_script_id[str(sid)] = meta
-        scripts_index = _build_script_index(
-            scripts, items_rows, include_focus_tags=False
+        scripts_index = _build_script_index(scripts, items_rows, include_focus_tags=False)
+        scripts_index = sorted(
+            scripts_index,
+            key=lambda row: (row.get("created_at") or "", row.get("script_id") or ""),
+            reverse=True,
         )
         for entry in scripts_index:
             script_id_value = entry.get("script_id")
@@ -1474,9 +1479,9 @@ def build_content_pack(
             script_summary_column = _clean_text(script_row.get("script_summary"))
             ammo_summary_column = _clean_text(script_row.get("ammo_summary"))
 
-            entry["ref"] = _make_pack_ref(script_id_value) or _make_pack_ref(shoot_id_value)
             entry.pop("script_id", None)
             entry.pop("shoot_id", None)
+            entry.pop("created_at", None)
             core_scene_time_of_day = entry.pop("time_of_day", None)
             entry["core_scene_time_of_day"] = core_scene_time_of_day
 
@@ -1573,7 +1578,6 @@ def build_content_pack(
             "location_primary": (script_header or {}).get("location_primary") if script_header else None,
             "outfit_category": (script_header or {}).get("outfit_category") if script_header else None,
             "focus_tags": (script_header or {}).get("focus_tags") if script_header else [],
-            "created_at": (script_header or {}).get("created_at") if script_header else None,
         }
     )
     if content_id_list:
@@ -1587,6 +1591,9 @@ def build_content_pack(
         selected_rows = [by_id[cid] for cid in content_id_list if cid in by_id]
         script_items_rows = [row for row in selected_rows if row.get("script_id")]
         shoot_extras_rows = [row for row in selected_rows if not row.get("script_id")]
+
+    script_items_rows = _sort_core_items(script_items_rows)
+    shoot_extras_rows = _sort_newest_first(shoot_extras_rows)
 
     if zoom_level == 1:
         pack = {
@@ -1704,3 +1711,203 @@ def format_content_pack(pack: Dict[str, Any]) -> str:
     if not pack:
         return ""
     return json.dumps(pack, ensure_ascii=False)
+
+
+def format_content_pack_for_napoleon(pack: Dict[str, Any]) -> str:
+    """
+    Human/LLM-friendly content pack formatting.
+    This is intentionally *not* JSON to keep Napoleon prompts easy to scan.
+    """
+    if not pack or not isinstance(pack, dict):
+        return ""
+
+    zoom_level = _safe_int(pack.get("zoom"), 0) or 0
+    lines: List[str] = [f"CONTENT PACK (ZOOM {zoom_level})"]
+
+    def add_header(text: str) -> None:
+        lines.append("")
+        lines.append(str(text).strip())
+
+    def add_kv(label: str, value: Any) -> None:
+        if value is None:
+            return
+        if isinstance(value, str) and not value.strip():
+            return
+        if isinstance(value, list) and not value:
+            return
+        lines.append(f"{label}: {value}")
+
+    def clean_item_line(raw: Any) -> tuple[str | None, str | None, str]:
+        text = str(raw or "").strip()
+        if not text:
+            return None, None, ""
+        parts = [p.strip() for p in text.split(",") if p.strip()]
+        stage = None
+        seq = None
+        kept: List[str] = []
+        for part in parts:
+            lowered = part.lower()
+            if lowered.startswith("stage:"):
+                stage = part.split(":", 1)[1].strip().lower() or None
+                continue
+            if lowered.startswith("sequence:"):
+                seq = part.split(":", 1)[1].strip() or None
+                continue
+            kept.append(part)
+        return stage, seq, ", ".join(kept)
+
+    STAGE_LABELS = {
+        "setup": "SETUP",
+        "tease": "TEASE",
+        "build": "BUILD-UP",
+        "climax": "CLIMAX",
+        "after": "AFTERCARE",
+    }
+    STAGE_ORDER_OLDEST_FIRST = ["setup", "tease", "build", "climax", "after"]
+
+    def format_numbered_block(items: List[Any], *, with_stage_groups: bool) -> None:
+        if not items:
+            lines.append("NONE")
+            return
+
+        if with_stage_groups:
+            grouped: Dict[str, List[tuple[str | None, str]]] = {}
+            for raw_item in items:
+                stage, seq, cleaned = clean_item_line(raw_item)
+                if not cleaned:
+                    continue
+                key = stage or "unknown"
+                grouped.setdefault(key, []).append((seq, cleaned))
+
+            ordered_stage_keys = [
+                key for key in STAGE_ORDER_OLDEST_FIRST if key in grouped
+            ] + [
+                key
+                for key in grouped.keys()
+                if key not in set(STAGE_ORDER_OLDEST_FIRST) and key != "unknown"
+            ]
+            if "unknown" in grouped:
+                ordered_stage_keys.append("unknown")
+
+            counter = 0
+            for stage_key in ordered_stage_keys:
+                stage_label = STAGE_LABELS.get(stage_key, str(stage_key).upper())
+                lines.append(f"{stage_label}")
+                for seq, cleaned in grouped.get(stage_key, []):
+                    counter += 1
+                    lines.append(f"Content {counter}:")
+                    if seq:
+                        lines.append(f"seq {seq} — {cleaned}")
+                    else:
+                        lines.append(cleaned)
+                    lines.append("")
+            while lines and lines[-1] == "":
+                lines.pop()
+            return
+
+        counter = 0
+        for raw_item in items:
+            _stage, seq, cleaned = clean_item_line(raw_item)
+            if not cleaned:
+                continue
+            counter += 1
+            lines.append(f"Content {counter}:")
+            if seq:
+                lines.append(f"seq {seq} — {cleaned}")
+            else:
+                lines.append(cleaned)
+            lines.append("")
+        while lines and lines[-1] == "":
+            lines.pop()
+
+    if zoom_level <= 0:
+        add_header("SCRIPTS (newest → oldest)")
+        scripts = pack.get("scripts") or []
+        if isinstance(scripts, list) and scripts:
+            for idx, script in enumerate(scripts, start=1):
+                if not isinstance(script, dict):
+                    continue
+                title = (script.get("title") or "").strip()
+                summary = (script.get("script_summary") or script.get("summary") or "").strip()
+                core_inventory = script.get("core_inventory") or ""
+                ammo_inventory = script.get("ammo_inventory") or ""
+                ammo_summary = (script.get("ammo_summary") or "").strip()
+                core_scene_time = (script.get("core_scene_time_of_day") or "").strip()
+
+                lines.append(f"Script {idx}: {title or 'UNTITLED'}")
+                if summary:
+                    lines.append(f"Summary: {summary}")
+                if core_scene_time:
+                    lines.append(f"Core scene time: {core_scene_time}")
+                if core_inventory:
+                    lines.append(f"Core inventory: {core_inventory}")
+                if ammo_inventory:
+                    lines.append(f"Ammo inventory: {ammo_inventory}")
+                if ammo_summary:
+                    lines.append(f"Ammo summary: {ammo_summary}")
+                lines.append("")
+            while lines and lines[-1] == "":
+                lines.pop()
+        else:
+            lines.append("NONE")
+
+        global_ammo = pack.get("global_ammo") or {}
+        if isinstance(global_ammo, dict):
+            add_header("GLOBAL AMMO (scriptless)")
+            inventory = global_ammo.get("inventory")
+            breakdown = global_ammo.get("breakdown") or {}
+            if inventory:
+                lines.append(f"Inventory: {inventory}")
+            if isinstance(breakdown, dict) and breakdown:
+                lines.append("Breakdown:")
+                for media_type in ["photo", "video", "voice", "text", "unknown"]:
+                    val = breakdown.get(media_type)
+                    if val:
+                        lines.append(f"- {media_type}: {val}")
+
+        global_focus = pack.get("global_focus") or {}
+        if isinstance(global_focus, dict):
+            focus_items = global_focus.get("items") or []
+            if focus_items:
+                add_header("SCRIPTLESS CONTENT (focus shelf)")
+                format_numbered_block(list(focus_items), with_stage_groups=False)
+
+        return "\n".join(lines).strip()
+
+    if zoom_level == 1:
+        script = pack.get("script") or {}
+        add_header("SCRIPT OVERVIEW")
+        if isinstance(script, dict):
+            add_kv("Title", (script.get("title") or "").strip() or None)
+            add_kv("Summary", (script.get("summary") or "").strip() or None)
+            add_kv("Time", (script.get("time_of_day") or "").strip() or None)
+            add_kv("Location", (script.get("location_primary") or "").strip() or None)
+            add_kv("Outfit", (script.get("outfit_category") or "").strip() or None)
+            focus_tags = script.get("focus_tags") or []
+            if isinstance(focus_tags, list) and focus_tags:
+                add_kv("Focus tags", ", ".join(str(t) for t in focus_tags if t))
+
+        add_header("SCRIPT CONTENT (core items; SETUP → AFTERCARE)")
+        format_numbered_block(list(pack.get("script_items") or []), with_stage_groups=True)
+
+        add_header("SCRIPT EXTRAS (same shoot)")
+        format_numbered_block(list(pack.get("shoot_extras") or []), with_stage_groups=False)
+
+        global_focus = pack.get("global_focus") or {}
+        focus_items = (global_focus.get("items") if isinstance(global_focus, dict) else None) or []
+        add_header("SCRIPTLESS CONTENT (focus shelf)")
+        format_numbered_block(list(focus_items), with_stage_groups=False)
+
+        return "\n".join(lines).strip()
+
+    # zoom >= 2 (detailed)
+    add_header("SCRIPT CONTENT (detailed)")
+    format_numbered_block(list(pack.get("items") or []), with_stage_groups=True)
+
+    global_focus = pack.get("global_focus") or {}
+    focus_items = (global_focus.get("items") if isinstance(global_focus, dict) else None) or []
+    if focus_items:
+        add_header("SCRIPTLESS CONTENT (focus shelf)")
+        format_numbered_block(list(focus_items), with_stage_groups=False)
+
+    return "\n".join(lines).strip()
