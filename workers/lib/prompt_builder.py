@@ -511,13 +511,14 @@ def _load_cards(thread_id: int, *, client=None, worker_tier=None) -> Dict[str, s
             # Fall back to the unfiltered card if tier parsing fails
             pass
 
+    # Prefer canonical creator cards from the creators table when available.
     creator_identity_card_value = (
-        row.get("creator_identity_card")
-        or creator_row.get("creator_identity_card")
+        creator_row.get("creator_identity_card")
+        or row.get("creator_identity_card")
     )
     creator_psychic_card = (
-        row.get("creator_psychic_card")
-        or creator_row.get("creator_psychic_card")
+        creator_row.get("creator_psychic_card")
+        or row.get("creator_psychic_card")
     )
 
     return {
