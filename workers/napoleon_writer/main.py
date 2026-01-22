@@ -129,7 +129,7 @@ def runpod_call(system_prompt: str, user_message: str) -> tuple[str, dict, dict]
         "max_tokens": 2500,
         "temperature": 0.6,
         "top_p": 0.95,
-        "repetition_penalty": 1.0,
+        "repetition_penalty": 1.05,
         "presence_penalty": 0.0,
         "frequency_penalty": 0.1,
     }

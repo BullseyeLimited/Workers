@@ -2,6 +2,7 @@ import os, json, hashlib, uuid, datetime
 
 import pytz
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
 from postgrest.exceptions import APIError
 from supabase import create_client, ClientOptions
 from workers.lib.cards import new_base_card
@@ -23,6 +24,21 @@ SB = create_client(
 )
 
 app = FastAPI()
+
+cors_origins = [
+    origin.strip()
+    for origin in os.getenv("TURN_RECEIVER_CORS_ORIGINS", "*").split(",")
+    if origin.strip()
+]
+if not cors_origins:
+    cors_origins = ["*"]
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=cors_origins,
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # If a run is marked active but has no queued jobs for a short grace period,
 # treat it as stale so new messages don't get misclassified as "interrupts".
