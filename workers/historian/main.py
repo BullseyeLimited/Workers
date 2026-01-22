@@ -33,8 +33,9 @@ def call_llm(prompt: str) -> str:
             {"role": "system", "content": "Reasoning: high"},
             {"role": "user", "content": prompt},
         ],
-        "max_tokens": 350,
-        "temperature": 0,
+        "max_tokens": 3500,
+        "repetition_penalty": 1.05,
+        "temperature": 0.1,
     }
 
     resp = requests.post(url, headers=headers, json=payload, timeout=120)
