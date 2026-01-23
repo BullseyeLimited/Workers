@@ -354,7 +354,7 @@ CRITICAL FORMATTING RULES
  HEADERS: Use the exact capitalized headers below. The system uses a regex parser to find them. If you misspell a header, the system fails.
  CONTENT_ACTIONS: Only include <CONTENT_ACTIONS> when you want to send/offer content. If you include it with no actions, use SENDS: NONE and OFFERS: NONE. Never output JSON.
 
-You must output these 2 sections in this exact order:
+You must output these 3 sections in this exact order:
 
 SECTION 1: TACTICAL_PLAN_3TURNS
 (The Branching Lookahead)
@@ -390,9 +390,19 @@ OFFERS: [comma-separated content_id $price OR NONE]
 (Repeat as UPDATE_2_… only if more horizons changed.)
 
 Hard rules:
-	Do NOT output any horizon plan text unless STATUS = yes.
-	Do NOT change Lifetime.
-	For Year/Season changes, END_EVIDENCE must reference a real structural reason (not vibes).
+		Do NOT output any horizon plan text unless STATUS = yes.
+		Do NOT change Lifetime.
+		For Year/Season changes, END_EVIDENCE must reference a real structural reason (not vibes).
+
+
+SECTION 3: MOMENT_COMPASS_TO_COMPOSER
+This is a routing decision only. It decides whether the Composer will be allowed to see Kairos's MOMENT_COMPASS.
+Write EXACTLY one token on the next line:
+YES
+or
+NO
+Default should be NO unless the MOMENT_COMPASS contains high-value signal that would materially improve how the Composer matches the moment (mood/stance/energy) without needing to be told what to write.
+Do not include any other words, explanation, or notes in this section (we may add notes later; not now).
 
 
 
