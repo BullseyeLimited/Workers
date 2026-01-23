@@ -792,10 +792,10 @@ def _parse_voice_section(section_text: str) -> dict:
 def _parse_yes_no_token(section_text: str) -> str:
     """
     Parse a section that should contain a single YES/NO token.
-    Fail closed to "no".
+    Default to "yes" if missing/invalid.
     """
     if not section_text:
-        return "no"
+        return "yes"
     # Take first non-empty line; tolerate bullets/noise.
     for raw_line in section_text.splitlines():
         line = (raw_line or "").strip()
@@ -814,7 +814,7 @@ def _parse_yes_no_token(section_text: str) -> str:
         if re.search(r"\bno\b", lowered):
             return "no"
         break
-    return "no"
+    return "yes"
 
 
 def parse_napoleon_headers(raw_text: str) -> tuple[dict | None, str | None]:

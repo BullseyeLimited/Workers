@@ -21,7 +21,7 @@ END
         self.assertIsNone(err)
         self.assertEqual("yes", parsed.get("MOMENT_COMPASS_TO_COMPOSER"))
 
-    def test_defaults_moment_compass_gate_no_when_missing(self):
+    def test_defaults_moment_compass_gate_yes_when_missing(self):
         raw = """SECTION 1: TACTICAL_PLAN_3TURNS
 TURN1_DIRECTIVE: do x
 SECTION 2: RETHINK_HORIZONS
@@ -30,9 +30,8 @@ END
 """
         parsed, err = parse_napoleon_headers(raw)
         self.assertIsNone(err)
-        self.assertEqual("no", parsed.get("MOMENT_COMPASS_TO_COMPOSER"))
+        self.assertEqual("yes", parsed.get("MOMENT_COMPASS_TO_COMPOSER"))
 
 
 if __name__ == "__main__":
     unittest.main()
-
