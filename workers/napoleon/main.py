@@ -1367,7 +1367,7 @@ def process_job(payload):
         or {}
     )
 
-    details_select = "extras,web_research_facts_pack,web_research_output_raw"
+    details_select = "extras,web_research_facts_pack,web_research_output_raw,moment_compass"
     if CONTENT_PACK_ENABLED:
         details_select += ",content_pack"
     details_row = (
@@ -1748,6 +1748,7 @@ def process_job(payload):
         "thread_history": raw_turns,
         "latest_fan_message": msg.get("message_text") or "",
         "turn_directive": turn1_directive,
+        "moment_compass": details_row.get("moment_compass") or "",
         "content_actions": content_actions or {},
     }
     if fan_psychic_card:

@@ -185,6 +185,7 @@ class PromptBuilderHistoryLabelTests(unittest.TestCase):
                         "strategic_narrative": "SN",
                         "psychological_levers": "PL",
                         "risks": "R",
+                        "moment_compass": "MC",
                     }
                 ]
             }
@@ -194,6 +195,7 @@ class PromptBuilderHistoryLabelTests(unittest.TestCase):
         self.assertEqual("SN", parsed.get("STRATEGIC_NARRATIVE"))
         self.assertEqual("PL", parsed.get("PSYCHOLOGICAL_LEVERS"))
         self.assertEqual("R", parsed.get("RISKS"))
+        self.assertEqual("MC", parsed.get("MOMENT_COMPASS"))
 
     def test_latest_kairos_json_empty_when_missing(self):
         client = _FakeClient(tables={"message_ai_details": []})
