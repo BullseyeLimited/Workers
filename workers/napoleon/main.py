@@ -4,7 +4,8 @@ import os
 import re
 import time
 import traceback
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 import requests
 from supabase import create_client, ClientOptions
@@ -73,6 +74,10 @@ CONTENT_ACTIONS_PATTERN = re.compile(
     r"<CONTENT_ACTIONS>(.*?)</CONTENT_ACTIONS>",
     re.IGNORECASE | re.DOTALL,
 )
+SCHEDULE_ACTION_PATTERN = re.compile(
+    r"<SCHEDULE_ACTION>(.*?)</SCHEDULE_ACTION>",
+    re.IGNORECASE | re.DOTALL,
+)
 PROGRESS_WINDOWS = {
     "EPISODE": 20,
     "CHAPTER": 60,
@@ -98,6 +103,342 @@ RETHINK_UPDATE_PATTERN = re.compile(
     r")\s*:\s*(?P<value>.+)$",
     re.IGNORECASE,
 )
+
+
+def _schedule_rethink_is_yes(text: str | None) -> bool:
+    if not text or not str(text).strip():
+        return False
+    for raw in str(text).splitlines():
+        line = (raw or "").strip()
+        if not line:
+            continue
+        lowered = line.lower()
+        if lowered.startswith("y") or lowered == "true":
+            return True
+        if lowered.startswith("n") or lowered == "false":
+            return False
+        if re.search(r"\byes\b", lowered):
+            return True
+        if re.search(r"\bno\b", lowered):
+            return False
+        break
+    return False
+
+
+def _indent_block(text: str, *, spaces: int = 4) -> str:
+    pad = " " * max(0, int(spaces))
+    lines = (text or "").splitlines()
+    return "\n".join(pad + line if line.strip() else "" for line in lines).rstrip()
+
+
+def _inject_into_napoleon_input(user_prompt: str, injection: str) -> str:
+    if not user_prompt or not injection:
+        return user_prompt
+    end_tag = "</NAPOLEON_INPUT>"
+    if end_tag not in user_prompt:
+        return user_prompt
+    before, after = user_prompt.rsplit(end_tag, 1)
+    return before.rstrip() + "\n\n" + injection.rstrip() + "\n" + end_tag + after
+
+
+def _parse_utc_datetime(value) -> datetime | None:
+    if not value:
+        return None
+    if isinstance(value, datetime):
+        dt = value
+    elif isinstance(value, str):
+        raw = value.strip().replace("Z", "+00:00")
+        try:
+            dt = datetime.fromisoformat(raw)
+        except Exception:
+            return None
+    else:
+        return None
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
+def _compute_plan_date(now_local: datetime) -> str:
+    """
+    daily_plans are anchored 02:00 -> next day 02:00 local (same as timeline_creator).
+    """
+    plan_day = now_local.date()
+    if now_local.hour < 2:
+        plan_day = plan_day - timedelta(days=1)
+    return plan_day.isoformat()
+
+
+def _parse_local_dt(value: str, tz_name: str) -> datetime | None:
+    raw = (value or "").strip()
+    if not raw:
+        return None
+    try:
+        dt = datetime.fromisoformat(raw)
+    except Exception:
+        return None
+    if dt.tzinfo is not None:
+        return dt
+    try:
+        return dt.replace(tzinfo=ZoneInfo(str(tz_name)))
+    except Exception:
+        return dt.replace(tzinfo=timezone.utc)
+
+
+def _flatten_plan_segments(plan_json: dict, tz_name: str) -> list[dict]:
+    hours = plan_json.get("hours")
+    if not isinstance(hours, list):
+        return []
+    out: list[dict] = []
+    for hour in hours:
+        if not isinstance(hour, dict):
+            continue
+        segs = hour.get("segments")
+        if not isinstance(segs, list):
+            continue
+        for seg in segs:
+            if not isinstance(seg, dict):
+                continue
+            start_str = str(seg.get("start_local") or "").strip()
+            end_str = str(seg.get("end_local") or "").strip()
+            start_dt = _parse_local_dt(start_str, tz_name)
+            end_dt = _parse_local_dt(end_str, tz_name)
+            if not start_dt or not end_dt:
+                continue
+            out.append(
+                {
+                    "hour": hour,
+                    "segments": segs,
+                    "seg": seg,
+                    "start_dt": start_dt,
+                    "end_dt": end_dt,
+                    "start_str": start_str,
+                    "end_str": end_str,
+                    "state": str(seg.get("state") or "").strip() or "unspecified",
+                    "label": str(seg.get("label") or "").strip() or "Unspecified",
+                }
+            )
+    out.sort(key=lambda x: x["start_dt"])
+    return out
+
+
+def _pick_schedule_target(entries: list[dict], now_local: datetime) -> dict | None:
+    if not entries:
+        return None
+    busy_states = {"busy", "away", "asleep"}
+    current = None
+    for e in entries:
+        if e["start_dt"] <= now_local < e["end_dt"]:
+            current = e
+            break
+
+    future = [e for e in entries if e["start_dt"] >= now_local]
+    future.sort(key=lambda x: x["start_dt"])
+
+    def _is_real_event(e: dict) -> bool:
+        label = (e.get("label") or "").strip()
+        return bool(label) and label.lower() not in {"unspecified", "available"}
+
+    if current and current.get("state") in busy_states and _is_real_event(current):
+        return current
+
+    for e in future:
+        if e.get("state") in busy_states and _is_real_event(e):
+            return e
+
+    if future:
+        return future[0]
+    return current
+
+
+def _format_schedule_event_under_review(
+    *, now_local: datetime, tz_name: str, target: dict | None
+) -> str:
+    now_str = now_local.replace(second=0, microsecond=0).isoformat()
+    lines = [f"NOW_LOCAL: {now_str}", f"TIME_ZONE: {tz_name}"]
+    if not target:
+        lines.append("TARGET_EVENT: UNKNOWN")
+        return "\n".join(lines)
+    lines.append(
+        "TARGET_EVENT: "
+        f"{target.get('start_str')} -> {target.get('end_str')} | "
+        f"{target.get('state')} | {target.get('label')}"
+    )
+    lines.append(
+        "APPLY_RULE: Your action will be applied to TARGET_EVENT and its contiguous "
+        "continuation segments (same label+state) starting from NOW_LOCAL."
+    )
+    return "\n".join(lines)
+
+
+def _apply_schedule_action_to_plan(
+    *,
+    plan_json: dict,
+    tz_name: str,
+    now_local: datetime,
+    target: dict,
+    action: str,
+    reasoning: str,
+    new_name: str | None,
+) -> tuple[dict, dict]:
+    """
+    Mutate plan_json in-place to cancel/rename the target event starting from now.
+    Returns (plan_json, applied_meta).
+    """
+    entries = _flatten_plan_segments(plan_json, tz_name)
+    if not entries or not target:
+        raise ValueError("missing_plan_segments_or_target")
+
+    # Re-resolve the current target entry by start/end to avoid stale refs.
+    start_key = str(target.get("start_str") or "").strip()
+    end_key = str(target.get("end_str") or "").strip()
+    anchor = None
+    for e in entries:
+        if e.get("start_str") == start_key and e.get("end_str") == end_key:
+            anchor = e
+            break
+    if not anchor:
+        anchor = _pick_schedule_target(entries, now_local)
+    if not anchor:
+        raise ValueError("target_not_found")
+
+    anchor_label = anchor.get("label") or "Unspecified"
+    anchor_state = anchor.get("state") or "unspecified"
+
+    now_local = now_local.replace(second=0, microsecond=0)
+    now_key = now_local.strftime("%Y-%m-%dT%H:%M")
+
+    applied_segments = 0
+    started = False
+
+    for e in entries:
+        if e["start_dt"] < anchor["start_dt"]:
+            continue
+        if e.get("label") != anchor_label or e.get("state") != anchor_state:
+            if started:
+                break
+            continue
+
+        started = True
+        if e["end_dt"] <= now_local:
+            continue
+
+        seg = e["seg"]
+        segs = e["segments"]
+        old_label = str(seg.get("label") or "").strip() or anchor_label
+
+        # Split if this segment spans across now.
+        if e["start_dt"] < now_local < e["end_dt"]:
+            try:
+                idx = segs.index(seg)
+            except ValueError:
+                idx = None
+            if idx is None:
+                continue
+            before = dict(seg)
+            after = dict(seg)
+            before["end_local"] = now_key
+            after["start_local"] = now_key
+            segs[idx : idx + 1] = [before, after]
+            seg = after
+
+        if action == "CANCEL":
+            seg["state"] = "available"
+            seg["label"] = "Available"
+            seg["notes"] = f"Cancelled: {old_label}."
+        elif action == "EDIT":
+            clean = (new_name or "").strip()
+            if not clean:
+                raise ValueError("edit_requires_new_name")
+            seg["label"] = clean
+            seg["notes"] = f"Renamed from {old_label}."
+        else:
+            raise ValueError(f"unknown_action:{action}")
+
+        applied_segments += 1
+
+    applied_meta = {
+        "action": action,
+        "reasoning": reasoning,
+        "new_name": (new_name or "").strip() or None,
+        "target_old_label": anchor_label,
+        "target_old_state": anchor_state,
+        "target_start_local": anchor.get("start_str"),
+        "target_end_local": anchor.get("end_str"),
+        "applied_segments": applied_segments,
+        "applied_at_local": now_key,
+    }
+    return plan_json, applied_meta
+
+
+def parse_schedule_action(raw_text: str) -> tuple[dict | None, str | None]:
+    """
+    Parse optional <SCHEDULE_ACTION> tag output.
+    Returns (action_dict, error). Missing tag returns (None, None).
+    """
+    if not raw_text:
+        return None, None
+    match = SCHEDULE_ACTION_PATTERN.search(raw_text)
+    if not match:
+        return None, None
+
+    payload = (match.group(1) or "").strip()
+    if not payload:
+        return None, "empty_schedule_action"
+
+    def _clean_line(line: str) -> str:
+        s = (line or "").strip()
+        s = re.sub(r"^[\s>*#-]+", "", s).strip()
+        return s
+
+    action = ""
+    reasoning_lines: list[str] = []
+    new_name = ""
+    current_field = None
+
+    for raw_line in payload.splitlines():
+        line = _clean_line(raw_line)
+        if not line:
+            continue
+
+        m_action = re.match(r"^ACTION\s*[:=-]\s*(.+)$", line, re.IGNORECASE)
+        if m_action:
+            action = m_action.group(1).strip().upper()
+            current_field = None
+            continue
+
+        m_name = re.match(r"^NEW[\s_-]*NAME\s*[:=-]\s*(.+)$", line, re.IGNORECASE)
+        if m_name:
+            new_name = m_name.group(1).strip()
+            current_field = "NEW_NAME"
+            continue
+
+        m_reason = re.match(r"^REASONING\s*[:=-]\s*(.*)$", line, re.IGNORECASE)
+        if m_reason:
+            first = m_reason.group(1).strip()
+            if first:
+                reasoning_lines.append(first)
+            current_field = "REASONING"
+            continue
+
+        if current_field == "REASONING":
+            reasoning_lines.append(line)
+
+    if action not in {"CANCEL", "EDIT"}:
+        return None, f"invalid_action:{action or 'missing'}"
+
+    reasoning = "\n".join(reasoning_lines).strip()
+    if not reasoning:
+        return None, "missing_reasoning"
+
+    if action == "EDIT" and not new_name.strip():
+        return None, "edit_missing_new_name"
+
+    return {
+        "action": action,
+        "reasoning": reasoning,
+        "new_name": new_name.strip() or None,
+    }, None
 
 
 def _format_fan_turn(row: dict) -> str:
@@ -348,6 +689,14 @@ def upsert_napoleon_details(
     content_actions: dict | None = None,
     content_actions_error: str | None = None,
     creator_message_id: int | None = None,
+    schedule_mode: bool | None = None,
+    schedule_rethink_text: str | None = None,
+    schedule_event_under_review: str | None = None,
+    schedule_action: dict | None = None,
+    schedule_action_error: str | None = None,
+    schedule_action_applied: dict | None = None,
+    schedule_plan_date: str | None = None,
+    schedule_error: str | None = None,
 ) -> None:
     """
     Persist Napoleon planning fields for the fan turn.
@@ -387,6 +736,22 @@ def upsert_napoleon_details(
         merged_extras["content_actions"] = content_actions
     if content_actions_error:
         merged_extras["content_actions_error"] = content_actions_error
+    if schedule_mode is not None:
+        merged_extras["schedule_mode"] = bool(schedule_mode)
+    if schedule_rethink_text:
+        merged_extras["schedule_rethink"] = str(schedule_rethink_text)
+    if schedule_event_under_review:
+        merged_extras["schedule_event_under_review"] = str(schedule_event_under_review)
+    if schedule_action is not None:
+        merged_extras["schedule_action"] = schedule_action
+    if schedule_action_error:
+        merged_extras["schedule_action_error"] = str(schedule_action_error)
+    if schedule_action_applied is not None:
+        merged_extras["schedule_action_applied"] = schedule_action_applied
+    if schedule_plan_date:
+        merged_extras["schedule_plan_date"] = str(schedule_plan_date)
+    if schedule_error:
+        merged_extras["schedule_error"] = str(schedule_error)
 
     update_fields = {
         # Do not overwrite Kairos columns; only add Napoleon fields + status flip.
@@ -1364,7 +1729,9 @@ def process_job(payload):
 
     msg = (
         SB.table("messages")
-        .select("thread_id,sender,message_text,media_analysis_text,media_payload,turn_index")
+        .select(
+            "thread_id,sender,message_text,media_analysis_text,media_payload,turn_index,created_at"
+        )
         .eq("id", fan_message_id)
         .single()
         .execute()
@@ -1402,19 +1769,143 @@ def process_job(payload):
         or {}
     )
 
-    details_select = "extras,web_research_facts_pack,web_research_output_raw,moment_compass"
+    details_select_base = (
+        "extras,web_research_facts_pack,web_research_output_raw,moment_compass"
+    )
+    details_select = details_select_base
     if CONTENT_PACK_ENABLED:
         details_select += ",content_pack"
-    details_row = (
-        SB.table("message_ai_details")
-        .select(details_select)
-        .eq("message_id", fan_message_id)
-        .single()
-        .execute()
-        .data
-        or {}
-    )
+    details_row = {}
+    try:
+        details_row = (
+            SB.table("message_ai_details")
+            .select(details_select + ",schedule_rethink")
+            .eq("message_id", fan_message_id)
+            .single()
+            .execute()
+            .data
+            or {}
+        )
+    except Exception:
+        details_row = (
+            SB.table("message_ai_details")
+            .select(details_select)
+            .eq("message_id", fan_message_id)
+            .single()
+            .execute()
+            .data
+            or {}
+        )
     extras = details_row.get("extras") or {}
+    schedule_rethink_text = (
+        (details_row.get("schedule_rethink") or extras.get("schedule_rethink") or "")
+        .strip()
+    )
+    schedule_mode = _schedule_rethink_is_yes(schedule_rethink_text)
+
+    schedule_context = {
+        "mode": schedule_mode,
+        "rethink_text": schedule_rethink_text,
+        "tz_name": None,
+        "now_local": None,
+        "plan_date": None,
+        "plan_row": None,
+        "plan_json": None,
+        "target": None,
+        "event_under_review": None,
+        "error": None,
+    }
+
+    if schedule_mode:
+        created_at_utc = _parse_utc_datetime(msg.get("created_at"))
+        newest_plan_row = None
+        tz_name = None
+        try:
+            newest_rows = (
+                SB.table("daily_plans")
+                .select("plan_date,plan_json,time_zone")
+                .eq("thread_id", int(thread_id))
+                .order("plan_date", desc=True)
+                .limit(1)
+                .execute()
+                .data
+                or []
+            )
+            newest_plan_row = newest_rows[0] if newest_rows else None
+        except Exception as exc:  # noqa: BLE001
+            schedule_context["error"] = f"daily_plan_newest_fetch_failed:{exc}"
+            newest_plan_row = None
+
+        if isinstance(newest_plan_row, dict):
+            tz_name = newest_plan_row.get("time_zone")
+            if not tz_name and isinstance(newest_plan_row.get("plan_json"), dict):
+                tz_name = newest_plan_row["plan_json"].get("time_zone")
+        tz_name = (tz_name or "").strip() or "UTC"
+
+        try:
+            now_local = (created_at_utc or datetime.now(timezone.utc)).astimezone(
+                ZoneInfo(str(tz_name))
+            )
+        except Exception:
+            tz_name = "UTC"
+            now_local = (created_at_utc or datetime.now(timezone.utc)).astimezone(
+                timezone.utc
+            )
+
+        plan_date = _compute_plan_date(now_local)
+        plan_row = None
+        try:
+            plan_rows = (
+                SB.table("daily_plans")
+                .select("plan_date,plan_json,time_zone")
+                .eq("thread_id", int(thread_id))
+                .eq("plan_date", plan_date)
+                .limit(1)
+                .execute()
+                .data
+                or []
+            )
+            plan_row = plan_rows[0] if plan_rows else None
+        except Exception as exc:  # noqa: BLE001
+            schedule_context["error"] = (
+                schedule_context["error"] or f"daily_plan_fetch_failed:{exc}"
+            )
+            plan_row = None
+
+        plan_json = None
+        target = None
+        if isinstance(plan_row, dict):
+            tz_override = (plan_row.get("time_zone") or "").strip()
+            if tz_override:
+                tz_name = tz_override
+            plan_json = plan_row.get("plan_json")
+            if isinstance(plan_json, str):
+                try:
+                    plan_json = json.loads(plan_json)
+                except Exception:
+                    plan_json = None
+            if isinstance(plan_json, dict):
+                entries = _flatten_plan_segments(plan_json, tz_name)
+                target = _pick_schedule_target(entries, now_local)
+
+        event_text = (
+            f"PLAN_DATE: {plan_date}\n"
+            + _format_schedule_event_under_review(
+                now_local=now_local, tz_name=tz_name, target=target
+            )
+        )
+
+        schedule_context.update(
+            {
+                "tz_name": tz_name,
+                "now_local": now_local,
+                "plan_date": plan_date,
+                "plan_row": plan_row,
+                "plan_json": plan_json,
+                "target": target,
+                "event_under_review": event_text,
+            }
+        )
     web_blob = extras.get("web_research") or {}
     facts_pack = (
         web_blob.get("facts_pack")
@@ -1474,6 +1965,36 @@ def process_job(payload):
             "CONTENT_PACK": content_pack_block,
         },
     )
+
+    if schedule_mode:
+        rethink_block = (
+            "  <KAIROS_SCHEDULE_RETHINK>\n"
+            f"{_indent_block(schedule_context.get('rethink_text') or '', spaces=4)}\n"
+            "  </KAIROS_SCHEDULE_RETHINK>"
+        )
+        event_block = (
+            "  <SCHEDULE_EVENT_UNDER_REVIEW>\n"
+            f"{_indent_block(schedule_context.get('event_under_review') or '', spaces=4)}\n"
+            "  </SCHEDULE_EVENT_UNDER_REVIEW>"
+        )
+        user_prompt = _inject_into_napoleon_input(
+            user_prompt, rethink_block + "\n" + event_block
+        )
+        system_prompt = (
+            system_prompt.rstrip()
+            + "\n\nSCHEDULE MODE ADDENDUM (ONLY ACTIVE THIS TURN)\n"
+            + "If a <KAIROS_SCHEDULE_RETHINK> block appears in the input, you MUST append exactly one schedule action block at the end of your output:\n"
+            + "<SCHEDULE_ACTION>\n"
+            + "ACTION: CANCEL | EDIT\n"
+            + "REASONING: (4+ sentences; be specific and business-minded)\n"
+            + "NEW_NAME: (only when ACTION is EDIT)\n"
+            + "</SCHEDULE_ACTION>\n"
+            + "Rules:\n"
+            + "- ACTION applies to the TARGET_EVENT described in <SCHEDULE_EVENT_UNDER_REVIEW>.\n"
+            + "- CANCEL means cancel that target event from now onward (becoming Available).\n"
+            + "- EDIT means rename that target event from now onward (no rescheduling).\n"
+            + "- Do not change your normal section headers/format.\n"
+        )
     full_prompt_log = json.dumps(
         {"system": system_prompt, "user": user_prompt},
         ensure_ascii=False,
@@ -1518,6 +2039,15 @@ def process_job(payload):
                 error=f"runpod_error: {exc}",
             )
         return True
+
+    schedule_action = None
+    schedule_action_error = None
+    if schedule_mode:
+        schedule_action, schedule_action_error = parse_schedule_action(raw_text)
+        if schedule_action is None and schedule_action_error is None:
+            schedule_action_error = "missing_schedule_action_block"
+        schedule_context["schedule_action"] = schedule_action
+        schedule_context["schedule_action_error"] = schedule_action_error
 
     analysis, parse_error = parse_napoleon_headers(raw_text)
 
@@ -1592,6 +2122,97 @@ def process_job(payload):
         return True
 
     content_actions, content_actions_error = parse_content_actions(raw_text)
+    schedule_action_applied = None
+    if schedule_mode and schedule_action and not schedule_action_error:
+        try:
+            plan_json = schedule_context.get("plan_json")
+            tz_name = schedule_context.get("tz_name") or "UTC"
+            now_local = schedule_context.get("now_local")
+            target = schedule_context.get("target")
+            plan_date = schedule_context.get("plan_date")
+            if not isinstance(plan_json, dict) or not isinstance(target, dict) or not now_local:
+                raise ValueError("missing_plan_target_or_now")
+            if not plan_date:
+                raise ValueError("missing_plan_date")
+
+            updated_plan_json, applied_meta = _apply_schedule_action_to_plan(
+                plan_json=plan_json,
+                tz_name=str(tz_name),
+                now_local=now_local,
+                target=target,
+                action=str(schedule_action.get("action") or "").upper(),
+                reasoning=str(schedule_action.get("reasoning") or ""),
+                new_name=schedule_action.get("new_name"),
+            )
+            schedule_action_applied = applied_meta
+            schedule_context["schedule_action_applied"] = applied_meta
+
+            # Always update plan_json; best-effort update meta columns when present.
+            SB.table("daily_plans").update({"plan_json": updated_plan_json}).eq(
+                "thread_id", int(thread_id)
+            ).eq("plan_date", str(plan_date)).execute()
+
+            edits_entry = {
+                "message_id": int(fan_message_id),
+                "applied_at_utc": datetime.now(timezone.utc).isoformat(),
+                "action": schedule_action.get("action"),
+                "reasoning": schedule_action.get("reasoning"),
+                "new_name": schedule_action.get("new_name"),
+                "applied_meta": applied_meta,
+            }
+            meta_update = {
+                "schedule_last_action": schedule_action.get("action"),
+                "schedule_last_reasoning": schedule_action.get("reasoning"),
+                "schedule_last_new_name": schedule_action.get("new_name"),
+                "schedule_last_message_id": int(fan_message_id),
+                "schedule_last_applied_at": datetime.now(timezone.utc).isoformat(),
+                "schedule_last_target": {
+                    "start_local": applied_meta.get("target_start_local"),
+                    "end_local": applied_meta.get("target_end_local"),
+                    "old_label": applied_meta.get("target_old_label"),
+                    "old_state": applied_meta.get("target_old_state"),
+                },
+            }
+
+            # schedule_edits is an optional jsonb array (append new entry).
+            try:
+                existing = (
+                    SB.table("daily_plans")
+                    .select("schedule_edits")
+                    .eq("thread_id", int(thread_id))
+                    .eq("plan_date", str(plan_date))
+                    .limit(1)
+                    .execute()
+                    .data
+                    or []
+                )
+                existing_edits = (
+                    existing[0].get("schedule_edits")
+                    if existing and isinstance(existing[0], dict)
+                    else None
+                )
+                if isinstance(existing_edits, list):
+                    meta_update["schedule_edits"] = existing_edits + [edits_entry]
+                else:
+                    meta_update["schedule_edits"] = [edits_entry]
+            except Exception:
+                pass
+
+            try:
+                SB.table("daily_plans").update(meta_update).eq(
+                    "thread_id", int(thread_id)
+                ).eq("plan_date", str(plan_date)).execute()
+            except Exception:
+                pass
+        except Exception as exc:  # noqa: BLE001
+            schedule_context["error"] = (
+                schedule_context.get("error") or f"schedule_patch_failed:{exc}"
+            )
+    elif schedule_mode and schedule_action_error:
+        schedule_context["error"] = (
+            schedule_context.get("error")
+            or f"schedule_action_error:{schedule_action_error}"
+        )
 
     rethink = analysis.get("RETHINK_HORIZONS") or {}
     rethink_status = (
@@ -1739,6 +2360,14 @@ def process_job(payload):
         content_actions=content_actions,
         content_actions_error=content_actions_error,
         creator_message_id=None,
+        schedule_mode=schedule_mode,
+        schedule_rethink_text=schedule_context.get("rethink_text"),
+        schedule_event_under_review=schedule_context.get("event_under_review"),
+        schedule_action=schedule_action,
+        schedule_action_error=schedule_action_error,
+        schedule_action_applied=schedule_context.get("schedule_action_applied"),
+        schedule_plan_date=schedule_context.get("plan_date"),
+        schedule_error=schedule_context.get("error"),
     )
 
     if run_id and not is_run_active(str(run_id), client=SB):
