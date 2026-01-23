@@ -13,6 +13,7 @@ from supabase import create_client, ClientOptions
 from workers.lib.cards import compact_psychic_card
 from workers.lib.ai_response_store import record_ai_response
 from workers.lib.content_pack import format_content_pack_for_napoleon
+from workers.lib.daily_plan_utils import fetch_daily_plan_row, format_daily_plan_for_prompt
 from workers.lib.json_utils import safe_parse_model_json
 from workers.lib.prompt_builder import build_prompt_sections, live_turn_window
 from workers.lib.reply_run_tracking import (
@@ -1965,6 +1966,20 @@ def process_job(payload):
             "CONTENT_PACK": content_pack_block,
         },
     )
+
+    daily_plan_text = "NO_DAILY_PLAN: true"
+    try:
+        daily_plan_row = fetch_daily_plan_row(SB, thread_id)
+        daily_plan_text = format_daily_plan_for_prompt(daily_plan_row)
+    except Exception:
+        daily_plan_text = "NO_DAILY_PLAN: true"
+
+    daily_plan_block = (
+        "  <DAILY_PLAN_TODAY>\n"
+        f"{_indent_block(daily_plan_text, spaces=4)}\n"
+        "  </DAILY_PLAN_TODAY>"
+    )
+    user_prompt = _inject_into_napoleon_input(user_prompt, daily_plan_block)
 
     if schedule_mode:
         rethink_block = (
