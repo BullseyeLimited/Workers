@@ -62,14 +62,12 @@ TRANSLATOR_CLIENT = OpenAI(
 KAIROS_TRANSLATOR_SCHEMA = """
 Return a JSON object with exactly these keys:
 - STRATEGIC_NARRATIVE: string
-- ALIGNMENT_STATUS: object with keys:
-    - SHORT_TERM_PLAN: string (accept any text; do not rewrite)
-    - LONG_TERM_PLANS: object with keys LIFETIME_PLAN, YEAR_PLAN, SEASON_PLAN, CHAPTER_PLAN, EPISODE_PLAN. Each value can be any text; do not rewrite.
 - CONVERSATION_CRITICALITY: string (accept any text; do not rewrite)
 - TACTICAL_SIGNALS: string
 - PSYCHOLOGICAL_LEVERS: string
 - RISKS: string
 - TURN_MICRO_NOTE: object with key SUMMARY (string).
+- MOMENT_COMPASS: string
 Output ONLY valid JSON matching this shape. Do not include markdown or prose.
 Do not paraphrase, summarize, or inject new content; preserve the original wording in each field.
 """
@@ -77,8 +75,6 @@ Do not paraphrase, summarize, or inject new content; preserve the original wordi
 HEADER_MAP = {
     "STRATEGIC_NARRATIVE": "STRATEGIC_NARRATIVE",
     "STRATEGIC NARRATIVE": "STRATEGIC_NARRATIVE",
-    "ALIGNMENT_STATUS": "ALIGNMENT_STATUS",
-    "ALIGNMENT STATUS": "ALIGNMENT_STATUS",
     "CONVERSATION_CRITICALITY": "CONVERSATION_CRITICALITY",
     "CONVERSATION CRITICALITY": "CONVERSATION_CRITICALITY",
     "TACTICAL_SIGNALS": "TACTICAL_SIGNALS",
@@ -88,12 +84,15 @@ HEADER_MAP = {
     "RISKS": "RISKS",
     "TURN_MICRO_NOTE": "TURN_MICRO_NOTE",
     "TURN MICRO NOTE": "TURN_MICRO_NOTE",
+    "MOMENT_COMPASS": "MOMENT_COMPASS",
+    "MOMENT COMPASS": "MOMENT_COMPASS",
 }
 
 HEADER_PATTERN = re.compile(
     r"^[\s>*-]*\**\s*(?P<header>"
-    r"STRATEGIC[_ ]NARRATIVE|ALIGNMENT[_ ]STATUS|CONVERSATION[_ ]CRITICALITY|"
-    r"TACTICAL[_ ]SIGNALS|PSYCHOLOGICAL[_ ]LEVERS|RISKS|TURN[_ ]MICRO[_ ]NOTE)"
+    r"STRATEGIC[_ ]NARRATIVE|CONVERSATION[_ ]CRITICALITY|"
+    r"TACTICAL[_ ]SIGNALS|PSYCHOLOGICAL[_ ]LEVERS|RISKS|TURN[_ ]MICRO[_ ]NOTE|"
+    r"MOMENT[_ ]COMPASS)"
     r"\s*\**\s*:?\s*$",
     re.IGNORECASE | re.MULTILINE,
 )
@@ -224,7 +223,7 @@ def translate_kairos_output(raw_text: str) -> Tuple[dict | None, str | None]:
                         "DO NOT paraphrase, summarize, invent, or omit any content. "
                         "Copy every header/value exactly as given into the JSON fields. "
                         "If a field is missing, use an empty string. "
-                        "Alignment/status fields are free text; do not enforce enums. "
+                        "All fields are free text; do not enforce enums. "
                         "Output ONLY valid JSON."
                     ),
                 },
@@ -290,14 +289,11 @@ def _missing_required_fields(analysis: dict | None) -> list[str]:
 
     check_non_empty(analysis, "STRATEGIC_NARRATIVE", "STRATEGIC_NARRATIVE")
 
-    align = analysis.get("ALIGNMENT_STATUS") or {}
-    check_non_empty(align, "SHORT_TERM_PLAN", "SHORT_TERM_PLAN")
-    # Long-term plans are allowed to be empty; only require the object to exist.
-
     check_non_empty(analysis, "CONVERSATION_CRITICALITY", "CONVERSATION_CRITICALITY")
     check_non_empty(analysis, "TACTICAL_SIGNALS", "TACTICAL_SIGNALS")
     check_non_empty(analysis, "PSYCHOLOGICAL_LEVERS", "PSYCHOLOGICAL_LEVERS")
     check_non_empty(analysis, "RISKS", "RISKS")
+    check_non_empty(analysis, "MOMENT_COMPASS", "MOMENT_COMPASS")
 
     micro = analysis.get("TURN_MICRO_NOTE") or {}
     check_non_empty(micro, "SUMMARY", "TURN_MICRO_NOTE.SUMMARY")
@@ -355,42 +351,24 @@ def merge_kairos_analysis(base: dict, patch: dict) -> dict:
     """
     merged = {
         "STRATEGIC_NARRATIVE": base.get("STRATEGIC_NARRATIVE") or "",
-        "ALIGNMENT_STATUS": base.get("ALIGNMENT_STATUS")
-        or {
-            "SHORT_TERM_PLAN": "",
-            "LONG_TERM_PLANS": {
-                "LIFETIME_PLAN": "",
-                "YEAR_PLAN": "",
-                "SEASON_PLAN": "",
-                "CHAPTER_PLAN": "",
-                "EPISODE_PLAN": "",
-            },
-        },
         "CONVERSATION_CRITICALITY": base.get("CONVERSATION_CRITICALITY") or "",
         "TACTICAL_SIGNALS": base.get("TACTICAL_SIGNALS") or "",
         "PSYCHOLOGICAL_LEVERS": base.get("PSYCHOLOGICAL_LEVERS") or "",
         "RISKS": base.get("RISKS") or "",
         "TURN_MICRO_NOTE": base.get("TURN_MICRO_NOTE") or {"SUMMARY": ""},
+        "MOMENT_COMPASS": base.get("MOMENT_COMPASS") or "",
     }
 
     if patch.get("STRATEGIC_NARRATIVE") and str(patch["STRATEGIC_NARRATIVE"]).strip():
         merged["STRATEGIC_NARRATIVE"] = patch["STRATEGIC_NARRATIVE"]
 
-    if "ALIGNMENT_STATUS" in patch and isinstance(patch["ALIGNMENT_STATUS"], dict):
-        align = merged["ALIGNMENT_STATUS"]
-        p_align = patch["ALIGNMENT_STATUS"]
-        if p_align.get("SHORT_TERM_PLAN") and str(p_align["SHORT_TERM_PLAN"]).strip():
-            align["SHORT_TERM_PLAN"] = p_align["SHORT_TERM_PLAN"]
-        lt_base = align.get("LONG_TERM_PLANS") or {}
-        lt_patch = p_align.get("LONG_TERM_PLANS") or {}
-        if isinstance(lt_patch, dict):
-            for key, val in lt_patch.items():
-                if val and str(val).strip():
-                    lt_base[key] = val
-            align["LONG_TERM_PLANS"] = lt_base
-        merged["ALIGNMENT_STATUS"] = align
-
-    for key in ("CONVERSATION_CRITICALITY", "TACTICAL_SIGNALS", "PSYCHOLOGICAL_LEVERS", "RISKS"):
+    for key in (
+        "CONVERSATION_CRITICALITY",
+        "TACTICAL_SIGNALS",
+        "PSYCHOLOGICAL_LEVERS",
+        "RISKS",
+        "MOMENT_COMPASS",
+    ):
         val = patch.get(key)
         if val and str(val).strip():
             merged[key] = val
@@ -401,49 +379,6 @@ def merge_kairos_analysis(base: dict, patch: dict) -> dict:
             merged["TURN_MICRO_NOTE"]["SUMMARY"] = summary
 
     return merged
-
-
-def _parse_alignment_block(block: str) -> dict:
-    """
-    Try to extract alignment fields from a freeform block.
-    Falls back to putting the whole block in SHORT_TERM_PLAN if nothing is found.
-    """
-    st_plan = ""
-    lt_plans = {
-        "LIFETIME_PLAN": "",
-        "YEAR_PLAN": "",
-        "SEASON_PLAN": "",
-        "CHAPTER_PLAN": "",
-        "EPISODE_PLAN": "",
-    }
-
-    for line in block.splitlines():
-        lower = line.lower()
-        if "short" in lower and "plan" in lower and not st_plan:
-            if ":" in line:
-                st_plan = line.split(":", 1)[1].strip()
-            else:
-                st_plan = line.strip()
-        for key, label in (
-            ("LIFETIME_PLAN", "lifetime"),
-            ("YEAR_PLAN", "year"),
-            ("SEASON_PLAN", "season"),
-            ("CHAPTER_PLAN", "chapter"),
-            ("EPISODE_PLAN", "episode"),
-        ):
-            if label in lower and "plan" in lower:
-                if ":" in line:
-                    lt_plans[key] = line.split(":", 1)[1].strip()
-                else:
-                    lt_plans[key] = line.strip()
-
-    if not st_plan:
-        st_plan = block.strip()
-    # If no long-term items were found, keep them empty (or whole block if you prefer).
-    return {
-        "SHORT_TERM_PLAN": st_plan,
-        "LONG_TERM_PLANS": lt_plans,
-    }
 
 
 def parse_kairos_headers(raw_text: str) -> Tuple[dict | None, str | None]:
@@ -479,9 +414,6 @@ def parse_kairos_headers(raw_text: str) -> Tuple[dict | None, str | None]:
     # Build analysis dict with defaults
     analysis: dict[str, Any] = {
         "STRATEGIC_NARRATIVE": sections.get("STRATEGIC_NARRATIVE", ""),
-        "ALIGNMENT_STATUS": _parse_alignment_block(
-            sections.get("ALIGNMENT_STATUS", "")
-        ),
         "CONVERSATION_CRITICALITY": sections.get(
             "CONVERSATION_CRITICALITY", ""
         ),
@@ -489,6 +421,7 @@ def parse_kairos_headers(raw_text: str) -> Tuple[dict | None, str | None]:
         "PSYCHOLOGICAL_LEVERS": sections.get("PSYCHOLOGICAL_LEVERS", ""),
         "RISKS": sections.get("RISKS", ""),
         "TURN_MICRO_NOTE": {"SUMMARY": ""},
+        "MOMENT_COMPASS": sections.get("MOMENT_COMPASS", ""),
     }
 
     tmn_block = sections.get("TURN_MICRO_NOTE", "")
@@ -522,37 +455,12 @@ def _validated_analysis(fragments: dict) -> dict:
         return s_val
 
     strategic_narrative = _require_text("STRATEGIC_NARRATIVE")
-
-    alignment = fragments.get("ALIGNMENT_STATUS")
-    if not isinstance(alignment, dict):
-        raise ValueError("ALIGNMENT_STATUS must be an object")
-
-    st_plan = str(alignment.get("SHORT_TERM_PLAN") or "").strip()
-    if not st_plan:
-        raise ValueError("ALIGNMENT_STATUS.SHORT_TERM_PLAN is empty")
-
-    long_plans = alignment.get("LONG_TERM_PLANS")
-    if not isinstance(long_plans, dict):
-        raise ValueError("LONG_TERM_PLANS must be an object")
-
-    lt = {}
-    for k in (
-        "LIFETIME_PLAN",
-        "YEAR_PLAN",
-        "SEASON_PLAN",
-        "CHAPTER_PLAN",
-        "EPISODE_PLAN",
-    ):
-        val = str(long_plans.get(k) or "").strip()
-        lt[k] = val
-
-    conv_crit = str(fragments.get("CONVERSATION_CRITICALITY") or "").strip()
-    if not conv_crit:
-        raise ValueError("CONVERSATION_CRITICALITY is empty")
+    conv_crit = _require_text("CONVERSATION_CRITICALITY")
 
     tactical = _require_text("TACTICAL_SIGNALS")
     levers = _require_text("PSYCHOLOGICAL_LEVERS")
     risks = _require_text("RISKS")
+    moment_compass = _require_text("MOMENT_COMPASS")
 
     micro = fragments.get("TURN_MICRO_NOTE")
     if not isinstance(micro, dict):
@@ -563,15 +471,12 @@ def _validated_analysis(fragments: dict) -> dict:
 
     return {
         "STRATEGIC_NARRATIVE": strategic_narrative,
-        "ALIGNMENT_STATUS": {
-            "SHORT_TERM_PLAN": st_plan,
-            "LONG_TERM_PLANS": lt,
-        },
         "CONVERSATION_CRITICALITY": conv_crit,
         "TACTICAL_SIGNALS": tactical,
         "PSYCHOLOGICAL_LEVERS": levers,
         "RISKS": risks,
         "TURN_MICRO_NOTE": {"SUMMARY": micro_summary},
+        "MOMENT_COMPASS": moment_compass,
     }
 
 
@@ -616,11 +521,11 @@ def record_kairos_failure(
         row.update(
             {
                 "strategic_narrative": partial.get("STRATEGIC_NARRATIVE"),
-                "alignment_status": partial.get("ALIGNMENT_STATUS"),
                 "conversation_criticality": partial.get("CONVERSATION_CRITICALITY"),
                 "tactical_signals": partial.get("TACTICAL_SIGNALS"),
                 "psychological_levers": partial.get("PSYCHOLOGICAL_LEVERS"),
                 "risks": partial.get("RISKS"),
+                "moment_compass": partial.get("MOMENT_COMPASS"),
                 "kairos_summary": (partial.get("TURN_MICRO_NOTE") or {}).get("SUMMARY"),
                 "extras": _merge_extras(existing_extras, extras_patch),
             }
@@ -663,11 +568,11 @@ def upsert_kairos_details(
         "kairos_output_raw": raw_text,
         "translator_error": None,
         "strategic_narrative": analysis["STRATEGIC_NARRATIVE"],
-        "alignment_status": analysis["ALIGNMENT_STATUS"],
         "conversation_criticality": analysis["CONVERSATION_CRITICALITY"],
         "tactical_signals": analysis["TACTICAL_SIGNALS"],
         "psychological_levers": analysis["PSYCHOLOGICAL_LEVERS"],
         "risks": analysis["RISKS"],
+        "moment_compass": analysis["MOMENT_COMPASS"],
         "kairos_summary": analysis["TURN_MICRO_NOTE"]["SUMMARY"],
         "turn_micro_note": analysis["TURN_MICRO_NOTE"],
         "extras": _merge_extras(existing_extras, extras_patch),

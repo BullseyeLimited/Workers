@@ -19,6 +19,7 @@ JOIN_REQUIREMENTS: both
         self.assertEqual("LITE", parsed["final_verdict_kairos"])
         self.assertEqual("BOTH", parsed["join_requirements"])
         self.assertEqual("Check company news", parsed["web_research_brief"])
+        self.assertEqual("unknown", parsed["moment_location"])
 
     def test_parses_with_noise_and_spacing(self):
         raw = """
@@ -44,6 +45,16 @@ JOIN_REQUIREMENTS: both
         parsed, err = parse_hermes_output(raw)
         self.assertIsNone(parsed)
         self.assertIsNotNone(err)
+
+    def test_parses_moment_location(self):
+        raw = """FINAL_VERDICT_SEARCH: NO
+FINAL_VERDICT_KAIROS: FULL
+JOIN_REQUIREMENTS: kairos_only
+MOMENT_LOCATION: Bedroom
+<WEB_RESEARCH_BRIEF>NONE</WEB_RESEARCH_BRIEF>"""
+        parsed, err = parse_hermes_output(raw)
+        self.assertIsNone(err)
+        self.assertEqual("bedroom", parsed["moment_location"])
 
 
 if __name__ == "__main__":

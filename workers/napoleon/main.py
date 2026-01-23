@@ -47,6 +47,7 @@ HEADER_PATTERN = re.compile(
     r"^[\s>*#-]*\**\s*(?:SECTION\s*\d+\s*[:\-–—]?\s*)?(?P<header>"
     r"TACTICAL[\s_-]?PLAN[\s_-]?3[\s_-]?TURNS|"
     r"RETHINK[\s_-]?HORIZONS|"
+    r"MOMENT[\s_-]?COMPASS[\s_-]?TO[\s_-]?COMPOSER|"
     r"VOICE[\s_-]?ENGINEERING[\s_-]?LOGIC|"
     r"FINAL[\s_-]?MESSAGE"
     r")\s*\**\s*:?\s*$",
@@ -379,6 +380,7 @@ def upsert_napoleon_details(
             "napoleon_rethink_horizons": rethink,
             "napoleon_save_note": "Merged with Kairos",
             "kairos_check": "found" if existing_row.get("strategic_narrative") else "missing",
+            "moment_compass_to_composer": analysis.get("MOMENT_COMPASS_TO_COMPOSER") or "no",
         }
     )
     if content_actions is not None:
@@ -787,6 +789,34 @@ def _parse_voice_section(section_text: str) -> dict:
     return voice
 
 
+def _parse_yes_no_token(section_text: str) -> str:
+    """
+    Parse a section that should contain a single YES/NO token.
+    Fail closed to "no".
+    """
+    if not section_text:
+        return "no"
+    # Take first non-empty line; tolerate bullets/noise.
+    for raw_line in section_text.splitlines():
+        line = (raw_line or "").strip()
+        if not line:
+            continue
+        line = re.sub(r"^[\s>*#-]+", "", line).strip()
+        if not line:
+            continue
+        lowered = line.lower()
+        if lowered.startswith("y") or lowered == "true":
+            return "yes"
+        if lowered.startswith("n") or lowered == "false":
+            return "no"
+        if re.search(r"\byes\b", lowered):
+            return "yes"
+        if re.search(r"\bno\b", lowered):
+            return "no"
+        break
+    return "no"
+
+
 def parse_napoleon_headers(raw_text: str) -> tuple[dict | None, str | None]:
     """
     Parse header-based Napoleon output into structured dicts.
@@ -832,10 +862,15 @@ def parse_napoleon_headers(raw_text: str) -> tuple[dict | None, str | None]:
     except ValueError as exc:  # noqa: BLE001
         return None, str(exc)
 
+    moment_compass_to_composer = _parse_yes_no_token(
+        sections.get("MOMENT_COMPASS_TO_COMPOSER", "")
+    )
+
     analysis = {
         "TACTICAL_PLAN_3TURNS": tactical,
         "MULTI_HORIZON_PLAN": multi_plan,
         "RETHINK_HORIZONS": rethink,
+        "MOMENT_COMPASS_TO_COMPOSER": moment_compass_to_composer,
         # Voice/final are optional in the new contract; seed empty for compatibility.
         "VOICE_ENGINEERING_LOGIC": {},
         "FINAL_MESSAGE": "",
@@ -1367,7 +1402,7 @@ def process_job(payload):
         or {}
     )
 
-    details_select = "extras,web_research_facts_pack,web_research_output_raw"
+    details_select = "extras,web_research_facts_pack,web_research_output_raw,moment_compass"
     if CONTENT_PACK_ENABLED:
         details_select += ",content_pack"
     details_row = (
@@ -1750,6 +1785,10 @@ def process_job(payload):
         "turn_directive": turn1_directive,
         "content_actions": content_actions or {},
     }
+    moment_compass_gate = (analysis.get("MOMENT_COMPASS_TO_COMPOSER") or "").strip().lower()
+    moment_compass_text = (details_row.get("moment_compass") or "").strip()
+    if moment_compass_gate == "yes" and moment_compass_text:
+        writer_payload["moment_compass"] = moment_compass_text
     if fan_psychic_card:
         writer_payload["fan_psychic_card"] = fan_psychic_card
     if run_id:

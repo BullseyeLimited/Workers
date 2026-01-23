@@ -900,7 +900,7 @@ def latest_kairos_json(
     """Return the Kairos analysis snapshot for a specific fan message (preferred)."""
 
     sb = _resolve_client(client)
-    select_fields = "strategic_narrative,psychological_levers,risks"
+    select_fields = "strategic_narrative,psychological_levers,risks,moment_compass"
 
     if message_id is not None:
         rows = (
@@ -918,6 +918,7 @@ def latest_kairos_json(
             "STRATEGIC_NARRATIVE": row.get("strategic_narrative") or "",
             "PSYCHOLOGICAL_LEVERS": row.get("psychological_levers") or "",
             "RISKS": row.get("risks") or "",
+            "MOMENT_COMPASS": row.get("moment_compass") or "",
         }
         if not any(str(v).strip() for v in payload.values()):
             return ""
@@ -943,6 +944,7 @@ def latest_kairos_json(
         "STRATEGIC_NARRATIVE": row.get("strategic_narrative") or "",
         "PSYCHOLOGICAL_LEVERS": row.get("psychological_levers") or "",
         "RISKS": row.get("risks") or "",
+        "MOMENT_COMPASS": row.get("moment_compass") or "",
     }
     if not any(str(v).strip() for v in payload.values()):
         return ""

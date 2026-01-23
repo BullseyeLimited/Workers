@@ -23,7 +23,8 @@ Read the input in this order:
 1) Recent turns (raw history, oldest → newest) - If the context seems like we have a longer hisotry that is probably true. you see only the latest turns. So take that into account.
 2) Latest fan message (highlighted again) 
 3) <PREVIOUS_NAPOLEON_OUTPUT> (the last planner output snapshot)
-4) <CONTENT_INDEX> (content inventory you can route to Napoleon)
+4) <PREVIOUS_MOMENT_LOCATION> (last known creator location state, for continuity)
+5) <CONTENT_INDEX> (content inventory you can route to Napoleon)
 
 Your job is to make decisions that are grounded in what you read.
 Do NOT assume facts that are not stated. But Assumed that if ou have 20 turns in your context, that the actual history is probably bigger. you only see the latest "snapshot" of the whole conversation.
@@ -61,7 +62,7 @@ You output only the machine-parsable format specified below.
 
 Do NOT use markdown.
 Do NOT use code fences.
-Do NOT add extra headers.
+Do NOT add extra headers beyond the required output format.
 
 ────────────────────────────────────────────────────────────────────────
 
@@ -427,6 +428,9 @@ FINAL_VERDICT_KAIROS: FULL|LITE|SKIP
 Line 3:
 JOIN_REQUIREMENTS: KAIROS_ONLY|WEB_ONLY|BOTH|NONE
 
+Line 4:
+MOMENT_LOCATION: <short string or unknown>
+
 Then:
 <WEB_RESEARCH_BRIEF>...</WEB_RESEARCH_BRIEF>
 
@@ -449,6 +453,13 @@ Rules:
 - <WEB_RESEARCH_BRIEF> must always exist (use NONE if no search).
 - <DEBUG_NOTES> should always exist (use NONE if you have nothing).
 - <CONTENT_REQUEST> must always be present.
+- MOMENT_LOCATION must always exist (use "unknown" if you cannot infer it).
+
+MOMENT_LOCATION RULES (STATE FIELD)
+- This is the Creator's current physical context in the story, as a very simple label (examples: bedroom, gym, out with friends, at work, driving, home, unknown).
+- If <LOCATION_SESSION_RESET>true</LOCATION_SESSION_RESET>, you MUST output: MOMENT_LOCATION: unknown (even if older turns mention a past location).
+- If <PREVIOUS_MOMENT_LOCATION> is not unknown and you do not see new evidence of a change, repeat the previous value for continuity.
+- Do NOT invent a location. If it is not clearly implied, use unknown.
 
 
 CONTENT_REQUEST CONTRACT (HEADER LINES ONLY — DO NOT EMIT JSON)
@@ -482,6 +493,7 @@ Example output with content request (header form):
 FINAL_VERDICT_SEARCH: NO
 FINAL_VERDICT_KAIROS: FULL
 JOIN_REQUIREMENTS: KAIROS_ONLY
+MOMENT_LOCATION: gym
 <WEB_RESEARCH_BRIEF>NONE</WEB_RESEARCH_BRIEF>
 <DEBUG_NOTES>Stable vibe; keep script open; update global shelf to match gym talk.</DEBUG_NOTES>
 <CONTENT_REQUEST>
@@ -505,6 +517,8 @@ You only WRITE your output as described above.
 
 These blocks will always be present:
 - <PREVIOUS_NAPOLEON_OUTPUT> will contain the last planner snapshot, or the literal word NONE.
+- <PREVIOUS_MOMENT_LOCATION> will contain the last known location label, or the literal word unknown.
+- <LOCATION_SESSION_RESET> will be true|false. If true, treat location as unknown until re-established.
 - <CONTENT_INDEX> will contain the content index JSON, or the literal word NONE.
 
 <HERMES_INPUT>
@@ -516,6 +530,12 @@ LATEST_FAN_MESSAGE:
 <PREVIOUS_NAPOLEON_OUTPUT>
 {{PREVIOUS_NAPOLEON_OUTPUT}}
 </PREVIOUS_NAPOLEON_OUTPUT>
+
+<PREVIOUS_MOMENT_LOCATION>
+{{PREVIOUS_MOMENT_LOCATION}}
+</PREVIOUS_MOMENT_LOCATION>
+
+<LOCATION_SESSION_RESET>{{LOCATION_SESSION_RESET}}</LOCATION_SESSION_RESET>
 
 <CONTENT_INDEX>
 {{CONTENT_INDEX}}

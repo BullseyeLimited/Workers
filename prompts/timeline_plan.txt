@@ -31,13 +31,11 @@ Inside each hour block, you may split into smaller segments when an activity sta
 
 HARD OUTPUT RULES
 - Output ONLY valid JSON. No prose. No markdown. No backticks.
-- Do not add events that are not supported by the provided context.
-- If you are unsure, mark time as "unspecified".
+- Do not add events that are not supported by the provided context..
 - All times must be local to time_zone.
 - Use datetime format: "YYYY-MM-DDTHH:MM".
 - You must output exactly 24 hour blocks.
 - Hour blocks must be sorted, non-overlapping, and contiguous.
-- Each hour block is exactly 60 minutes and aligned to :00.
 - First hour block starts at plan_dateT02:00.
 - Last hour block ends at (plan_date + 1 day)T02:00.
 
@@ -60,12 +58,6 @@ HOW TO FILL EACH HOUR (priority)
 5) Use creator_identity_card timeline history pattern.
 6) Leaving something "unspecified" is a correct outcome.
 
-DEFAULTS
-- If you do not know what happens in an hour:
-  Create one segment for the full hour:
-  state: "unspecified"
-  label: "Unspecified"
-  source: "unknown"
 
 STATES (choose one per segment)
 - "asleep"

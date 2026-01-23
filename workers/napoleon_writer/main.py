@@ -514,6 +514,9 @@ def build_writer_user_block(payload: Dict[str, Any]) -> str:
         "latest_fan_message": payload.get("latest_fan_message") or "",
         "turn_directive": _extract_turn1_directive(payload.get("turn_directive")),
     }
+    moment_compass = payload.get("moment_compass")
+    if moment_compass is not None and str(moment_compass).strip():
+        block["moment_compass"] = str(moment_compass).strip()
     fan_psychic_card = compact_psychic_card(payload.get("fan_psychic_card"))
     if fan_psychic_card:
         block["fan_psychic_card"] = fan_psychic_card

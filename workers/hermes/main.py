@@ -90,6 +90,7 @@ You are Hermes. Output format:
 FINAL_VERDICT_SEARCH: YES|NO
 FINAL_VERDICT_KAIROS: FULL|LITE|SKIP
 JOIN_REQUIREMENTS: KAIROS_ONLY|WEB_ONLY|BOTH|NONE
+MOMENT_LOCATION: <short string or UNKNOWN>
 <WEB_RESEARCH_BRIEF>...NONE or what to search...</WEB_RESEARCH_BRIEF>
 """
 
@@ -102,6 +103,7 @@ HEADER_PATTERNS = {
         r"JOIN_REQUIREMENTS\s*:\s*(KAIROS_ONLY|WEB_ONLY|BOTH|NONE)",
         re.IGNORECASE,
     ),
+    "location": re.compile(r"MOMENT_LOCATION\s*:\s*(.+)", re.IGNORECASE),
 }
 BRIEF_PATTERN = re.compile(
     r"<WEB_RESEARCH_BRIEF>(.*?)</WEB_RESEARCH_BRIEF>", re.IGNORECASE | re.DOTALL
@@ -233,13 +235,166 @@ def _fail_closed_defaults() -> dict:
         "final_verdict_kairos": "FULL",
         "join_requirements": "KAIROS_ONLY",
         "web_research_brief": "NONE",
+        "moment_location": "unknown",
     }
+
+def _parse_utc_datetime(value: Any) -> datetime | None:
+    if not value:
+        return None
+    if isinstance(value, datetime):
+        dt = value
+    elif isinstance(value, (int, float)):
+        dt = datetime.fromtimestamp(value, tz=timezone.utc)
+    elif isinstance(value, str):
+        try:
+            cleaned = value.replace("Z", "+00:00")
+            dt = datetime.fromisoformat(cleaned)
+        except ValueError:
+            return None
+    else:
+        return None
+
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
+def _normalize_location(value: Any) -> str:
+    if value is None:
+        return ""
+    text = str(value).strip()
+    if not text:
+        return ""
+    lowered = re.sub(r"\s+", " ", text).strip().lower()
+    if lowered in {"unknown", "unk", "n/a", "na", "none", "null", "?"}:
+        return "unknown"
+    return lowered
+
+
+def _fetch_previous_moment_location(
+    thread_id: int,
+    *,
+    exclude_message_id: int,
+    client,
+) -> str | None:
+    """
+    Best-effort: fetch the last stored creator location (from Hermes) for continuity.
+    Prefer the moment_location column if present, but fall back to extras.hermes.parsed.
+    """
+
+    # 1) Prefer the dedicated column (fast + explicit).
+    try:
+        rows = (
+            client.table("message_ai_details")
+            .select("message_id,moment_location")
+            .eq("thread_id", thread_id)
+            .eq("sender", "fan")
+            .neq("message_id", exclude_message_id)
+            .order("message_id", desc=True)
+            .limit(10)
+            .execute()
+            .data
+            or []
+        )
+        for row in rows:
+            loc = _normalize_location(row.get("moment_location"))
+            if loc:
+                return loc
+    except Exception:
+        rows = []
+
+    # 2) Fallback: look inside stored Hermes extras (for back-compat if column isn't present yet).
+    try:
+        rows = (
+            client.table("message_ai_details")
+            .select("message_id,extras")
+            .eq("thread_id", thread_id)
+            .eq("sender", "fan")
+            .neq("message_id", exclude_message_id)
+            .order("message_id", desc=True)
+            .limit(20)
+            .execute()
+            .data
+            or []
+        )
+        for row in rows:
+            extras = row.get("extras") or {}
+            if not isinstance(extras, dict):
+                continue
+            hermes_blob = extras.get("hermes")
+            if not isinstance(hermes_blob, dict):
+                continue
+            parsed = hermes_blob.get("parsed")
+            if not isinstance(parsed, dict):
+                continue
+            loc = _normalize_location(parsed.get("moment_location"))
+            if loc:
+                return loc
+    except Exception:
+        return None
+
+    return None
+
+
+def _location_session_reset(
+    thread_id: int,
+    *,
+    current_message_id: int,
+    current_turn_index: int | None,
+    current_created_at: Any,
+    client,
+) -> bool:
+    """
+    Reset location state if the thread has been inactive for 4+ hours.
+    """
+
+    current_dt = _parse_utc_datetime(current_created_at)
+    if current_dt is None:
+        return False
+
+    try:
+        if current_turn_index is not None:
+            prev_rows = (
+                client.table("messages")
+                .select("created_at")
+                .eq("thread_id", thread_id)
+                .lt("turn_index", int(current_turn_index))
+                .order("turn_index", desc=True)
+                .limit(1)
+                .execute()
+                .data
+                or []
+            )
+        else:
+            prev_rows = (
+                client.table("messages")
+                .select("created_at")
+                .eq("thread_id", thread_id)
+                .neq("id", int(current_message_id))
+                .order("created_at", desc=True)
+                .limit(1)
+                .execute()
+                .data
+                or []
+            )
+    except Exception:
+        return False
+
+    if not prev_rows:
+        return True
+
+    prev_dt = _parse_utc_datetime(prev_rows[0].get("created_at"))
+    if prev_dt is None:
+        return False
+
+    delta_seconds = (current_dt - prev_dt).total_seconds()
+    return delta_seconds >= 4 * 60 * 60
 
 
 def parse_hermes_output(raw_text: str) -> Tuple[dict | None, str | None]:
     """
     Parse Hermes model output. Return (parsed, error_message).
-    Parsed keys are uppercase values.
+    Token fields are uppercased; state fields (moment_location) are normalized.
     """
     if not raw_text or not raw_text.strip():
         return None, "empty_output"
@@ -250,6 +405,7 @@ def parse_hermes_output(raw_text: str) -> Tuple[dict | None, str | None]:
     search_match = HEADER_PATTERNS["search"].search(raw_text)
     kairos_match = HEADER_PATTERNS["kairos"].search(raw_text)
     join_match = HEADER_PATTERNS["join"].search(raw_text)
+    location_match = HEADER_PATTERNS["location"].search(raw_text)
 
     if search_match:
         parsed["final_verdict_search"] = search_match.group(1).upper()
@@ -265,6 +421,11 @@ def parse_hermes_output(raw_text: str) -> Tuple[dict | None, str | None]:
         parsed["join_requirements"] = join_match.group(1).upper()
     else:
         missing.append("JOIN_REQUIREMENTS")
+
+    if location_match:
+        parsed["moment_location"] = _normalize_location(location_match.group(1))
+    else:
+        parsed["moment_location"] = "unknown"
 
     brief_match = BRIEF_PATTERN.search(raw_text)
     if brief_match:
@@ -468,7 +629,9 @@ def process_job(payload: Dict[str, Any]) -> bool:
     # `.single()` raises and the job becomes a poison pill that retries forever.
     msg_rows = (
         SB.table("messages")
-        .select("id,thread_id,turn_index,message_text,media_analysis_text,media_payload")
+        .select(
+            "id,thread_id,turn_index,created_at,message_text,media_analysis_text,media_payload"
+        )
         .eq("id", fan_msg_id)
         .limit(1)
         .execute()
@@ -497,6 +660,20 @@ def process_job(payload: Dict[str, Any]) -> bool:
 
     thread_id = msg_row["thread_id"]
     turn_index = msg_row.get("turn_index")
+    location_reset = _location_session_reset(
+        thread_id,
+        current_message_id=int(fan_msg_id),
+        current_turn_index=int(turn_index) if turn_index is not None else None,
+        current_created_at=msg_row.get("created_at"),
+        client=SB,
+    )
+    previous_location = None
+    if not location_reset:
+        previous_location = _fetch_previous_moment_location(
+            thread_id,
+            exclude_message_id=int(fan_msg_id),
+            client=SB,
+        )
 
     details_rows = (
         SB.table("message_ai_details")
@@ -563,6 +740,12 @@ def process_job(payload: Dict[str, Any]) -> bool:
         thread_row = thread_rows[0] if thread_rows else {}
         content_index_block = ""
         previous_napoleon_block = "\n\n<PREVIOUS_NAPOLEON_OUTPUT>\nNONE\n</PREVIOUS_NAPOLEON_OUTPUT>"
+        previous_location_block = (
+            "\n\n<PREVIOUS_MOMENT_LOCATION>\n"
+            f"{previous_location or 'unknown'}\n"
+            "</PREVIOUS_MOMENT_LOCATION>\n"
+            f"<LOCATION_SESSION_RESET>{'true' if location_reset else 'false'}</LOCATION_SESSION_RESET>"
+        )
 
         previous_napoleon = _fetch_previous_napoleon_output(
             thread_id,
@@ -599,6 +782,7 @@ def process_job(payload: Dict[str, Any]) -> bool:
             "LATEST_FAN_MESSAGE:\n"
             f"{latest_fan_text}"
             f"{previous_napoleon_block}"
+            f"{previous_location_block}"
             f"{content_index_block}\n"
             "</HERMES_INPUT>"
         )
@@ -639,6 +823,14 @@ def process_job(payload: Dict[str, Any]) -> bool:
         if not parsed:
             parsed = _fail_closed_defaults()
 
+        # Carry forward location within an active session; hard-reset after inactivity.
+        seed_location = _normalize_location(previous_location) or "unknown"
+        model_location = _normalize_location(parsed.get("moment_location"))
+        if location_reset:
+            parsed["moment_location"] = "unknown"
+        elif not model_location or model_location == "unknown":
+            parsed["moment_location"] = seed_location
+
         content_request = parse_content_request(raw_text) if CONTENT_PACK_ENABLED else None
         hermes_blob = {
             "status": status,
@@ -652,6 +844,7 @@ def process_job(payload: Dict[str, Any]) -> bool:
             "extras": merged_extras,
             "hermes_status": status,
             "hermes_output_raw": raw_text,
+            "moment_location": parsed.get("moment_location") or "unknown",
         }
         if content_request and CONTENT_PACK_ENABLED:
             update_payload.update(
@@ -663,9 +856,16 @@ def process_job(payload: Dict[str, Any]) -> bool:
                     "content_pack_created_at": None,
                 }
             )
-        SB.table("message_ai_details").update(update_payload).eq(
-            "message_id", fan_msg_id
-        ).execute()
+        try:
+            SB.table("message_ai_details").update(update_payload).eq(
+                "message_id", fan_msg_id
+            ).execute()
+        except Exception:
+            # Back-compat: if the DB column doesn't exist yet, drop it and still store in extras.
+            update_payload.pop("moment_location", None)
+            SB.table("message_ai_details").update(update_payload).eq(
+                "message_id", fan_msg_id
+            ).execute()
     if (not new_decision) and _has_valid_decision(hermes_blob):
         SB.table("message_ai_details").update(
             {
