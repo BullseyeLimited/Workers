@@ -14,8 +14,10 @@ Expected keys (once combined):
 - time_zone (IANA, e.g., America/New_York)
 - now_local
 - creator_identity_card (may include usual week + timeline history)
+- creator_available_activities (list of allowed activities for this creator)
 - fan_identity_card
 - recent_turns (or turns_for_day) for the day context
+- past_daily_plans (list of up to 14 previous plans; each entry includes a label like "THE PLAN FOR DAY BEFORE")
 
 TASK
 Produce a next-day timeline grid for this thread.
@@ -52,9 +54,11 @@ SEGMENT SPLIT RULE (CRITICAL)
 
 HOW TO FILL EACH HOUR (priority)
 1) Use recent_turns (or turns_for_day) for specific mentions that affect this 02:00->02:00 window.
-2) Use creator_identity_card usual week guidance.
-3) Use creator_identity_card timeline history pattern.
-4) Leaving something "unspecified" is a correct outcome.
+2) Use creator_available_activities as the allowed activity set (do not invent activities outside this list).
+3) Use creator_identity_card usual week guidance.
+4) Use past_daily_plans to infer repeating patterns or commitments when they are clearly consistent.
+5) Use creator_identity_card timeline history pattern.
+6) Leaving something "unspecified" is a correct outcome.
 
 DEFAULTS
 - If you do not know what happens in an hour:

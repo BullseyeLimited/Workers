@@ -133,28 +133,47 @@ def _fetch_thread_context(thread_id: int) -> Dict[str, Any] | None:
     if not thread:
         return None
 
-    creator_card = thread.get("creator_identity_card")
     creator_id = thread.get("creator_id")
-    if not creator_card and creator_id:
+    creator_row: Dict[str, Any] = {}
+    if creator_id:
         try:
             creator_row = (
                 SB.table("creators")
-                .select("creator_identity_card")
+                .select("creator_identity_card,available_activities")
                 .eq("id", creator_id)
                 .single()
                 .execute()
                 .data
                 or {}
             )
-            creator_card = creator_row.get("creator_identity_card")
         except Exception:
-            creator_card = None
+            try:
+                creator_row = (
+                    SB.table("creators")
+                    .select("creator_identity_card")
+                    .eq("id", creator_id)
+                    .single()
+                    .execute()
+                    .data
+                    or {}
+                )
+            except Exception:
+                creator_row = {}
+
+    creator_card = (
+        thread.get("creator_identity_card")
+        or creator_row.get("creator_identity_card")
+    )
+    creator_activities = creator_row.get("available_activities")
+    if not isinstance(creator_activities, list):
+        creator_activities = []
 
     return {
         "thread_id": thread_id,
         "creator_id": creator_id,
         "fan_identity_card": thread.get("fan_identity_card") or "Identity card: empty",
         "creator_identity_card": creator_card or "Identity card: empty",
+        "creator_available_activities": creator_activities,
     }
 
 
@@ -175,6 +194,60 @@ def _fetch_turns_window(
         or []
     )
     return rows
+
+
+def _label_for_plan(target_date: date, plan_date: date) -> str:
+    delta_days = (target_date - plan_date).days
+    if delta_days <= 0:
+        return f"PLAN FOR {plan_date.isoformat()}"
+    if delta_days == 1:
+        return "THE PLAN FOR DAY BEFORE"
+    if delta_days == 2:
+        return "PLAN FOR 2 DAYS AGO"
+    return f"PLAN FOR {delta_days} DAYS AGO"
+
+
+def _fetch_recent_daily_plans(
+    thread_id: int, plan_date: str, limit: int = 14
+) -> List[Dict[str, Any]]:
+    try:
+        target_date = date.fromisoformat(str(plan_date))
+    except Exception:
+        return []
+
+    rows = (
+        SB.table("daily_plans")
+        .select("plan_date,plan_json,raw_text,status,error,time_zone,generated_at")
+        .eq("thread_id", thread_id)
+        .lt("plan_date", target_date.isoformat())
+        .order("plan_date", desc=True)
+        .limit(limit)
+        .execute()
+        .data
+        or []
+    )
+
+    plans: List[Dict[str, Any]] = []
+    for row in rows:
+        raw_date = row.get("plan_date")
+        try:
+            row_date = date.fromisoformat(str(raw_date))
+        except Exception:
+            continue
+        label = _label_for_plan(target_date, row_date)
+        plans.append(
+            {
+                "label": label,
+                "plan_date": row_date.isoformat(),
+                "plan_json": row.get("plan_json"),
+                "status": row.get("status"),
+                "error": row.get("error"),
+                "time_zone": row.get("time_zone"),
+                "generated_at": row.get("generated_at"),
+            }
+        )
+
+    return plans
 
 
 def _plan_exists(thread_id: int, plan_date: str) -> bool:
@@ -281,14 +354,17 @@ def _build_plan_for_thread(
     window_end_local = now_local
     window_start_local = now_local - timedelta(hours=24)
     day_turns = _fetch_turns_window(thread_id, window_start_local, window_end_local)
+    past_daily_plans = _fetch_recent_daily_plans(thread_id, plan_date, limit=14)
     input_payload = {
         "thread_id": thread_id,
         "plan_date": plan_date,
         "time_zone": tz_name,
         "now_local": now_local.isoformat(),
         "creator_identity_card": context["creator_identity_card"],
+        "creator_available_activities": context["creator_available_activities"],
         "fan_identity_card": context["fan_identity_card"],
         "turns_for_day": day_turns,
+        "past_daily_plans": past_daily_plans,
     }
     prompt = _render_prompt(json.dumps(input_payload))
 

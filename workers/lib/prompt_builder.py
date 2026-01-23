@@ -267,7 +267,9 @@ def _format_identity_card_json(card: Any) -> str:
     return "\n".join(lines).strip()
 
 
-def _format_identity_card(card: Any, *, card_text: str | None = None) -> str:
+def _format_identity_card(
+    card: Any, *, card_text: str | None = None, full_json: bool = False
+) -> str:
     if isinstance(card_text, str) and card_text.strip():
         formatted = _format_identity_card_text(card_text)
         if formatted:
@@ -285,11 +287,15 @@ def _format_identity_card(card: Any, *, card_text: str | None = None) -> str:
         except Exception:
             parsed = None
         if isinstance(parsed, (dict, list)):
+            if full_json:
+                return json.dumps(parsed, ensure_ascii=False)
             formatted = _format_identity_card_json(parsed)
             return formatted if formatted else "Identity card: empty"
         return stripped
 
     if isinstance(card, (dict, list)):
+        if full_json:
+            return json.dumps(card, ensure_ascii=False)
         formatted = _format_identity_card_json(card)
         return formatted if formatted else "Identity card: empty"
 
@@ -527,7 +533,9 @@ def _load_cards(thread_id: int, *, client=None, worker_tier=None) -> Dict[str, s
             card_text=row.get("fan_identity_card_raw"),
         ),
         "FAN_PSYCHIC_CARD": _format_psychic_card(fan_psychic),
-        "CREATOR_IDENTITY_CARD": _format_identity_card(creator_identity_card_value),
+        "CREATOR_IDENTITY_CARD": _format_identity_card(
+            creator_identity_card_value, full_json=True
+        ),
         "CREATOR_PSYCHIC_CARD": _format_psychic_card(creator_psychic_card),
     }
 
