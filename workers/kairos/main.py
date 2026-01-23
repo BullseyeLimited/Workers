@@ -9,6 +9,7 @@ import re
 import time
 import traceback
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 from typing import Any, Dict, Tuple
 
 import requests
@@ -68,6 +69,7 @@ Return a JSON object with exactly these keys:
 - RISKS: string
 - TURN_MICRO_NOTE: object with key SUMMARY (string).
 - MOMENT_COMPASS: string
+- SCHEDULE_RETHINK: string
 Output ONLY valid JSON matching this shape. Do not include markdown or prose.
 Do not paraphrase, summarize, or inject new content; preserve the original wording in each field.
 """
@@ -86,13 +88,15 @@ HEADER_MAP = {
     "TURN MICRO NOTE": "TURN_MICRO_NOTE",
     "MOMENT_COMPASS": "MOMENT_COMPASS",
     "MOMENT COMPASS": "MOMENT_COMPASS",
+    "SCHEDULE_RETHINK": "SCHEDULE_RETHINK",
+    "SCHEDULE RETHINK": "SCHEDULE_RETHINK",
 }
 
 HEADER_PATTERN = re.compile(
     r"^[\s>*-]*\**\s*(?P<header>"
     r"STRATEGIC[_ ]NARRATIVE|CONVERSATION[_ ]CRITICALITY|"
     r"TACTICAL[_ ]SIGNALS|PSYCHOLOGICAL[_ ]LEVERS|RISKS|TURN[_ ]MICRO[_ ]NOTE|"
-    r"MOMENT[_ ]COMPASS)"
+    r"MOMENT[_ ]COMPASS|SCHEDULE[_ ]RETHINK)"
     r"\s*\**\s*:?\s*$",
     re.IGNORECASE | re.MULTILINE,
 )
@@ -294,6 +298,7 @@ def _missing_required_fields(analysis: dict | None) -> list[str]:
     check_non_empty(analysis, "PSYCHOLOGICAL_LEVERS", "PSYCHOLOGICAL_LEVERS")
     check_non_empty(analysis, "RISKS", "RISKS")
     check_non_empty(analysis, "MOMENT_COMPASS", "MOMENT_COMPASS")
+    check_non_empty(analysis, "SCHEDULE_RETHINK", "SCHEDULE_RETHINK")
 
     micro = analysis.get("TURN_MICRO_NOTE") or {}
     check_non_empty(micro, "SUMMARY", "TURN_MICRO_NOTE.SUMMARY")
@@ -357,6 +362,7 @@ def merge_kairos_analysis(base: dict, patch: dict) -> dict:
         "RISKS": base.get("RISKS") or "",
         "TURN_MICRO_NOTE": base.get("TURN_MICRO_NOTE") or {"SUMMARY": ""},
         "MOMENT_COMPASS": base.get("MOMENT_COMPASS") or "",
+        "SCHEDULE_RETHINK": base.get("SCHEDULE_RETHINK") or "",
     }
 
     if patch.get("STRATEGIC_NARRATIVE") and str(patch["STRATEGIC_NARRATIVE"]).strip():
@@ -368,6 +374,7 @@ def merge_kairos_analysis(base: dict, patch: dict) -> dict:
         "PSYCHOLOGICAL_LEVERS",
         "RISKS",
         "MOMENT_COMPASS",
+        "SCHEDULE_RETHINK",
     ):
         val = patch.get(key)
         if val and str(val).strip():
@@ -405,11 +412,20 @@ def parse_kairos_headers(raw_text: str) -> Tuple[dict | None, str | None]:
 
     matches.sort(key=lambda x: x[0])
     sections: dict[str, str] = {}
+
+    def _strip_end_marker(text: str) -> str:
+        if not text:
+            return ""
+        lines = text.splitlines()
+        while lines and lines[-1].strip() in {"### END", "END"}:
+            lines.pop()
+        return "\n".join(lines).strip()
+
     for i, (idx, key) in enumerate(matches):
         start = idx + 1
         end = matches[i + 1][0] if i + 1 < len(matches) else len(lines)
         segments = lines[start:end]
-        sections[key] = "\n".join(segments).strip()
+        sections[key] = _strip_end_marker("\n".join(segments).strip())
 
     # Build analysis dict with defaults
     analysis: dict[str, Any] = {
@@ -422,6 +438,7 @@ def parse_kairos_headers(raw_text: str) -> Tuple[dict | None, str | None]:
         "RISKS": sections.get("RISKS", ""),
         "TURN_MICRO_NOTE": {"SUMMARY": ""},
         "MOMENT_COMPASS": sections.get("MOMENT_COMPASS", ""),
+        "SCHEDULE_RETHINK": sections.get("SCHEDULE_RETHINK", ""),
     }
 
     tmn_block = sections.get("TURN_MICRO_NOTE", "")
@@ -461,6 +478,7 @@ def _validated_analysis(fragments: dict) -> dict:
     levers = _require_text("PSYCHOLOGICAL_LEVERS")
     risks = _require_text("RISKS")
     moment_compass = _require_text("MOMENT_COMPASS")
+    schedule_rethink = _require_text("SCHEDULE_RETHINK")
 
     micro = fragments.get("TURN_MICRO_NOTE")
     if not isinstance(micro, dict):
@@ -477,7 +495,222 @@ def _validated_analysis(fragments: dict) -> dict:
         "RISKS": risks,
         "TURN_MICRO_NOTE": {"SUMMARY": micro_summary},
         "MOMENT_COMPASS": moment_compass,
+        "SCHEDULE_RETHINK": schedule_rethink,
     }
+
+
+def _safe_now_local_iso(tz_name: str | None) -> tuple[str, str]:
+    """
+    Return (tz_name, now_local_iso). Fail-open to UTC on invalid/missing tz.
+    """
+    fallback_tz = "UTC"
+    tz = (tz_name or "").strip() or fallback_tz
+    try:
+        now_local = datetime.now(ZoneInfo(tz))
+        return tz, now_local.replace(second=0, microsecond=0).isoformat()
+    except Exception:
+        now_utc = datetime.now(timezone.utc)
+        return fallback_tz, now_utc.replace(second=0, microsecond=0).isoformat()
+
+
+def _current_plan_date_for_now(now_local_iso: str) -> str | None:
+    """
+    Timeline day windows are 02:00 -> next day 02:00.
+    If it's before 02:00 local, "today's" plan is yesterday's plan_date.
+    """
+    try:
+        now_local = datetime.fromisoformat(now_local_iso)
+    except Exception:
+        return None
+    plan_day = now_local.date()
+    if now_local.hour < 2:
+        from datetime import timedelta
+
+        plan_day = plan_day - timedelta(days=1)
+    return plan_day.isoformat()
+
+
+def _fetch_daily_plan_row(thread_id: int) -> dict | None:
+    """
+    Return the most relevant daily_plans row for "now" (plan_date anchored at 02:00 local).
+    Falls back to the newest plan when an exact match is missing.
+    """
+    rows = (
+        SB.table("daily_plans")
+        .select("plan_date,plan_json,raw_text,status,error,time_zone,generated_at")
+        .eq("thread_id", int(thread_id))
+        .order("plan_date", desc=True)
+        .limit(5)
+        .execute()
+        .data
+        or []
+    )
+    if not rows:
+        return None
+
+    newest = rows[0] if isinstance(rows[0], dict) else {}
+    tz_name = newest.get("time_zone")
+    if not tz_name and isinstance(newest.get("plan_json"), dict):
+        tz_name = newest["plan_json"].get("time_zone")
+
+    tz_name, now_local_iso = _safe_now_local_iso(tz_name)
+    target_plan_date = _current_plan_date_for_now(now_local_iso)
+    if not target_plan_date:
+        return newest
+
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        if str(row.get("plan_date") or "").strip() == target_plan_date:
+            row["_computed_tz_name"] = tz_name
+            row["_computed_now_local"] = now_local_iso
+            return row
+
+    # Try fetching exact date in case it's just outside the small window.
+    try:
+        exact = (
+            SB.table("daily_plans")
+            .select("plan_date,plan_json,raw_text,status,error,time_zone,generated_at")
+            .eq("thread_id", int(thread_id))
+            .eq("plan_date", target_plan_date)
+            .limit(1)
+            .execute()
+            .data
+            or []
+        )
+        if exact and isinstance(exact[0], dict):
+            exact[0]["_computed_tz_name"] = tz_name
+            exact[0]["_computed_now_local"] = now_local_iso
+            return exact[0]
+    except Exception:
+        pass
+
+    newest["_computed_tz_name"] = tz_name
+    newest["_computed_now_local"] = now_local_iso
+    return newest
+
+
+def _format_daily_plan_for_prompt(plan_row: dict | None) -> str:
+    """
+    Compact, Kairos-readable view of today's daily plan.
+    """
+    if not plan_row:
+        return "NO_DAILY_PLAN: true"
+
+    tz_name = plan_row.get("_computed_tz_name") or plan_row.get("time_zone") or ""
+    now_local_iso = plan_row.get("_computed_now_local") or ""
+    plan_date = str(plan_row.get("plan_date") or "").strip()
+    status = str(plan_row.get("status") or "").strip() or "unknown"
+    error = str(plan_row.get("error") or "").strip()
+    generated_at = str(plan_row.get("generated_at") or "").strip()
+
+    plan_json = plan_row.get("plan_json")
+    if isinstance(plan_json, str):
+        try:
+            plan_json = json.loads(plan_json)
+        except Exception:
+            plan_json = None
+
+    lines: list[str] = []
+    lines.append(f"PLAN_DATE: {plan_date or 'unknown'}")
+    lines.append(f"TIME_ZONE: {tz_name or 'unknown'}")
+    if now_local_iso:
+        lines.append(f"NOW_LOCAL: {now_local_iso}")
+    if generated_at:
+        lines.append(f"GENERATED_AT_UTC: {generated_at}")
+    lines.append(f"STATUS: {status}")
+    if error:
+        lines.append(f"ERROR: {error}")
+
+    if not isinstance(plan_json, dict):
+        raw_text = (plan_row.get("raw_text") or "").strip()
+        if raw_text:
+            preview = raw_text[:2000]
+            lines.append("RAW_TEXT_PREVIEW:")
+            lines.append(preview)
+        return "\n".join(lines).strip()
+
+    segments: list[dict] = []
+    hours = plan_json.get("hours")
+    if isinstance(hours, list):
+        for hour in hours:
+            if not isinstance(hour, dict):
+                continue
+            segs = hour.get("segments")
+            if not isinstance(segs, list):
+                continue
+            for seg in segs:
+                if isinstance(seg, dict):
+                    segments.append(seg)
+
+    def _parse_local_dt(value: str) -> datetime | None:
+        try:
+            dt = datetime.fromisoformat(value)
+        except Exception:
+            return None
+        if dt.tzinfo is not None:
+            return dt
+        if not tz_name:
+            return dt.replace(tzinfo=timezone.utc)
+        try:
+            return dt.replace(tzinfo=ZoneInfo(str(tz_name)))
+        except Exception:
+            return dt.replace(tzinfo=timezone.utc)
+
+    now_local_dt = _parse_local_dt(now_local_iso) if now_local_iso else None
+    current_seg = None
+    if now_local_dt:
+        for seg in segments:
+            start = _parse_local_dt(str(seg.get("start_local") or ""))
+            end = _parse_local_dt(str(seg.get("end_local") or ""))
+            if not start or not end:
+                continue
+            if start <= now_local_dt < end:
+                current_seg = seg
+                break
+
+    def _fmt_seg(seg: dict) -> str:
+        start = str(seg.get("start_local") or "").strip()
+        end = str(seg.get("end_local") or "").strip()
+        state = str(seg.get("state") or "").strip() or "unspecified"
+        label = str(seg.get("label") or "").strip() or "Unspecified"
+        notes = str(seg.get("notes") or "").strip()
+        source = str(seg.get("source") or "").strip()
+        tail = []
+        if source:
+            tail.append(f"source={source}")
+        if notes:
+            tail.append(f"notes={notes}")
+        suffix = f" ({', '.join(tail)})" if tail else ""
+        return f"- {start} -> {end} | {state} | {label}{suffix}"
+
+    if current_seg:
+        lines.append("CURRENT_SEGMENT:")
+        lines.append(_fmt_seg(current_seg))
+
+    # Upcoming changes: next ~12 segments after now
+    if now_local_dt:
+        future: list[tuple[datetime, dict]] = []
+        for seg in segments:
+            start_raw = str(seg.get("start_local") or "")
+            start = _parse_local_dt(start_raw)
+            if not start:
+                continue
+            if start >= now_local_dt:
+                future.append((start, seg))
+        future.sort(key=lambda x: x[0])
+        if future:
+            lines.append("UPCOMING_SEGMENTS:")
+            for _, seg in future[:12]:
+                lines.append(_fmt_seg(seg))
+
+    # Always include full segment list, but cap length.
+    lines.append("FULL_DAY_SEGMENTS:")
+    for seg in segments[:200]:
+        lines.append(_fmt_seg(seg))
+
+    out = "\n".join(lines).strip()
+    return out[:12000]
 
 
 def record_kairos_failure(
@@ -517,6 +750,7 @@ def record_kairos_failure(
         extras_patch = {
             "kairos_raw_json": partial,
             "kairos_raw_text_preview": (raw_text or "")[:2000],
+            "schedule_rethink": partial.get("SCHEDULE_RETHINK"),
         }
         row.update(
             {
@@ -536,6 +770,14 @@ def record_kairos_failure(
         .upsert(row, on_conflict="message_id")
         .execute()
     )
+    # Best-effort: persist schedule_rethink into a dedicated column when present.
+    try:
+        if partial and partial.get("SCHEDULE_RETHINK") is not None:
+            SB.table("message_ai_details").update(
+                {"schedule_rethink": partial.get("SCHEDULE_RETHINK")}
+            ).eq("message_id", int(message_id)).execute()
+    except Exception:
+        pass
 
 
 def upsert_kairos_details(
@@ -553,6 +795,7 @@ def upsert_kairos_details(
     extras_patch = {
         "kairos_raw_json": analysis,
         "kairos_raw_text_preview": (raw_text or "")[:2000],
+        "schedule_rethink": analysis.get("SCHEDULE_RETHINK"),
     }
 
     row = {
@@ -573,6 +816,7 @@ def upsert_kairos_details(
         "psychological_levers": analysis["PSYCHOLOGICAL_LEVERS"],
         "risks": analysis["RISKS"],
         "moment_compass": analysis["MOMENT_COMPASS"],
+        # Store schedule rethink in its own column when available (best-effort; safe on older schemas).
         "kairos_summary": analysis["TURN_MICRO_NOTE"]["SUMMARY"],
         "turn_micro_note": analysis["TURN_MICRO_NOTE"],
         "extras": _merge_extras(existing_extras, extras_patch),
@@ -582,6 +826,13 @@ def upsert_kairos_details(
         .upsert(row, on_conflict="message_id")
         .execute()
     )
+    # Best-effort: persist schedule_rethink into a dedicated column when present.
+    try:
+        SB.table("message_ai_details").update(
+            {"schedule_rethink": analysis.get("SCHEDULE_RETHINK")}
+        ).eq("message_id", int(message_id)).execute()
+    except Exception:
+        pass
 
 
 def enqueue_join_job(message_id: int, run_id: str | None = None) -> None:
@@ -664,6 +915,13 @@ def process_job(payload: Dict[str, Any], row_id: int) -> bool:
     thread_id = message_row["thread_id"]
     turn_index = message_row.get("turn_index")
     latest_fan_text = _format_fan_turn(message_row)
+    daily_plan_row = None
+    daily_plan_text = "NO_DAILY_PLAN: true"
+    try:
+        daily_plan_row = _fetch_daily_plan_row(thread_id)
+        daily_plan_text = _format_daily_plan_for_prompt(daily_plan_row)
+    except Exception:
+        daily_plan_text = "NO_DAILY_PLAN: true"
     if kairos_mode == "lite":
         raw_turns = live_turn_window(
             thread_id,
@@ -689,6 +947,9 @@ def process_job(payload: Dict[str, Any], row_id: int) -> bool:
             latest_fan_text=latest_fan_text,
             client=SB,
             boundary_turn=turn_index,
+            extra_context={
+                "DAILY_PLAN_TODAY": daily_plan_text,
+            },
         )
     except FileNotFoundError:
         system_prompt, user_prompt = build_prompt_sections(
@@ -698,6 +959,9 @@ def process_job(payload: Dict[str, Any], row_id: int) -> bool:
             latest_fan_text=latest_fan_text,
             client=SB,
             boundary_turn=turn_index,
+            extra_context={
+                "DAILY_PLAN_TODAY": daily_plan_text,
+            },
         )
 
     try:

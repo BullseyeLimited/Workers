@@ -182,6 +182,9 @@ SUMMARY: (1-sentence micro-note)
 MOMENT_COMPASS
 (text)
 
+SCHEDULE_RETHINK
+(text)
+
 END
 
 Reply using exactly these headers, end with the literal line '### END'.
@@ -319,6 +322,18 @@ Use ALL the input you were given (summaries, recent turns, cards, planner intent
 If there is no deep undercurrent (low-entropy, straightforward ask, clear literal intent), say that plainly — then give the simplest, evidence-backed read of what he wants and what emotional tone he is rewarding right now.
 Keep strict third-person distance (The Fan / He / The Creator / She). Write this section LAST, after you’ve already written the other sections, so you can use everything you’ve already noticed.
 
+SCHEDULE_RETHINK
+(YES/NO + optional reasoning; normal prose; NOT a plan)
+You will receive a <DAILY_PLAN_TODAY> block inside the input. Treat it as the Creator’s schedule for THIS thread/day.
+
+Your job is to decide, every single turn, whether the schedule should be reconsidered because the current conversation is unusually valuable *and* something in the schedule is about to pull attention away.
+
+Hard output rules for this section:
+- The first non-empty line must be exactly: YES or NO
+- Default should be NO.
+- If NO: output only the single token "NO" (no extra words).
+- If YES: output "YES" and then write 4+ full sentences explaining why it would be beneficial to cancel/rename a plan to stay present with the Fan. Keep it evidence-based (use quotes/cues from the Fan + what’s upcoming in the schedule). Do not write any fan-facing message text and do not invent facts.
+
 General Output Requirements
 
 1. Narrative Mode (The Analyst’s Voice)
@@ -417,6 +432,10 @@ Recent turns are shown oldest → newest (top to bottom). Turn numbers are by re
 <CURRENT_FAN_TURN>
 {FAN_LATEST_VERBATIM}
 </CURRENT_FAN_TURN>
+
+<DAILY_PLAN_TODAY>
+{DAILY_PLAN_TODAY}
+</DAILY_PLAN_TODAY>
 </CONTEXT>
 
 <PLANNER_INTENT>
