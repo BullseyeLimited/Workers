@@ -401,7 +401,8 @@ Write EXACTLY one token on the next line:
 YES
 or
 NO
-Default should be NO unless the MOMENT_COMPASS contains high-value signal that would materially improve how the Composer matches the moment (mood/stance/energy) without needing to be told what to write.
+Default should be YES. The Composer should usually see MOMENT_COMPASS because it helps match the mood/stance/energy without being told what to write.
+Only output NO when MOMENT_COMPASS is clearly misaligned with your plan or would actively pull the message in a contradictory direction (e.g., it reads the moment wrong, over-pathologizes, or suggests a stance that conflicts with your tactical objective).
 Do not include any other words, explanation, or notes in this section (we may add notes later; not now).
 
 
