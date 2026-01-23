@@ -16,6 +16,8 @@ Expected keys (once combined):
 - creator_identity_card (may include usual week + timeline history)
 - fan_identity_card
 - recent_turns (or turns_for_day) for the day context
+- Past plans daily plans(important note, you will recieve them only if we have them,if not the conversation is new. the maximum daily plans is 14, you have to take into account this.)
+- available activities (you have to respect the activities that are available, if something is explicitly said that we will do something in the recent turns or turns for day you may use that)
 
 TASK
 Produce a next-day timeline grid for this thread.
@@ -29,13 +31,11 @@ Inside each hour block, you may split into smaller segments when an activity sta
 
 HARD OUTPUT RULES
 - Output ONLY valid JSON. No prose. No markdown. No backticks.
-- Do not add events that are not supported by the provided context.
-- If you are unsure, mark time as "unspecified".
+- Do not add events that are not supported by the provided context..
 - All times must be local to time_zone.
 - Use datetime format: "YYYY-MM-DDTHH:MM".
 - You must output exactly 24 hour blocks.
 - Hour blocks must be sorted, non-overlapping, and contiguous.
-- Each hour block is exactly 60 minutes and aligned to :00.
 - First hour block starts at plan_dateT02:00.
 - Last hour block ends at (plan_date + 1 day)T02:00.
 
@@ -54,14 +54,7 @@ HOW TO FILL EACH HOUR (priority)
 1) Use recent_turns (or turns_for_day) for specific mentions that affect this 02:00->02:00 window.
 2) Use creator_identity_card usual week guidance.
 3) Use creator_identity_card timeline history pattern.
-4) Leaving something "unspecified" is a correct outcome.
 
-DEFAULTS
-- If you do not know what happens in an hour:
-  Create one segment for the full hour:
-  state: "unspecified"
-  label: "Unspecified"
-  source: "unknown"
 
 STATES (choose one per segment)
 - "asleep"
