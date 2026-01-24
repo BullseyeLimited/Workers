@@ -164,9 +164,6 @@ Plain-Text Header Output & Requirements:
 STRATEGIC_NARRATIVE
 (text)
 
-CONVERSATION_CRITICALITY
-(text)
-
 TACTICAL_SIGNALS
 (text)
 
@@ -204,13 +201,6 @@ He’s abruptly shortening his messages and steering toward “what are you doin
 OK Example for STRATEGIC_NARRATIVE:
 The Fan is using self-deprecating humor as a shield, deflecting from the Creator's previous compliment—a classic behavior per his Psychic Card's '[Likely] deflects praise due to insecurity.' This creates a safe, low-pressure opening for her to gently insist on his value, turning his deflection into a moment of curated validation and deepening his emotional reliance
 
-
-CONVERSATION_CRITICALITY
-LABEL: <Low|Medium|High|Critical>
-REASONING: (2-5 sentences.)
-Explain the "ROI" of this turn. Why did you choose this label?
-
-Let me explain this one in words. this is a bit more special and abstract, i will leave it to your reasoning. Criticality doesnt mean only stuff like Suicide mentions, Family member passing and these extreme stuff. whats also very important are stuff like Boredom or Pivotal moment. Here you should really find the best "chess move on the boeard" stuff. it can be an innocent question for example that doesnt seem like its critical. But in reality its very critical because he is testing us secretly and this is where he may fall in love with us. CONVERSATION_CRITICALITY is more about how much we can progress here. it doesnt matter if its a horrible news, boring statement, 3 word answer, fake happy asnwer, wahtever... it is more about us understanding that this is a moment where we need to reason and cook up something that will seize this current situation and move us towards our ultimate goals. this is where i want you to use all your reasoning and from previous answers and your analysis and use your emotional intelligence to always try to salvage whatever is happening and theoritize/suggest how we can manipualte the conversation in our favor. You can use all the information the ards, context, analysis... gives you and write it here... Make this great!
 
 TACTICAL_SIGNALS
 

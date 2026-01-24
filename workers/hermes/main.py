@@ -19,6 +19,7 @@ import requests
 from supabase import ClientOptions, create_client
 
 from workers.lib.content_pack import build_content_index, format_content_pack
+from workers.lib.daily_plan_utils import fetch_daily_plan_row, format_daily_plan_for_prompt
 from workers.lib.job_utils import job_exists
 from workers.lib.prompt_builder import live_turn_window
 from workers.lib.json_utils import safe_parse_model_json
@@ -776,11 +777,20 @@ def process_job(payload: Dict[str, Any]) -> bool:
             f"{packed_index or 'NONE'}\n"
             "</CONTENT_INDEX>"
         )
+        daily_plan_text = "NO_DAILY_PLAN: true"
+        try:
+            daily_plan_row = fetch_daily_plan_row(SB, thread_id)
+            daily_plan_text = format_daily_plan_for_prompt(daily_plan_row)
+        except Exception:
+            daily_plan_text = "NO_DAILY_PLAN: true"
         user_block = (
             "<HERMES_INPUT>\n"
             f"{raw_turns}\n\n"
             "LATEST_FAN_MESSAGE:\n"
             f"{latest_fan_text}"
+            "\n\n<DAILY_PLAN_TODAY>\n"
+            f"{daily_plan_text}\n"
+            "</DAILY_PLAN_TODAY>"
             f"{previous_napoleon_block}"
             f"{previous_location_block}"
             f"{content_index_block}\n"

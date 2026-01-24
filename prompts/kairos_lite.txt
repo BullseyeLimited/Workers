@@ -136,9 +136,6 @@ Plain-Text Header Output & Requirements:
 STRATEGIC_NARRATIVE
 (text)
 
-CONVERSATION_CRITICALITY
-(text)
-
 TACTICAL_SIGNALS
 (text)
 
@@ -179,15 +176,6 @@ He’s abruptly shortening his messages and steering toward “what are you doin
 OK Example for STRATEGIC_NARRATIVE:
 The Fan is using self-deprecating humor as a shield, deflecting from the Creator's previous compliment—a classic deflection pattern visible in his recent turns. This creates a safe, low-pressure opening for her to gently insist on his value, turning his deflection into a moment of curated validation and deepening his emotional reliance
 
-
-CONVERSATION_CRITICALITY
-LABEL: <Low|Medium|High|Critical>
-REASONING: (1-3 sentences. The items below are strictly examples, not a checklist. Do not limit yourself to them. you decide the Criticality)
-Explain the "ROI" of this turn. Why did you choose this label?
- Low: Boredom risk. He is giving one-word replies. Signal to Napoleon: Spice it up or he will leave.
- Medium: Standard maintenance. Good flow, but no major spikes.
- High: Deep engagement, vulnerability, or strong arousal.
- Critical: A pivotal moment. He is asking to buy (High $$), he is angry (Churn Risk), or he is testing if we are real (Simulation Risk).
 
 TACTICAL_SIGNALS
 

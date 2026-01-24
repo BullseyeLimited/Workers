@@ -17,6 +17,10 @@ from openai import OpenAI
 from supabase import create_client, ClientOptions
 
 from workers.lib.ai_response_store import record_ai_response
+from workers.lib.daily_plan_utils import (
+    fetch_daily_plan_row as _fetch_daily_plan_row_shared,
+    format_daily_plan_for_prompt as _format_daily_plan_for_prompt_shared,
+)
 from workers.lib.prompt_builder import (
     build_prompt,
     build_prompt_sections,
@@ -63,7 +67,6 @@ TRANSLATOR_CLIENT = OpenAI(
 KAIROS_TRANSLATOR_SCHEMA = """
 Return a JSON object with exactly these keys:
 - STRATEGIC_NARRATIVE: string
-- CONVERSATION_CRITICALITY: string (accept any text; do not rewrite)
 - TACTICAL_SIGNALS: string
 - PSYCHOLOGICAL_LEVERS: string
 - RISKS: string
@@ -77,8 +80,6 @@ Do not paraphrase, summarize, or inject new content; preserve the original wordi
 HEADER_MAP = {
     "STRATEGIC_NARRATIVE": "STRATEGIC_NARRATIVE",
     "STRATEGIC NARRATIVE": "STRATEGIC_NARRATIVE",
-    "CONVERSATION_CRITICALITY": "CONVERSATION_CRITICALITY",
-    "CONVERSATION CRITICALITY": "CONVERSATION_CRITICALITY",
     "TACTICAL_SIGNALS": "TACTICAL_SIGNALS",
     "TACTICAL SIGNALS": "TACTICAL_SIGNALS",
     "PSYCHOLOGICAL_LEVERS": "PSYCHOLOGICAL_LEVERS",
@@ -94,7 +95,7 @@ HEADER_MAP = {
 
 HEADER_PATTERN = re.compile(
     r"^[\s>*-]*\**\s*(?P<header>"
-    r"STRATEGIC[_ ]NARRATIVE|CONVERSATION[_ ]CRITICALITY|"
+    r"STRATEGIC[_ ]NARRATIVE|"
     r"TACTICAL[_ ]SIGNALS|PSYCHOLOGICAL[_ ]LEVERS|RISKS|TURN[_ ]MICRO[_ ]NOTE|"
     r"MOMENT[_ ]COMPASS|SCHEDULE[_ ]RETHINK)"
     r"\s*\**\s*:?\s*$",
@@ -293,7 +294,6 @@ def _missing_required_fields(analysis: dict | None) -> list[str]:
 
     check_non_empty(analysis, "STRATEGIC_NARRATIVE", "STRATEGIC_NARRATIVE")
 
-    check_non_empty(analysis, "CONVERSATION_CRITICALITY", "CONVERSATION_CRITICALITY")
     check_non_empty(analysis, "TACTICAL_SIGNALS", "TACTICAL_SIGNALS")
     check_non_empty(analysis, "PSYCHOLOGICAL_LEVERS", "PSYCHOLOGICAL_LEVERS")
     check_non_empty(analysis, "RISKS", "RISKS")
@@ -356,7 +356,6 @@ def merge_kairos_analysis(base: dict, patch: dict) -> dict:
     """
     merged = {
         "STRATEGIC_NARRATIVE": base.get("STRATEGIC_NARRATIVE") or "",
-        "CONVERSATION_CRITICALITY": base.get("CONVERSATION_CRITICALITY") or "",
         "TACTICAL_SIGNALS": base.get("TACTICAL_SIGNALS") or "",
         "PSYCHOLOGICAL_LEVERS": base.get("PSYCHOLOGICAL_LEVERS") or "",
         "RISKS": base.get("RISKS") or "",
@@ -369,7 +368,6 @@ def merge_kairos_analysis(base: dict, patch: dict) -> dict:
         merged["STRATEGIC_NARRATIVE"] = patch["STRATEGIC_NARRATIVE"]
 
     for key in (
-        "CONVERSATION_CRITICALITY",
         "TACTICAL_SIGNALS",
         "PSYCHOLOGICAL_LEVERS",
         "RISKS",
@@ -430,9 +428,6 @@ def parse_kairos_headers(raw_text: str) -> Tuple[dict | None, str | None]:
     # Build analysis dict with defaults
     analysis: dict[str, Any] = {
         "STRATEGIC_NARRATIVE": sections.get("STRATEGIC_NARRATIVE", ""),
-        "CONVERSATION_CRITICALITY": sections.get(
-            "CONVERSATION_CRITICALITY", ""
-        ),
         "TACTICAL_SIGNALS": sections.get("TACTICAL_SIGNALS", ""),
         "PSYCHOLOGICAL_LEVERS": sections.get("PSYCHOLOGICAL_LEVERS", ""),
         "RISKS": sections.get("RISKS", ""),
@@ -472,8 +467,6 @@ def _validated_analysis(fragments: dict) -> dict:
         return s_val
 
     strategic_narrative = _require_text("STRATEGIC_NARRATIVE")
-    conv_crit = _require_text("CONVERSATION_CRITICALITY")
-
     tactical = _require_text("TACTICAL_SIGNALS")
     levers = _require_text("PSYCHOLOGICAL_LEVERS")
     risks = _require_text("RISKS")
@@ -489,7 +482,6 @@ def _validated_analysis(fragments: dict) -> dict:
 
     return {
         "STRATEGIC_NARRATIVE": strategic_narrative,
-        "CONVERSATION_CRITICALITY": conv_crit,
         "TACTICAL_SIGNALS": tactical,
         "PSYCHOLOGICAL_LEVERS": levers,
         "RISKS": risks,
@@ -531,186 +523,11 @@ def _current_plan_date_for_now(now_local_iso: str) -> str | None:
 
 
 def _fetch_daily_plan_row(thread_id: int) -> dict | None:
-    """
-    Return the most relevant daily_plans row for "now" (plan_date anchored at 02:00 local).
-    Falls back to the newest plan when an exact match is missing.
-    """
-    rows = (
-        SB.table("daily_plans")
-        .select("plan_date,plan_json,raw_text,status,error,time_zone,generated_at")
-        .eq("thread_id", int(thread_id))
-        .order("plan_date", desc=True)
-        .limit(5)
-        .execute()
-        .data
-        or []
-    )
-    if not rows:
-        return None
-
-    newest = rows[0] if isinstance(rows[0], dict) else {}
-    tz_name = newest.get("time_zone")
-    if not tz_name and isinstance(newest.get("plan_json"), dict):
-        tz_name = newest["plan_json"].get("time_zone")
-
-    tz_name, now_local_iso = _safe_now_local_iso(tz_name)
-    target_plan_date = _current_plan_date_for_now(now_local_iso)
-    if not target_plan_date:
-        return newest
-
-    for row in rows:
-        if not isinstance(row, dict):
-            continue
-        if str(row.get("plan_date") or "").strip() == target_plan_date:
-            row["_computed_tz_name"] = tz_name
-            row["_computed_now_local"] = now_local_iso
-            return row
-
-    # Try fetching exact date in case it's just outside the small window.
-    try:
-        exact = (
-            SB.table("daily_plans")
-            .select("plan_date,plan_json,raw_text,status,error,time_zone,generated_at")
-            .eq("thread_id", int(thread_id))
-            .eq("plan_date", target_plan_date)
-            .limit(1)
-            .execute()
-            .data
-            or []
-        )
-        if exact and isinstance(exact[0], dict):
-            exact[0]["_computed_tz_name"] = tz_name
-            exact[0]["_computed_now_local"] = now_local_iso
-            return exact[0]
-    except Exception:
-        pass
-
-    newest["_computed_tz_name"] = tz_name
-    newest["_computed_now_local"] = now_local_iso
-    return newest
+    return _fetch_daily_plan_row_shared(SB, thread_id)
 
 
 def _format_daily_plan_for_prompt(plan_row: dict | None) -> str:
-    """
-    Compact, Kairos-readable view of today's daily plan.
-    """
-    if not plan_row:
-        return "NO_DAILY_PLAN: true"
-
-    tz_name = plan_row.get("_computed_tz_name") or plan_row.get("time_zone") or ""
-    now_local_iso = plan_row.get("_computed_now_local") or ""
-    plan_date = str(plan_row.get("plan_date") or "").strip()
-    status = str(plan_row.get("status") or "").strip() or "unknown"
-    error = str(plan_row.get("error") or "").strip()
-    generated_at = str(plan_row.get("generated_at") or "").strip()
-
-    plan_json = plan_row.get("plan_json")
-    if isinstance(plan_json, str):
-        try:
-            plan_json = json.loads(plan_json)
-        except Exception:
-            plan_json = None
-
-    lines: list[str] = []
-    lines.append(f"PLAN_DATE: {plan_date or 'unknown'}")
-    lines.append(f"TIME_ZONE: {tz_name or 'unknown'}")
-    if now_local_iso:
-        lines.append(f"NOW_LOCAL: {now_local_iso}")
-    if generated_at:
-        lines.append(f"GENERATED_AT_UTC: {generated_at}")
-    lines.append(f"STATUS: {status}")
-    if error:
-        lines.append(f"ERROR: {error}")
-
-    if not isinstance(plan_json, dict):
-        raw_text = (plan_row.get("raw_text") or "").strip()
-        if raw_text:
-            preview = raw_text[:2000]
-            lines.append("RAW_TEXT_PREVIEW:")
-            lines.append(preview)
-        return "\n".join(lines).strip()
-
-    segments: list[dict] = []
-    hours = plan_json.get("hours")
-    if isinstance(hours, list):
-        for hour in hours:
-            if not isinstance(hour, dict):
-                continue
-            segs = hour.get("segments")
-            if not isinstance(segs, list):
-                continue
-            for seg in segs:
-                if isinstance(seg, dict):
-                    segments.append(seg)
-
-    def _parse_local_dt(value: str) -> datetime | None:
-        try:
-            dt = datetime.fromisoformat(value)
-        except Exception:
-            return None
-        if dt.tzinfo is not None:
-            return dt
-        if not tz_name:
-            return dt.replace(tzinfo=timezone.utc)
-        try:
-            return dt.replace(tzinfo=ZoneInfo(str(tz_name)))
-        except Exception:
-            return dt.replace(tzinfo=timezone.utc)
-
-    now_local_dt = _parse_local_dt(now_local_iso) if now_local_iso else None
-    current_seg = None
-    if now_local_dt:
-        for seg in segments:
-            start = _parse_local_dt(str(seg.get("start_local") or ""))
-            end = _parse_local_dt(str(seg.get("end_local") or ""))
-            if not start or not end:
-                continue
-            if start <= now_local_dt < end:
-                current_seg = seg
-                break
-
-    def _fmt_seg(seg: dict) -> str:
-        start = str(seg.get("start_local") or "").strip()
-        end = str(seg.get("end_local") or "").strip()
-        state = str(seg.get("state") or "").strip() or "unspecified"
-        label = str(seg.get("label") or "").strip() or "Unspecified"
-        notes = str(seg.get("notes") or "").strip()
-        source = str(seg.get("source") or "").strip()
-        tail = []
-        if source:
-            tail.append(f"source={source}")
-        if notes:
-            tail.append(f"notes={notes}")
-        suffix = f" ({', '.join(tail)})" if tail else ""
-        return f"- {start} -> {end} | {state} | {label}{suffix}"
-
-    if current_seg:
-        lines.append("CURRENT_SEGMENT:")
-        lines.append(_fmt_seg(current_seg))
-
-    # Upcoming changes: next ~12 segments after now
-    if now_local_dt:
-        future: list[tuple[datetime, dict]] = []
-        for seg in segments:
-            start_raw = str(seg.get("start_local") or "")
-            start = _parse_local_dt(start_raw)
-            if not start:
-                continue
-            if start >= now_local_dt:
-                future.append((start, seg))
-        future.sort(key=lambda x: x[0])
-        if future:
-            lines.append("UPCOMING_SEGMENTS:")
-            for _, seg in future[:12]:
-                lines.append(_fmt_seg(seg))
-
-    # Always include full segment list, but cap length.
-    lines.append("FULL_DAY_SEGMENTS:")
-    for seg in segments[:200]:
-        lines.append(_fmt_seg(seg))
-
-    out = "\n".join(lines).strip()
-    return out[:12000]
+    return _format_daily_plan_for_prompt_shared(plan_row)
 
 
 def record_kairos_failure(
@@ -755,7 +572,6 @@ def record_kairos_failure(
         row.update(
             {
                 "strategic_narrative": partial.get("STRATEGIC_NARRATIVE"),
-                "conversation_criticality": partial.get("CONVERSATION_CRITICALITY"),
                 "tactical_signals": partial.get("TACTICAL_SIGNALS"),
                 "psychological_levers": partial.get("PSYCHOLOGICAL_LEVERS"),
                 "risks": partial.get("RISKS"),
@@ -811,7 +627,6 @@ def upsert_kairos_details(
         "kairos_output_raw": raw_text,
         "translator_error": None,
         "strategic_narrative": analysis["STRATEGIC_NARRATIVE"],
-        "conversation_criticality": analysis["CONVERSATION_CRITICALITY"],
         "tactical_signals": analysis["TACTICAL_SIGNALS"],
         "psychological_levers": analysis["PSYCHOLOGICAL_LEVERS"],
         "risks": analysis["RISKS"],
