@@ -67,7 +67,6 @@ TRANSLATOR_CLIENT = OpenAI(
 KAIROS_TRANSLATOR_SCHEMA = """
 Return a JSON object with exactly these keys:
 - STRATEGIC_NARRATIVE: string
-- CONVERSATION_CRITICALITY: string (accept any text; do not rewrite)
 - TACTICAL_SIGNALS: string
 - PSYCHOLOGICAL_LEVERS: string
 - RISKS: string
@@ -81,8 +80,6 @@ Do not paraphrase, summarize, or inject new content; preserve the original wordi
 HEADER_MAP = {
     "STRATEGIC_NARRATIVE": "STRATEGIC_NARRATIVE",
     "STRATEGIC NARRATIVE": "STRATEGIC_NARRATIVE",
-    "CONVERSATION_CRITICALITY": "CONVERSATION_CRITICALITY",
-    "CONVERSATION CRITICALITY": "CONVERSATION_CRITICALITY",
     "TACTICAL_SIGNALS": "TACTICAL_SIGNALS",
     "TACTICAL SIGNALS": "TACTICAL_SIGNALS",
     "PSYCHOLOGICAL_LEVERS": "PSYCHOLOGICAL_LEVERS",
@@ -98,7 +95,7 @@ HEADER_MAP = {
 
 HEADER_PATTERN = re.compile(
     r"^[\s>*-]*\**\s*(?P<header>"
-    r"STRATEGIC[_ ]NARRATIVE|CONVERSATION[_ ]CRITICALITY|"
+    r"STRATEGIC[_ ]NARRATIVE|"
     r"TACTICAL[_ ]SIGNALS|PSYCHOLOGICAL[_ ]LEVERS|RISKS|TURN[_ ]MICRO[_ ]NOTE|"
     r"MOMENT[_ ]COMPASS|SCHEDULE[_ ]RETHINK)"
     r"\s*\**\s*:?\s*$",
@@ -297,7 +294,6 @@ def _missing_required_fields(analysis: dict | None) -> list[str]:
 
     check_non_empty(analysis, "STRATEGIC_NARRATIVE", "STRATEGIC_NARRATIVE")
 
-    check_non_empty(analysis, "CONVERSATION_CRITICALITY", "CONVERSATION_CRITICALITY")
     check_non_empty(analysis, "TACTICAL_SIGNALS", "TACTICAL_SIGNALS")
     check_non_empty(analysis, "PSYCHOLOGICAL_LEVERS", "PSYCHOLOGICAL_LEVERS")
     check_non_empty(analysis, "RISKS", "RISKS")
@@ -360,7 +356,6 @@ def merge_kairos_analysis(base: dict, patch: dict) -> dict:
     """
     merged = {
         "STRATEGIC_NARRATIVE": base.get("STRATEGIC_NARRATIVE") or "",
-        "CONVERSATION_CRITICALITY": base.get("CONVERSATION_CRITICALITY") or "",
         "TACTICAL_SIGNALS": base.get("TACTICAL_SIGNALS") or "",
         "PSYCHOLOGICAL_LEVERS": base.get("PSYCHOLOGICAL_LEVERS") or "",
         "RISKS": base.get("RISKS") or "",
@@ -373,7 +368,6 @@ def merge_kairos_analysis(base: dict, patch: dict) -> dict:
         merged["STRATEGIC_NARRATIVE"] = patch["STRATEGIC_NARRATIVE"]
 
     for key in (
-        "CONVERSATION_CRITICALITY",
         "TACTICAL_SIGNALS",
         "PSYCHOLOGICAL_LEVERS",
         "RISKS",
@@ -434,9 +428,6 @@ def parse_kairos_headers(raw_text: str) -> Tuple[dict | None, str | None]:
     # Build analysis dict with defaults
     analysis: dict[str, Any] = {
         "STRATEGIC_NARRATIVE": sections.get("STRATEGIC_NARRATIVE", ""),
-        "CONVERSATION_CRITICALITY": sections.get(
-            "CONVERSATION_CRITICALITY", ""
-        ),
         "TACTICAL_SIGNALS": sections.get("TACTICAL_SIGNALS", ""),
         "PSYCHOLOGICAL_LEVERS": sections.get("PSYCHOLOGICAL_LEVERS", ""),
         "RISKS": sections.get("RISKS", ""),
@@ -476,8 +467,6 @@ def _validated_analysis(fragments: dict) -> dict:
         return s_val
 
     strategic_narrative = _require_text("STRATEGIC_NARRATIVE")
-    conv_crit = _require_text("CONVERSATION_CRITICALITY")
-
     tactical = _require_text("TACTICAL_SIGNALS")
     levers = _require_text("PSYCHOLOGICAL_LEVERS")
     risks = _require_text("RISKS")
@@ -493,7 +482,6 @@ def _validated_analysis(fragments: dict) -> dict:
 
     return {
         "STRATEGIC_NARRATIVE": strategic_narrative,
-        "CONVERSATION_CRITICALITY": conv_crit,
         "TACTICAL_SIGNALS": tactical,
         "PSYCHOLOGICAL_LEVERS": levers,
         "RISKS": risks,
@@ -584,7 +572,6 @@ def record_kairos_failure(
         row.update(
             {
                 "strategic_narrative": partial.get("STRATEGIC_NARRATIVE"),
-                "conversation_criticality": partial.get("CONVERSATION_CRITICALITY"),
                 "tactical_signals": partial.get("TACTICAL_SIGNALS"),
                 "psychological_levers": partial.get("PSYCHOLOGICAL_LEVERS"),
                 "risks": partial.get("RISKS"),
@@ -640,7 +627,6 @@ def upsert_kairos_details(
         "kairos_output_raw": raw_text,
         "translator_error": None,
         "strategic_narrative": analysis["STRATEGIC_NARRATIVE"],
-        "conversation_criticality": analysis["CONVERSATION_CRITICALITY"],
         "tactical_signals": analysis["TACTICAL_SIGNALS"],
         "psychological_levers": analysis["PSYCHOLOGICAL_LEVERS"],
         "risks": analysis["RISKS"],

@@ -13,10 +13,6 @@ class KairosParserScheduleRethinkTests(unittest.TestCase):
         raw = """STRATEGIC_NARRATIVE
 He is warm.
 
-CONVERSATION_CRITICALITY
-LABEL: Low
-REASONING: Routine.
-
 TACTICAL_SIGNALS
 - "ok"
 
@@ -45,10 +41,6 @@ NO
     def test_parses_schedule_rethink_yes_with_reasoning(self):
         raw = """STRATEGIC_NARRATIVE
 He is leaning in.
-
-CONVERSATION_CRITICALITY
-LABEL: High
-REASONING: He is opening up.
 
 TACTICAL_SIGNALS
 - He says "I never tell anyone this".
