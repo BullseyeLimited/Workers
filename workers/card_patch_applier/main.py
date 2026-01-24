@@ -8,6 +8,7 @@ import traceback
 from datetime import datetime, timezone
 from typing import Dict, List, Tuple
 
+from postgrest.exceptions import APIError
 from supabase import create_client, ClientOptions
 
 from workers.lib.cards import (
@@ -97,6 +98,36 @@ for seg_id, label in SEGMENT_NAMES.items():
     normalized_stripped = re.sub(r"[^a-z0-9]+", "_", stripped.lower()).strip("_")
     if normalized_stripped:
         SEGMENT_LABEL_MAP[normalized_stripped] = seg_id
+
+
+def _api_error_code(exc: Exception) -> str | None:
+    if not isinstance(exc, APIError):
+        return None
+    if exc.args and isinstance(exc.args[0], dict):
+        return exc.args[0].get("code")
+    return None
+
+
+def _sanitize_patches(patches: List[dict]) -> List[dict]:
+    """
+    Keep only the fields we need for applying patches and persisting to DB.
+
+    This avoids schema/constraint issues if the DB expects a specific JSON shape.
+    """
+    cleaned: List[dict] = []
+    for patch in patches or []:
+        cleaned.append(
+            {
+                "action": patch.get("action"),
+                "segment_id": patch.get("segment_id"),
+                "text": patch.get("text"),
+                "confidence": patch.get("confidence"),
+                "reason": patch.get("reason") or "",
+                "target_id": patch.get("target_id"),
+                "target_text": patch.get("target_text"),
+            }
+        )
+    return cleaned
 
 
 def _parse_confidence(value: str) -> str:
@@ -589,25 +620,45 @@ def _insert_summary_row(
     extract_status: str,
 ) -> int:
     summary_idx = tier_index or _next_tier_index(thread_id, tier)
+    fan_action = patches or None
+    writer_json = {"raw_text": raw_text}
     # Try update first (if row exists), then insert if missing.
-    res = (
-        SB.table("summaries")
-        .update(
-            {
-                "abstract_summary": abstract_summary,
-                "fan_psychic_card_action": patches,
-                "raw_writer_json": {"raw_text": raw_text},
-                "raw_hash": raw_hash,
-                "extract_status": extract_status,
-            }
+    update_payload = {
+        "abstract_summary": abstract_summary,
+        "fan_psychic_card_action": fan_action,
+        "raw_writer_json": writer_json,
+        "raw_hash": raw_hash,
+        "extract_status": extract_status,
+    }
+    try:
+        res = (
+            SB.table("summaries")
+            .update(update_payload)
+            .eq("thread_id", thread_id)
+            .eq("tier", tier)
+            .eq("start_turn", start_turn)
+            .eq("end_turn", end_turn)
+            .execute()
+            .data
         )
-        .eq("thread_id", thread_id)
-        .eq("tier", tier)
-        .eq("start_turn", start_turn)
-        .eq("end_turn", end_turn)
-        .execute()
-        .data
-    )
+    except APIError as exc:
+        # Some DB schemas disallow empty arrays or enforce a strict JSON shape.
+        # Fall back to NULL actions and preserve the parsed patches in raw_writer_json.
+        if _api_error_code(exc) == "23514" and fan_action is not None:
+            update_payload["fan_psychic_card_action"] = None
+            update_payload["raw_writer_json"] = {"raw_text": raw_text, "patches": patches}
+            res = (
+                SB.table("summaries")
+                .update(update_payload)
+                .eq("thread_id", thread_id)
+                .eq("tier", tier)
+                .eq("start_turn", start_turn)
+                .eq("end_turn", end_turn)
+                .execute()
+                .data
+            )
+        else:
+            raise
     if not res:
         payload = {
             "thread_id": thread_id,
@@ -616,12 +667,20 @@ def _insert_summary_row(
             "start_turn": start_turn,
             "end_turn": end_turn,
             "abstract_summary": abstract_summary,
-            "fan_psychic_card_action": patches,
-            "raw_writer_json": {"raw_text": raw_text},
+            "fan_psychic_card_action": fan_action,
+            "raw_writer_json": writer_json,
             "raw_hash": raw_hash,
             "extract_status": extract_status,
         }
-        res = SB.table("summaries").insert(payload).execute().data
+        try:
+            res = SB.table("summaries").insert(payload).execute().data
+        except APIError as exc:
+            if _api_error_code(exc) == "23514" and fan_action is not None:
+                payload["fan_psychic_card_action"] = None
+                payload["raw_writer_json"] = {"raw_text": raw_text, "patches": patches}
+                res = SB.table("summaries").insert(payload).execute().data
+            else:
+                raise
         if not res:
             raise RuntimeError("failed to insert summary row")
     return res[0]["id"]
@@ -729,6 +788,7 @@ def process_job(payload: Dict) -> bool:
 
     try:
         patches, summary = parse_patch_output(raw_text)
+        patches = _sanitize_patches(patches)
         extract_status = "ok"
     except Exception as exc:  # noqa: BLE001
         patches, summary = [], ""
