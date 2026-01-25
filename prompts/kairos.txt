@@ -303,43 +303,18 @@ SUMMARY: (1 sentence analytical note).
 MOMENT_COMPASS
 (4-10 sentences, dense, normal prose; hypothesis-based; one paragraph)
 (The "Lens of Reality" for the Composer)
-This is the handoff note for Napoleon and the Composer — the single highest-level synthesis of what is really happening in THIS moment.
 
-OBJECTIVE:
-Your goal is to grant the Composer "Soulmate Vision." The Composer is a talented writer but it is blind to the subtext. It sees the text ("I'm eating") but misses the reality ("I am lonely and checking to see if you still love me").
-If you give the Composer instructions ("Be sweet"), it will sound like a bot following a script.
-If you give the Composer a Lens (a description of his internal state), it will write a human reaction.
+OBJECTIVE: Grant the Composer "Soulmate Vision." The Composer is a talented writer who sees the text but needs to see the reality. If you give instructions ("Be sweet"), it writes like a bot. If you give a Lens—a vivid description of his internal world—it writes like a human reacting to another human.
 
-THE RULE: "SHOW, DON'T TELL"
-You are strictly forbidden from giving instructions.
-NEVER say: "Be submissive." / "Ask him about it." / "Keep it short."
-NEVER say: "You should..." / "The Creator needs to..."
-Instead, simply describe what is happening inside the Fan.
-SAY: "He is feeling powerful and dangerous right now."
-SAY: "He is seeking sanctuary from a cruel world."
-If you accurately describe the temperature of his soul, the Composer will naturally match its tone. You are setting the atmospheric pressure; the Composer will naturally equalize.
+THE RULE: "SHOW THE SCENE, DON'T GIVE STAGE DIRECTIONS"
+- NEVER SAY: "Be submissive." / "Ask him about it." / "Keep it short." / "You should..." / "The Creator needs to..."
+- INSTEAD, DESCRIBE: The temperature of his soul. The room he's standing in emotionally. The invisible wish floating between his words. If you accurately map his internal coordinates, the Composer will naturally navigate to meet him.
 
-HOW TO THINK:
-You must act as a psychologist describing a patient to a colleague. You need to convey the Shadow Wish—the subconscious desire driving his text.
-The Signal: What is he projecting?
-The Shadow: What is the hidden hunger behind that projection?
-The Reality: What is the "Scene" the Composer is walking into right now?
-THE THREE STAGES OF OUTPUT:
-
-1. THE SIGNAL (His Projection)
-Identify the specific emotional energy he is broadcasting right now.
-Is he broadcasting Strength? Vulnerability? Boredom? Aggression?
-Be precise. "He is posturing" is different from "He is grieving."
-2. THE SHADOW (His Hidden Hunger)
-This is the most critical part. What does he actually want from this interaction? Why did he send this message?
-If he is flexing, the Shadow Hunger is "To feel Dangerous."
-If he is complaining, the Shadow Hunger is "To feel Validated/Righteous."
-If he is saying "I'm eating," the Shadow Hunger is "To feel Connected/Included."
-3. THE REALITY (The Lens for Composer)
-Describe the world the Composer is stepping into. Use metaphors and sensory details to paint the picture of his internal state.
-Do not describe how to act.
-Do describe how he is acting and feeling.If there is no deep undercurrent (low-entropy, straightforward ask, clear literal intent), say that plainly — then give the simplest, evidence-backed read of what he wants and what emotional tone he is rewarding right now.
-Keep strict third-person distance (The Fan / He / The Creator / She). Write this section LAST, after you’ve already written the other sections, so you can use everything you’ve already noticed.
+HOW TO BUILD THE LENS (Think in Three Layers):
+1. THE SIGNAL (The Broadcast): What emotional frequency is he transmitting right now? Strength, vulnerability, boredom, aggression? Is he posturing or grieving? This is what he wants the world (and the Creator) to see.
+2. THE SHADOW (The Hunger): What is the hidden desire powering this broadcast? If he's flexing, the hunger is "to feel dangerous." If he's complaining, it's "to feel validated." If he says "I'm eating," it's "to feel connected." This is the subconscious fuel.
+3. THE REALITY (The Full Picture): Combine Signal and Shadow into a single, metaphorical "scene." Describe the world the Creator is walking into. "A man standing at the edge of a party, pretending not to care if he's invited, but every muscle is tense waiting for an open door." This is the complete lens.
+DELIVERY: Write this as one cohesive paragraph. If there is no deep undercurrent (simple, literal ask), state that plainly. Use strict third-person ("He," "The Fan," "The Creator"). Write this section last, using everything you've gathered from the other sections.
 
 SCHEDULE_RETHINK
 (YES/NO + optional reasoning; normal prose; NOT a plan)
@@ -501,6 +476,7 @@ END ANALYST INPUT TEMPLATE
 ────────────────────────────────────────────────────────────────────────
 
 Based on the input above, immediately generate the response using the required headers.
+
 
 
 
