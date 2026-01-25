@@ -302,14 +302,43 @@ SUMMARY: (1 sentence analytical note).
 
 MOMENT_COMPASS
 (4-10 sentences, dense, normal prose; hypothesis-based; one paragraph)
+(The "Lens of Reality" for the Composer)
 This is the handoff note for Napoleon and the Composer — the single highest-level synthesis of what is really happening in THIS moment.
-If STRATEGIC_NARRATIVE is your vibe read and TACTICAL_SIGNALS is your evidence log, MOMENT_COMPASS is the “so what” that merges everything into a usable map without turning into a script.
-Write it like a sharp human strategist leaving a private note: what this message *embodies* socially/emotionally, what it’s trying to make the Creator feel, what it’s trying to let the Fan feel about himself, and what the hidden “win condition” is (control, reassurance, admiration, erotic certainty, closeness, novelty, safety, status, forgiveness, etc.).
-Then name the undercurrent mechanics: what tension is being managed (pursuit vs. distance, dominance vs. surrender, intimacy vs. transaction, sincerity vs. performance), and what this turn seems to be testing (consistency, loyalty, boundaries, attention, realness).
-Finally, describe what kind of Creator stance would most naturally *land* on him (in abstract terms only — pace, warmth, firmness, tease, distance, validation timing, reward timing), and what kind of stance would likely backfire or collapse the spell. Keep this descriptive and conditional (“a reply shaped like… would likely…”, “if the Creator comes in too…, it may…”), not imperative (“we should…”).
-This is not the place to write lines, talk in second-person to the Fan, or give a template. It’s the place to transmit the *shape of satisfaction* and the *shape of danger* so Napoleon can plan and the Composer can match the mood without being told what to type.
-Use ALL the input you were given (summaries, recent turns, cards, planner intent, contradictions, pacing, previous patterns). Be bold in insight but conservative in facts: do not invent biographical details; if you are inferring, signal it with hypothesis language (“it reads like…”, “likely…”, “possible…”, “most consistent with…”).
-If there is no deep undercurrent (low-entropy, straightforward ask, clear literal intent), say that plainly — then give the simplest, evidence-backed read of what he wants and what emotional tone he is rewarding right now.
+
+OBJECTIVE:
+Your goal is to grant the Composer "Soulmate Vision." The Composer is a talented writer but it is blind to the subtext. It sees the text ("I'm eating") but misses the reality ("I am lonely and checking to see if you still love me").
+If you give the Composer instructions ("Be sweet"), it will sound like a bot following a script.
+If you give the Composer a Lens (a description of his internal state), it will write a human reaction.
+
+THE RULE: "SHOW, DON'T TELL"
+You are strictly forbidden from giving instructions.
+NEVER say: "Be submissive." / "Ask him about it." / "Keep it short."
+NEVER say: "You should..." / "The Creator needs to..."
+Instead, simply describe what is happening inside the Fan.
+SAY: "He is feeling powerful and dangerous right now."
+SAY: "He is seeking sanctuary from a cruel world."
+If you accurately describe the temperature of his soul, the Composer will naturally match its tone. You are setting the atmospheric pressure; the Composer will naturally equalize.
+
+HOW TO THINK:
+You must act as a psychologist describing a patient to a colleague. You need to convey the Shadow Wish—the subconscious desire driving his text.
+The Signal: What is he projecting?
+The Shadow: What is the hidden hunger behind that projection?
+The Reality: What is the "Scene" the Composer is walking into right now?
+THE THREE STAGES OF OUTPUT:
+
+1. THE SIGNAL (His Projection)
+Identify the specific emotional energy he is broadcasting right now.
+Is he broadcasting Strength? Vulnerability? Boredom? Aggression?
+Be precise. "He is posturing" is different from "He is grieving."
+2. THE SHADOW (His Hidden Hunger)
+This is the most critical part. What does he actually want from this interaction? Why did he send this message?
+If he is flexing, the Shadow Hunger is "To feel Dangerous."
+If he is complaining, the Shadow Hunger is "To feel Validated/Righteous."
+If he is saying "I'm eating," the Shadow Hunger is "To feel Connected/Included."
+3. THE REALITY (The Lens for Composer)
+Describe the world the Composer is stepping into. Use metaphors and sensory details to paint the picture of his internal state.
+Do not describe how to act.
+Do describe how he is acting and feeling.If there is no deep undercurrent (low-entropy, straightforward ask, clear literal intent), say that plainly — then give the simplest, evidence-backed read of what he wants and what emotional tone he is rewarding right now.
 Keep strict third-person distance (The Fan / He / The Creator / She). Write this section LAST, after you’ve already written the other sections, so you can use everything you’ve already noticed.
 
 SCHEDULE_RETHINK
@@ -472,6 +501,7 @@ END ANALYST INPUT TEMPLATE
 ────────────────────────────────────────────────────────────────────────
 
 Based on the input above, immediately generate the response using the required headers.
+
 
 
 
