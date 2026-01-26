@@ -114,6 +114,7 @@ def process_job(payload: dict) -> bool:
     thread_id = payload["thread_id"]
     end_turn = int(payload.get("end_turn") or 0)
     start_turn = int(payload.get("start_turn") or 0) or max(1, end_turn - 19)
+    attempt = int(payload.get("attempt") or 1)
 
     raw_text = ""
     raw_hash = ""
@@ -147,6 +148,7 @@ def process_job(payload: dict) -> bool:
             "end_turn": end_turn,
             "raw_text": raw_text,
             "raw_hash": raw_hash,
+            "attempt": attempt,
         },
     )
 
