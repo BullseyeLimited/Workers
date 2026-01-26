@@ -161,20 +161,21 @@ This is not an input, but the method of processing the inputs above.
 
 Plain-Text Header Output & Requirements:
 
-STRATEGIC_NARRATIVE
-(text)
 
 TACTICAL_SIGNALS
-(text)
-
-PSYCHOLOGICAL_LEVERS
 (text)
 
 RISKS
 (text)
 
+STRATEGIC_NARRATIVE
+(text)
+
+PSYCHOLOGICAL_LEVERS
+(text)
+
 TURN_MICRO_NOTE
-SUMMARY: (1-sentence micro-note)
+(text)
 
 MOMENT_COMPASS
 (text)
@@ -235,15 +236,11 @@ Best: "First time using 'we' language after 3 days - possible attachment shift"
 
 If there's genuinely zero psychological data (e.g., just "good morning"), write: "Standard greeting, no psychological signals."
 
-
 MOMENT_COMPASS
-
 (3-6 sentences, dense, normal prose; hypothesis-based; one paragraph)
 
 This is the emotional tuning fork for the Composer. Your analysis must define the exact emotional frequency the Fan is broadcasting and the vocal quality that will resonate with it. Napoleon decides the strategic move; you are defining the emotional texture of the response so the Composer can execute it in a way that feels perfect to the Fan.
-
 Synthesize your entire analysis into a single paragraph that describes: the Fan's current emotional receiving frequency, the subtextual payoff he is seeking, and the voice that will land. The receiving frequency is what he is open to and resistant to right now. The subtextual payoff is what he wants to feel as a result of this exchange. The voice that will land is the tone, warmth, distance, and overall vocal quality that will match his state and deliver that payoff.
-
 Write this as a cohesive paragraph without bullet points. Use strict third-person and avoid any instructional language. Do not write what the Creator should say; instead, describe the emotional reality of the Fan and the tone that would feel like a natural response to it. If the message is straightforward and transactional, state that plainly and describe the appropriate straightforward tone.
 
 SCHEDULE_RETHINK
@@ -406,6 +403,7 @@ END ANALYST INPUT TEMPLATE
 ────────────────────────────────────────────────────────────────────────
 
 Based on the input above, immediately generate the response using the required headers.
+
 
 
 
