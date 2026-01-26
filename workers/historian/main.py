@@ -34,7 +34,6 @@ def call_llm(prompt: str) -> str:
             {"role": "user", "content": prompt},
         ],
         "max_tokens": 3500,
-        "repetition_penalty": 1.05,
         "temperature": 0.1,
     }
 

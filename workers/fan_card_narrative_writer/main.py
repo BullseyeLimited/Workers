@@ -924,10 +924,6 @@ def runpod_call(system_prompt: str, user_prompt: str) -> str:
         ],
         "max_tokens": 4096,
         "temperature": 0.4,
-        "top_p": 1.0,
-        "top_k": 1,
-        "min_p": 0.05,
-        "repeat_penalty": 1.05,
     }
     # Structured logging of the outbound request (excluding secrets).
     try:

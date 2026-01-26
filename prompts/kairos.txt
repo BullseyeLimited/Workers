@@ -458,7 +458,6 @@ Recent turns are shown oldest → newest (top to bottom). Turn numbers are by re
 <CREATOR_CARDS>
 --- Creator Cards ---
 <IDENTITY_CARD>
-{CREATOR_IDENTITY_CARD}
 </IDENTITY_CARD>
 
 <PSYCHIC_CARD>
