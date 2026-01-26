@@ -9,6 +9,25 @@ from workers.kairos.main import parse_kairos_headers, _missing_required_fields, 
 
 
 class KairosParserScheduleRethinkTests(unittest.TestCase):
+    def test_lite_mode_accepts_reduced_headers(self):
+        raw = """STRATEGIC_NARRATIVE
+He is leaning in and seeking reassurance, but he’s also testing if she’ll stay engaged.
+
+MOMENT_COMPASS
+He is receptive to warm, steady attention and lightly resistant to overt selling right now; the payoff he wants is to feel chosen and understood. The voice that lands is calm, intimate, and unhurried—confident warmth without pressure.
+
+### END"""
+        parsed, err = parse_kairos_headers(raw)
+        self.assertIsNone(err)
+        validated = _validated_analysis(parsed, mode="lite")
+        self.assertEqual([], _missing_required_fields(validated, mode="lite"))
+        # Ensure legacy keys exist (they may be empty in lite mode).
+        self.assertIn("TACTICAL_SIGNALS", validated)
+        self.assertIn("PSYCHOLOGICAL_LEVERS", validated)
+        self.assertIn("RISKS", validated)
+        self.assertIn("SCHEDULE_RETHINK", validated)
+        self.assertIn("TURN_MICRO_NOTE", validated)
+
     def test_parses_schedule_rethink_no(self):
         raw = """STRATEGIC_NARRATIVE
 He is warm.
@@ -74,4 +93,3 @@ This is worth canceling or renaming an upcoming plan to protect momentum.
 
 if __name__ == "__main__":
     unittest.main()
-
