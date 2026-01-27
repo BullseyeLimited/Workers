@@ -165,6 +165,10 @@ def runpod_call(system_prompt: str, user_message: str) -> tuple[str, dict, dict]
         ],
         "max_tokens": 4000,
         "temperature": 0.6,
+        "top_p": 0.95,
+        "repetition_penalty": 1.0,  # effectively off to allow headers to repeat
+        "presence_penalty": 0.0,
+        "frequency_penalty": 0.1,   # gentle nudge against excessive repetition
     }
 
     resp = requests.post(url, headers=headers, json=payload, timeout=600)
@@ -274,12 +278,17 @@ def _load_existing_extras(message_id: int) -> dict:
     return rows[0].get("extras") or {}
 
 
-def _missing_required_fields(analysis: dict | None) -> list[str]:
+def _missing_required_fields(analysis: dict | None, *, mode: str = "full") -> list[str]:
     """
     Check for empty critical fields in Kairos output.
+
+    In full mode, we require all legacy fields.
+    In lite mode, Kairos outputs only STRATEGIC_NARRATIVE and MOMENT_COMPASS.
     """
     if analysis is None:
         return ["analysis_none"]
+
+    lite_mode = (mode or "").strip().lower() == "lite"
 
     missing: list[str] = []
 
@@ -289,11 +298,14 @@ def _missing_required_fields(analysis: dict | None) -> list[str]:
             missing.append(label)
 
     check_non_empty(analysis, "STRATEGIC_NARRATIVE", "STRATEGIC_NARRATIVE")
+    check_non_empty(analysis, "MOMENT_COMPASS", "MOMENT_COMPASS")
+
+    if lite_mode:
+        return missing
 
     check_non_empty(analysis, "TACTICAL_SIGNALS", "TACTICAL_SIGNALS")
     check_non_empty(analysis, "PSYCHOLOGICAL_LEVERS", "PSYCHOLOGICAL_LEVERS")
     check_non_empty(analysis, "RISKS", "RISKS")
-    check_non_empty(analysis, "MOMENT_COMPASS", "MOMENT_COMPASS")
     check_non_empty(analysis, "SCHEDULE_RETHINK", "SCHEDULE_RETHINK")
 
     micro = analysis.get("TURN_MICRO_NOTE") or {}
@@ -445,46 +457,66 @@ def parse_kairos_headers(raw_text: str) -> Tuple[dict | None, str | None]:
     return analysis, None
 
 
-def _validated_analysis(fragments: dict) -> dict:
+def _validated_analysis(fragments: dict, *, mode: str = "full") -> dict:
     """
     Ensure required keys exist and are NOT empty strings.
+
+    In lite mode, we only require STRATEGIC_NARRATIVE and MOMENT_COMPASS.
     """
     if not isinstance(fragments, dict):
         raise ValueError("analysis is not an object")
 
-    # Helper: fail if missing OR empty
-    def _require_text(key: str) -> str:
+    lite_mode = (mode or "").strip().lower() == "lite"
+
+    def _coerce_text(key: str) -> str:
         val = fragments.get(key)
         if val is None:
-            raise ValueError(f"missing field: {key}")
-        s_val = str(val).strip()
-        if not s_val:
-            raise ValueError(f"field empty: {key}")
-        return s_val
+            return ""
+        return str(val).strip()
 
-    strategic_narrative = _require_text("STRATEGIC_NARRATIVE")
-    tactical = _require_text("TACTICAL_SIGNALS")
-    levers = _require_text("PSYCHOLOGICAL_LEVERS")
-    risks = _require_text("RISKS")
-    moment_compass = _require_text("MOMENT_COMPASS")
-    schedule_rethink = _require_text("SCHEDULE_RETHINK")
+    analysis: dict[str, Any] = {
+        "STRATEGIC_NARRATIVE": _coerce_text("STRATEGIC_NARRATIVE"),
+        "TACTICAL_SIGNALS": _coerce_text("TACTICAL_SIGNALS"),
+        "PSYCHOLOGICAL_LEVERS": _coerce_text("PSYCHOLOGICAL_LEVERS"),
+        "RISKS": _coerce_text("RISKS"),
+        "MOMENT_COMPASS": _coerce_text("MOMENT_COMPASS"),
+        "SCHEDULE_RETHINK": _coerce_text("SCHEDULE_RETHINK"),
+        "TURN_MICRO_NOTE": {"SUMMARY": ""},
+    }
 
     micro = fragments.get("TURN_MICRO_NOTE")
-    if not isinstance(micro, dict):
-        raise ValueError("TURN_MICRO_NOTE must be an object")
-    micro_summary = str(micro.get("SUMMARY") or "").strip()
-    if not micro_summary:
-        raise ValueError("TURN_MICRO_NOTE.SUMMARY is empty")
+    if isinstance(micro, dict):
+        micro_summary = str(micro.get("SUMMARY") or "").strip()
+        analysis["TURN_MICRO_NOTE"]["SUMMARY"] = micro_summary
 
-    return {
-        "STRATEGIC_NARRATIVE": strategic_narrative,
-        "TACTICAL_SIGNALS": tactical,
-        "PSYCHOLOGICAL_LEVERS": levers,
-        "RISKS": risks,
-        "TURN_MICRO_NOTE": {"SUMMARY": micro_summary},
-        "MOMENT_COMPASS": moment_compass,
-        "SCHEDULE_RETHINK": schedule_rethink,
-    }
+    # Lite mode omits several headers entirely. Provide safe defaults for downstream
+    # consumers without forcing the model to output extra sections.
+    if lite_mode and not analysis["SCHEDULE_RETHINK"]:
+        analysis["SCHEDULE_RETHINK"] = "NO"
+
+    # Required fields differ by mode.
+    required_text_keys = (
+        ("STRATEGIC_NARRATIVE", "MOMENT_COMPASS")
+        if lite_mode
+        else (
+            "STRATEGIC_NARRATIVE",
+            "TACTICAL_SIGNALS",
+            "PSYCHOLOGICAL_LEVERS",
+            "RISKS",
+            "MOMENT_COMPASS",
+            "SCHEDULE_RETHINK",
+        )
+    )
+    for key in required_text_keys:
+        if not str(analysis.get(key) or "").strip():
+            raise ValueError(f"field empty: {key}")
+
+    if not lite_mode:
+        micro_summary = str((analysis.get("TURN_MICRO_NOTE") or {}).get("SUMMARY") or "").strip()
+        if not micro_summary:
+            raise ValueError("TURN_MICRO_NOTE.SUMMARY is empty")
+
+    return analysis
 
 
 def _safe_now_local_iso(tz_name: str | None) -> tuple[str, str]:
@@ -846,7 +878,7 @@ def process_job(payload: Dict[str, Any], row_id: int) -> bool:
     analysis = None
     if parsed is not None and parse_error is None:
         try:
-            analysis = _validated_analysis(parsed)
+            analysis = _validated_analysis(parsed, mode=kairos_mode)
         except ValueError as exc:  # noqa: BLE001
             print(f"[Kairos] Parser validation error for message {fan_msg_id}: {exc}")
             analysis = None
@@ -859,14 +891,14 @@ def process_job(payload: Dict[str, Any], row_id: int) -> bool:
             analysis = None
         else:
             try:
-                analysis = _validated_analysis(translated)
+                analysis = _validated_analysis(translated, mode=kairos_mode)
             except ValueError as exc:  # noqa: BLE001
                 # LOG ONLY: Do not return True. Let it fall through to retry.
                 print(f"[Kairos] Validation error after translation: {exc}")
                 analysis = None
 
     # Basic validation for missing required fields
-    missing_fields = _missing_required_fields(analysis)
+    missing_fields = _missing_required_fields(analysis, mode=kairos_mode)
 
     # Establish root analysis from the first attempt (best-effort partial)
     if not root_analysis:
@@ -899,7 +931,7 @@ def process_job(payload: Dict[str, Any], row_id: int) -> bool:
         merged = merge_kairos_analysis(root_analysis, patch)
         analysis = merged
         parse_error = None
-        missing_fields = _missing_required_fields(analysis)
+        missing_fields = _missing_required_fields(analysis, mode=kairos_mode)
 
     if parse_error is not None or analysis is None or missing_fields:
         # Final failure after retries; save partial if present
