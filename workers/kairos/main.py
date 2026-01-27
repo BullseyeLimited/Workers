@@ -165,14 +165,17 @@ def runpod_call(system_prompt: str, user_message: str) -> tuple[str, dict, dict]
         ],
         "max_tokens": 4000,
         "temperature": 0.6,
-        "top_p": 0.95,
-        "repetition_penalty": 1.0,  # effectively off to allow headers to repeat
-        "presence_penalty": 0.0,
-        "frequency_penalty": 0.1,   # gentle nudge against excessive repetition
     }
 
     resp = requests.post(url, headers=headers, json=payload, timeout=600)
-    resp.raise_for_status()
+    try:
+        resp.raise_for_status()
+    except requests.HTTPError as exc:
+        body = (resp.text or "").strip()
+        body_preview = body[:2000] + ("…(truncated)" if len(body) > 2000 else "")
+        raise RuntimeError(
+            f"{exc} | status={resp.status_code} | body={body_preview}"
+        ) from exc
     data = resp.json()
     response_payload = data
 

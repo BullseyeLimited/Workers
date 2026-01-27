@@ -1,2 +1,7 @@
 # Workers
 All the Workers/Prompts/Code?
+
+Supabase credentials for view:
+
+url: https://takibtvdaivmaavikqpi.supabase.co
+anon key: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRha2lidHZkYWl2bWFhdmlrcXBpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjE5MjQ1MzUsImV4cCI6MjA3NzUwMDUzNX0.IMcFvAeF7A-9fR7-TJlM5yulK4dVQH_uW1-6rgUs8No
