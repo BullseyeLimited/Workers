@@ -199,6 +199,9 @@ def compact_psychic_card(
     card: Any,
     *,
     key_by: Literal["id", "name"] = "name",
+    max_entries_per_segment: int | None = None,
+    drop_superseded: bool = False,
+    entry_fields: tuple[str, ...] | None = None,
 ) -> dict | str | None:
     """
     Return a compact psychic card suitable for logs/prompts.
@@ -207,6 +210,7 @@ def compact_psychic_card(
     - Drops entries with blank `text` fields.
     - If no segments remain, returns None.
     - By default, keys segments by their human segment name (no numeric ids).
+    - Optionally limits each segment to the most relevant entries for prompt usage.
     """
 
     if card is None:
@@ -226,6 +230,102 @@ def compact_psychic_card(
 
     segment_names = card.get("segment_names")
     names: dict[str, str] = segment_names if isinstance(segment_names, dict) else {}
+
+    def _is_dispute_entry(entry: Any) -> bool:
+        if isinstance(entry, dict):
+            text = entry.get("text")
+            return isinstance(text, str) and "[disputes:" in text.lower()
+        if isinstance(entry, str):
+            return "[disputes:" in entry.lower()
+        return False
+
+    def _entry_origin(entry: Any) -> TimeTier:
+        if isinstance(entry, dict):
+            try:
+                return parse_tier(entry.get("origin_tier") or entry.get("tier"))
+            except Exception:  # noqa: BLE001
+                return TimeTier.TURN
+        # Best-effort: detect trailing provenance tags like "[EPISODE]".
+        if isinstance(entry, str):
+            for tier_name in ("lifetime", "year", "season", "chapter", "episode", "turn"):
+                if f"[{tier_name}]".lower() in entry.lower():
+                    try:
+                        return parse_tier(tier_name)
+                    except Exception:  # noqa: BLE001
+                        break
+        return TimeTier.TURN
+
+    def _confidence_index(entry: Any) -> int:
+        if isinstance(entry, dict):
+            conf = entry.get("confidence")
+            if isinstance(conf, str) and conf in CONFIDENCE_ORDER:
+                return CONFIDENCE_ORDER.index(conf)
+        return 0
+
+    def _created_at(entry: Any) -> str:
+        if isinstance(entry, dict):
+            value = entry.get("created_at")
+            return value if isinstance(value, str) else ""
+        return ""
+
+    def _drop_superseded_entries(entries: list[Any]) -> list[Any]:
+        dict_entries = [e for e in entries if isinstance(e, dict)]
+        superseded_ids = {
+            e.get("supersedes") for e in dict_entries if e.get("supersedes")
+        }
+        cleaned: list[Any] = []
+        for entry in entries:
+            if isinstance(entry, dict):
+                if entry.get("superseded_by"):
+                    continue
+                if entry.get("id") in superseded_ids:
+                    continue
+            cleaned.append(entry)
+        return cleaned
+
+    def _select_entries(entries: list[Any]) -> list[Any]:
+        if max_entries_per_segment is None or max_entries_per_segment <= 0:
+            return entries
+
+        # Group by origin tier (highest tier wins). Within a tier, prefer:
+        # non-dispute > higher confidence > newer.
+        buckets: dict[TimeTier, list[Any]] = {}
+        for entry in entries:
+            buckets.setdefault(_entry_origin(entry), []).append(entry)
+
+        tiers = sorted(buckets.keys(), reverse=True)
+        if not tiers:
+            return []
+
+        def _rank(e: Any):
+            return (
+                not _is_dispute_entry(e),
+                _confidence_index(e),
+                _created_at(e),
+            )
+
+        selected: list[Any] = []
+        # Always take 1 from the highest tier.
+        top_tier = tiers[0]
+        top_sorted = sorted(buckets[top_tier], key=_rank, reverse=True)
+        selected.append(top_sorted[0])
+        if len(selected) >= max_entries_per_segment:
+            return selected
+
+        # Prefer 1 from the next-highest tier; if none exists, take more from top tier.
+        if len(tiers) > 1:
+            second_tier = tiers[1]
+            second_sorted = sorted(buckets[second_tier], key=_rank, reverse=True)
+            selected.append(second_sorted[0])
+        else:
+            selected.extend(top_sorted[1:max_entries_per_segment])
+
+        return selected[:max_entries_per_segment]
+
+    def _project_fields(entry: Any) -> Any:
+        if entry_fields is None or not isinstance(entry, dict):
+            return entry
+        return {k: entry.get(k) for k in entry_fields if k in entry}
 
     compact_segments: dict[str, list[Any]] = {}
     for seg_id, entries in segments.items():
@@ -255,6 +355,18 @@ def compact_psychic_card(
 
         if not cleaned_entries:
             continue
+
+        if drop_superseded:
+            cleaned_entries = _drop_superseded_entries(cleaned_entries)
+            if not cleaned_entries:
+                continue
+
+        cleaned_entries = _select_entries(cleaned_entries)
+        if not cleaned_entries:
+            continue
+
+        if entry_fields is not None:
+            cleaned_entries = [_project_fields(e) for e in cleaned_entries]
 
         seg_id_str = str(seg_id)
         if key_by == "name":

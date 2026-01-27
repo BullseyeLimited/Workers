@@ -2438,7 +2438,12 @@ def process_job(payload):
     else:
         turn1_directive = str(tactical_plan or "")
 
-    fan_psychic_card = compact_psychic_card(thread_row.get("fan_psychic_card"))
+    fan_psychic_card = compact_psychic_card(
+        thread_row.get("fan_psychic_card"),
+        max_entries_per_segment=2,
+        drop_superseded=True,
+        entry_fields=("id", "text", "confidence", "origin_tier"),
+    )
     writer_payload = {
         "fan_message_id": fan_message_id,
         "thread_id": thread_id,

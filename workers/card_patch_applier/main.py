@@ -20,7 +20,7 @@ from workers.lib.cards import (
     make_entry,
 )
 from workers.lib.simple_queue import ack, receive, send
-from workers.lib.time_tier import parse_tier
+from workers.lib.time_tier import TimeTier, parse_tier
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
@@ -562,13 +562,57 @@ def _match_ratio(left: str, right: str) -> float:
     return difflib.SequenceMatcher(None, left_clean, right_clean).ratio()
 
 
-def _entry_origin(entry: dict, fallback) -> str:
-    """Determine the origin tier string for an entry, defaulting safely."""
+def _entry_origin_tier(entry: dict, fallback: TimeTier = TimeTier.TURN) -> TimeTier:
+    """Determine the origin tier enum for an entry, defaulting safely."""
 
     try:
-        return parse_tier(entry.get("origin_tier") or entry.get("tier") or fallback).name
+        return parse_tier(entry.get("origin_tier") or entry.get("tier") or fallback)
     except Exception:  # noqa: BLE001
-        return parse_tier(fallback).name
+        return fallback
+
+
+def _live_entries(entries: List[dict]) -> List[dict]:
+    """Return entries excluding superseded ones (best-effort)."""
+
+    if not entries:
+        return []
+    superseded_ids = {
+        entry.get("supersedes")
+        for entry in entries
+        if entry.get("supersedes")
+    }
+    live = [
+        entry
+        for entry in entries
+        if not entry.get("superseded_by") and entry.get("id") not in superseded_ids
+    ]
+    return live or list(entries)
+
+
+def _is_add_only_tier(worker_tier: TimeTier) -> bool:
+    """Lower tiers can only append; only SEASON+ may modify existing entries."""
+
+    return worker_tier < TimeTier.SEASON
+
+
+def _dispute_tag(tier: TimeTier) -> str:
+    return f"[DISPUTES:{tier.name}]"
+
+
+def _has_dispute_tag(text: str) -> bool:
+    return "[disputes:" in (text or "").lower()
+
+
+def _append_dispute_tag(text: str, disputed_tier: TimeTier) -> str:
+    """Append a dispute tag (before the origin tag that gets appended later)."""
+
+    clean = (text or "").strip()
+    tag = _dispute_tag(disputed_tier)
+    if clean.lower().endswith(tag.lower()):
+        return clean[:-len(tag)] + tag
+    if tag.lower() in clean.lower():
+        return clean
+    return f"{clean} {tag}".strip()
 
 
 def apply_patches_to_card(
@@ -582,6 +626,94 @@ def apply_patches_to_card(
         worker_tier = parse_tier(tier)
     except Exception:  # noqa: BLE001
         worker_tier = parse_tier("episode")
+    add_only = _is_add_only_tier(worker_tier)
+
+    def _extract_dispute_tier(text: str) -> TimeTier | None:
+        match = re.search(r"\[DISPUTES:([A-Z]+)\]", text or "")
+        if not match:
+            return None
+        try:
+            return parse_tier(match.group(1))
+        except Exception:  # noqa: BLE001
+            return None
+
+    def _add_entry(
+        *,
+        text: str,
+        confidence: str,
+        reason: str,
+        action: str,
+        disputed_tier: TimeTier | None = None,
+        supersedes: str | None = None,
+        origin: TimeTier | None = None,
+    ) -> dict:
+        origin = origin or worker_tier
+        entry_text = _normalize_text(text, confidence)
+        if disputed_tier is not None:
+            entry_text = _append_dispute_tag(entry_text, disputed_tier)
+        entry_text = append_origin_tag(entry_text, origin)
+        now_entry = make_entry(
+            text=entry_text,
+            confidence=confidence,
+            action=action,  # type: ignore[arg-type]
+            summary_id=summary_id,
+            tier=tier,
+            reason=reason,
+            origin_tier=origin.name,
+            supersedes=supersedes,
+        )
+        return now_entry
+
+    def _supersede(
+        *,
+        bucket: list[dict],
+        target: dict,
+        text: str,
+        confidence: str,
+        reason: str,
+        action: str,
+    ) -> None:
+        supersedes_id = str(target.get("id")) if target.get("id") else None
+        now_entry = _add_entry(
+            text=text,
+            confidence=confidence,
+            reason=reason,
+            action=action,
+            supersedes=supersedes_id,
+            origin=worker_tier,
+        )
+        bucket.append(now_entry)
+        # Best-effort: mark the old entry as superseded.
+        if target.get("id"):
+            target["superseded_by"] = now_entry.get("id")
+
+    def _mutate_in_place(
+        *,
+        target: dict,
+        text: str,
+        confidence: str,
+        reason: str,
+        evidence_action: str,
+    ) -> None:
+        origin_tier = _entry_origin_tier(target, fallback=worker_tier)
+        existing_dispute = _extract_dispute_tier(target.get("text") or "")
+        next_text = _normalize_text(text, confidence)
+        if existing_dispute is not None:
+            next_text = _append_dispute_tag(next_text, existing_dispute)
+
+        target["confidence"] = confidence
+        target["text"] = append_origin_tag(next_text, origin_tier)
+        target["reason"] = reason or target.get("reason")
+        evidence = target.setdefault("evidence", [])
+        evidence.append(
+            {
+                "summary_id": summary_id,
+                "reason": reason,
+                "confidence": confidence,
+                "created_at": datetime.now(timezone.utc).isoformat(),
+                "action": evidence_action,
+            }
+        )
 
     for patch in patches:
         seg_id = str(patch["segment_id"])
@@ -591,137 +723,229 @@ def apply_patches_to_card(
 
         bucket = segments.get(seg_id) or []
         segments[seg_id] = bucket
+        live_bucket = _live_entries([e for e in bucket if isinstance(e, dict)])
         patch_conf = _parse_confidence(patch["confidence"])
         patch_text = _normalize_text(patch["text"], patch_conf)
         reason = patch.get("reason") or ""
         target_id = patch.get("target_id")
         target_text = patch.get("target_text") or ""
-        target_entry = None
+        patch_action = (patch.get("action") or "").lower()
+
+        # Resolve an explicit target (if present) against live entries first.
+        target_any = None
         if target_id:
-            target_entry = _find_entry_by_id(bucket, target_id)
-            if target_entry and target_text:
-                if _match_ratio(target_text, target_entry.get("text") or "") < TARGET_MATCH_MIN_RATIO:
-                    target_entry = None
-        if not target_entry and target_text:
-            target_entry = _find_best_match(bucket, target_text, min_ratio=TARGET_MATCH_MIN_RATIO)
+            target_any = _find_entry_by_id(live_bucket, target_id)
+            if target_any and target_text:
+                if (
+                    _match_ratio(target_text, target_any.get("text") or "")
+                    < TARGET_MATCH_MIN_RATIO
+                ):
+                    target_any = None
+        if not target_any and target_text:
+            target_any = _find_best_match(
+                live_bucket, target_text, min_ratio=TARGET_MATCH_MIN_RATIO
+            )
 
-        if patch["action"] == "add":
-            match = _find_best_match(bucket, patch_text)
-            if match:
-                # Treat ADD as reinforce if it matches existing text.
-                origin_name = _entry_origin(match, worker_tier)
-                current_conf = match.get("confidence") or patch_conf
-                try:
-                    bumped_conf = _one_step_confidence(current_conf, patch_conf)
-                except Exception:
-                    bumped_conf = patch_conf
-                match["confidence"] = bumped_conf
-                match["text"] = append_origin_tag(
-                    _normalize_text(patch_text, bumped_conf),
-                    parse_tier(origin_name),
+        if add_only:
+            disputed = None
+            if patch_action in {"reinforce", "revise"} and target_any:
+                target_tier = _entry_origin_tier(target_any, fallback=worker_tier)
+                if target_tier > worker_tier:
+                    disputed = target_tier
+            if disputed is None and patch_action in {"reinforce", "revise"}:
+                higher_match = _find_best_match(
+                    [
+                        entry
+                        for entry in live_bucket
+                        if _entry_origin_tier(entry, fallback=TimeTier.TURN) > worker_tier
+                    ],
+                    target_text or patch_text,
+                    min_ratio=TARGET_MATCH_MIN_RATIO,
                 )
-                match["reason"] = reason or match.get("reason")
-                evidence = match.setdefault("evidence", [])
-                evidence.append(
-                    {
-                        "summary_id": summary_id,
-                        "reason": reason,
-                        "confidence": patch_conf,
-                        "created_at": datetime.now(timezone.utc).isoformat(),
-                        "action": "reinforce",
-                    }
-                )
-                continue
-
-            entry_text = append_origin_tag(patch_text, worker_tier)
-            now_entry = make_entry(
-                text=entry_text,
+                if higher_match:
+                    disputed = _entry_origin_tier(higher_match, fallback=worker_tier)
+            now_entry = _add_entry(
+                text=patch_text,
                 confidence=patch_conf,
-                action="add",
-                summary_id=summary_id,
-                tier=tier,
                 reason=reason,
-                origin_tier=worker_tier.name,
+                action="add",
+                disputed_tier=disputed,
+                origin=worker_tier,
             )
             bucket.append(now_entry)
             continue
 
-        if patch["action"] == "reinforce":
-            target = target_entry or _find_best_match(bucket, patch_text)
-            if not target:
-                # No existing entry to reinforce; fall back to ADD behavior.
-                entry_text = append_origin_tag(patch_text, worker_tier)
-                now_entry = make_entry(
-                    text=entry_text,
-                    confidence=patch_conf,
-                    action="add",
-                    summary_id=summary_id,
-                    tier=tier,
-                    reason=reason,
-                    origin_tier=worker_tier.name,
-                )
-                bucket.append(now_entry)
+        # SEASON+ behavior: can modify/promote lower tiers, but never overwrite higher tiers.
+        modifiable = [
+            entry
+            for entry in live_bucket
+            if _entry_origin_tier(entry, fallback=TimeTier.TURN) <= worker_tier
+        ]
+        higher = [
+            entry
+            for entry in live_bucket
+            if _entry_origin_tier(entry, fallback=TimeTier.TURN) > worker_tier
+        ]
+
+        if patch_action == "add":
+            match = _find_best_match(modifiable, patch_text)
+            if match:
+                match_tier = _entry_origin_tier(match, fallback=worker_tier)
+                current_conf = match.get("confidence") or patch_conf
+                try:
+                    bumped = _one_step_confidence(current_conf, patch_conf)
+                except Exception:
+                    bumped = patch_conf
+                if match_tier < worker_tier:
+                    _supersede(
+                        bucket=bucket,
+                        target=match,
+                        text=patch_text,
+                        confidence=bumped,
+                        reason=reason,
+                        action="reinforce",
+                    )
+                else:
+                    _mutate_in_place(
+                        target=match,
+                        text=patch_text,
+                        confidence=bumped,
+                        reason=reason,
+                        evidence_action="reinforce",
+                    )
                 continue
 
-            origin_name = _entry_origin(target, worker_tier)
-            current_conf = target.get("confidence") or patch_conf
-            try:
-                bumped_conf = _one_step_confidence(current_conf, patch_conf)
-            except Exception:
-                bumped_conf = patch_conf
-
-            target["confidence"] = bumped_conf
-            target["text"] = append_origin_tag(
-                _normalize_text(patch_text, bumped_conf),
-                parse_tier(origin_name),
+            now_entry = _add_entry(
+                text=patch_text,
+                confidence=patch_conf,
+                reason=reason,
+                action="add",
+                origin=worker_tier,
             )
-            target["reason"] = reason or target.get("reason")
-            evidence = target.setdefault("evidence", [])
-            evidence.append(
-                {
-                    "summary_id": summary_id,
-                    "reason": reason,
-                    "confidence": patch_conf,
-                    "created_at": datetime.now(timezone.utc).isoformat(),
-                    "action": "reinforce",
-                }
-            )
+            bucket.append(now_entry)
             continue
 
-        if patch["action"] == "revise":
-            target = target_entry or _find_best_match(bucket, patch_text) or _active_entry(bucket)
-            if not target:
-                # No existing entry to revise; fall back to ADD behavior.
-                entry_text = append_origin_tag(patch_text, worker_tier)
-                now_entry = make_entry(
-                    text=entry_text,
+        if patch_action == "reinforce":
+            if target_any and _entry_origin_tier(target_any, fallback=worker_tier) > worker_tier:
+                now_entry = _add_entry(
+                    text=patch_text,
                     confidence=patch_conf,
-                    action="add",
-                    summary_id=summary_id,
-                    tier=tier,
                     reason=reason,
-                    origin_tier=worker_tier.name,
+                    action="add",
+                    disputed_tier=_entry_origin_tier(target_any, fallback=worker_tier),
+                    origin=worker_tier,
                 )
                 bucket.append(now_entry)
                 continue
 
-            origin_name = _entry_origin(target, worker_tier)
-            target["confidence"] = patch_conf
-            target["text"] = append_origin_tag(
-                _normalize_text(patch_text, patch_conf),
-                parse_tier(origin_name),
-            )
-            target["reason"] = reason or target.get("reason")
-            evidence = target.setdefault("evidence", [])
-            evidence.append(
-                {
-                    "summary_id": summary_id,
-                    "reason": reason,
-                    "confidence": patch_conf,
-                    "created_at": datetime.now(timezone.utc).isoformat(),
-                    "action": "revise",
-                }
-            )
+            target = None
+            if target_any and _entry_origin_tier(target_any, fallback=worker_tier) <= worker_tier:
+                target = target_any
+            if not target:
+                target = _find_best_match(modifiable, patch_text)
+
+            if not target:
+                higher_match = _find_best_match(
+                    higher,
+                    target_text or patch_text,
+                    min_ratio=TARGET_MATCH_MIN_RATIO,
+                )
+                now_entry = _add_entry(
+                    text=patch_text,
+                    confidence=patch_conf,
+                    reason=reason,
+                    action="add",
+                    disputed_tier=_entry_origin_tier(higher_match, fallback=worker_tier)
+                    if higher_match
+                    else None,
+                    origin=worker_tier,
+                )
+                bucket.append(now_entry)
+                continue
+
+            target_tier = _entry_origin_tier(target, fallback=worker_tier)
+            current_conf = target.get("confidence") or patch_conf
+            try:
+                bumped = _one_step_confidence(current_conf, patch_conf)
+            except Exception:
+                bumped = patch_conf
+
+            if target_tier < worker_tier:
+                _supersede(
+                    bucket=bucket,
+                    target=target,
+                    text=patch_text,
+                    confidence=bumped,
+                    reason=reason,
+                    action="reinforce",
+                )
+            else:
+                _mutate_in_place(
+                    target=target,
+                    text=patch_text,
+                    confidence=bumped,
+                    reason=reason,
+                    evidence_action="reinforce",
+                )
+            continue
+
+        if patch_action == "revise":
+            if target_any and _entry_origin_tier(target_any, fallback=worker_tier) > worker_tier:
+                now_entry = _add_entry(
+                    text=patch_text,
+                    confidence=patch_conf,
+                    reason=reason,
+                    action="add",
+                    disputed_tier=_entry_origin_tier(target_any, fallback=worker_tier),
+                    origin=worker_tier,
+                )
+                bucket.append(now_entry)
+                continue
+
+            target = None
+            if target_any and _entry_origin_tier(target_any, fallback=worker_tier) <= worker_tier:
+                target = target_any
+            if not target:
+                target = _find_best_match(modifiable, patch_text) or _active_entry(modifiable)
+
+            if not target:
+                higher_match = _find_best_match(
+                    higher,
+                    target_text or patch_text,
+                    min_ratio=TARGET_MATCH_MIN_RATIO,
+                )
+                now_entry = _add_entry(
+                    text=patch_text,
+                    confidence=patch_conf,
+                    reason=reason,
+                    action="add",
+                    disputed_tier=_entry_origin_tier(higher_match, fallback=worker_tier)
+                    if higher_match
+                    else None,
+                    origin=worker_tier,
+                )
+                bucket.append(now_entry)
+                continue
+
+            target_tier = _entry_origin_tier(target, fallback=worker_tier)
+            if target_tier < worker_tier:
+                _supersede(
+                    bucket=bucket,
+                    target=target,
+                    text=patch_text,
+                    confidence=patch_conf,
+                    reason=reason,
+                    action="revise",
+                )
+            else:
+                _mutate_in_place(
+                    target=target,
+                    text=patch_text,
+                    confidence=patch_conf,
+                    reason=reason,
+                    evidence_action="revise",
+                )
+            continue
 
     card["segments"] = segments
     card["cards_updated_at"] = datetime.now(timezone.utc).isoformat()

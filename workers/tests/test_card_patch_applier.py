@@ -144,11 +144,13 @@ class MutationLogicTests(unittest.TestCase):
         card = apply_patches_to_card(
             card, summary_id=2, tier="episode", patches=reinforce_patch
         )
-        entry = card["segments"][segment_id][0]
+        self.assertEqual(2, len(card["segments"][segment_id]))
+        # Episode-tier workers are append-only; REINFORCE becomes a competing entry.
+        entry = card["segments"][segment_id][1]
 
-        self.assertEqual("possible", entry["confidence"])
+        self.assertEqual("confident", entry["confidence"])
         self.assertEqual(1, entry["text"].count("[EPISODE]"))
-        self.assertIn("[possible]", entry["text"])
+        self.assertIn("[confident]", entry["text"])
 
         revise_patch = [
             {
@@ -162,11 +164,10 @@ class MutationLogicTests(unittest.TestCase):
             }
         ]
         card = apply_patches_to_card(card, summary_id=3, tier="episode", patches=revise_patch)
-        entry = card["segments"][segment_id][0]
+        self.assertEqual(3, len(card["segments"][segment_id]))
+        entry = card["segments"][segment_id][2]
 
         self.assertEqual("likely", entry["confidence"])
-        self.assertEqual(1, len(card["segments"][segment_id]))
-        self.assertEqual(2, len(entry.get("evidence", [])))
         self.assertEqual(1, entry["text"].count("[EPISODE]"))
         self.assertIn("[likely]", entry["text"])
 

@@ -513,7 +513,12 @@ def build_writer_user_block(payload: Dict[str, Any]) -> str:
     moment_compass = payload.get("moment_compass")
     if moment_compass is not None and str(moment_compass).strip():
         block["moment_compass"] = str(moment_compass).strip()
-    fan_psychic_card = compact_psychic_card(payload.get("fan_psychic_card"))
+    fan_psychic_card = compact_psychic_card(
+        payload.get("fan_psychic_card"),
+        max_entries_per_segment=2,
+        drop_superseded=True,
+        entry_fields=("id", "text", "confidence", "origin_tier"),
+    )
     if fan_psychic_card:
         block["fan_psychic_card"] = fan_psychic_card
     return f"<NAPOLEON_INPUT>\n{json.dumps(block, ensure_ascii=False, indent=2)}\n</NAPOLEON_INPUT>"

@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any, Dict, Iterable
 
 from supabase import create_client
-from workers.lib.cards import filter_card_by_tier
+from workers.lib.cards import compact_psychic_card, filter_card_by_tier
 from workers.lib.time_tier import parse_tier
 
 _SB = None  # Lazily created Supabase client
@@ -132,17 +132,28 @@ def _format_psychic_card(card: Any) -> str:
         stripped = card.strip()
         return stripped
     if isinstance(card, dict):
-        segments = card.get("segments") or {}
-        names = card.get("segment_names") or {}
+        compact = compact_psychic_card(
+            card,
+            key_by="name",
+            max_entries_per_segment=2,
+            drop_superseded=True,
+            entry_fields=("id", "text", "confidence", "origin_tier"),
+        )
+        if compact is None:
+            return ""
+        if not isinstance(compact, dict):
+            return _stringify(compact)
+        if "segments" not in compact:
+            return _stringify(compact)
+        segments = compact.get("segments") or {}
+        if not segments:
+            return ""
         lines: list[str] = []
-        for key, value in segments.items():
+        for label, value in segments.items():
             if not value:
                 continue
-            label = names.get(str(key)) or str(key)
             lines.append(f"{label}: {_stringify(value)}")
-        if not lines:
-            return ""
-        return "Psychic card:\n" + "\n".join(lines)
+        return "Psychic card:\n" + "\n".join(lines) if lines else ""
     return _stringify(card)
 
 
