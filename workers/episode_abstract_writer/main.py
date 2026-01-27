@@ -73,7 +73,7 @@ def call_llm(prompt: str) -> str:
 def fetch_turns(thread_id: int, start_turn: int, end_turn: int) -> List[dict]:
     rows = (
         SB.table("messages")
-        .select("turn_index,sender,message_text")
+        .select("id,turn_index,sender,message_text")
         .eq("thread_id", thread_id)
         .gte("turn_index", start_turn)
         .lte("turn_index", end_turn)
@@ -82,6 +82,50 @@ def fetch_turns(thread_id: int, start_turn: int, end_turn: int) -> List[dict]:
         .data
         or []
     )
+
+    fan_message_ids = [
+        row.get("id") for row in rows if row.get("sender") == "fan" and row.get("id")
+    ]
+    micro_by_message_id: dict[str, str] = {}
+    if fan_message_ids:
+        try:
+            details_rows = (
+                SB.table("message_ai_details")
+                .select("message_id,kairos_summary,turn_micro_note")
+                .in_("message_id", fan_message_ids)
+                .execute()
+                .data
+                or []
+            )
+        except Exception:
+            details_rows = []
+        for detail in details_rows:
+            if not isinstance(detail, dict):
+                continue
+            msg_id = detail.get("message_id")
+            if msg_id is None:
+                continue
+
+            summary = ""
+            micro = detail.get("turn_micro_note")
+            if isinstance(micro, dict):
+                val = micro.get("SUMMARY")
+                if isinstance(val, str) and val.strip():
+                    summary = val.strip()
+            if not summary:
+                val = detail.get("kairos_summary")
+                if isinstance(val, str) and val.strip():
+                    summary = val.strip()
+
+            if summary:
+                micro_by_message_id[str(msg_id)] = summary
+
+    for row in rows:
+        if row.get("sender") != "fan":
+            continue
+        msg_id = row.get("id")
+        row["turn_micro_note"] = micro_by_message_id.get(str(msg_id)) or ""
+
     return rows
 
 
@@ -92,6 +136,11 @@ def render_raw_turns(rows: List[dict]) -> str:
         sender = (row.get("sender") or "?")[0].upper()
         text = row.get("message_text") or ""
         lines.append(f"[{idx}:{sender}] {text}")
+        if sender == "F":
+            note = (row.get("turn_micro_note") or "").strip()
+            if not note:
+                note = "No Kairos micro note available."
+            lines.append(f"    (TURN_MICRO_NOTE): {note}")
     return "\n".join(lines)
 
 
