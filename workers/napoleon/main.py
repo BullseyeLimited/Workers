@@ -32,6 +32,12 @@ CONTENT_PACK_ENABLED = os.getenv("CONTENT_PACK_ENABLED", "").lower() in {
     "yes",
     "on",
 }
+IRIS_CONTROL_ENABLED = os.getenv("IRIS_CONTROL_ENABLED", "").lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
 
 SB = create_client(
     SUPABASE_URL,
@@ -1693,6 +1699,11 @@ def run_repair_call(
 def process_job(payload):
     fan_message_id = payload["message_id"]
     run_id = payload.get("run_id")
+    napoleon_mode = str(payload.get("napoleon_mode") or "full").strip().lower()
+    if napoleon_mode not in {"lite", "full"}:
+        napoleon_mode = "full"
+    if not IRIS_CONTROL_ENABLED:
+        napoleon_mode = "full"
     attempt = 0
 
     if run_id:
@@ -1707,6 +1718,7 @@ def process_job(payload):
             status="running",
             client=SB,
             message_id=int(fan_message_id),
+            mode=napoleon_mode,
             started_at=started_at,
             meta={"queue": QUEUE},
         )
@@ -1945,11 +1957,12 @@ def process_job(payload):
     raw_turns = live_turn_window(
         thread_id,
         boundary_turn=msg.get("turn_index"),
+        limit=20 if napoleon_mode == "lite" else 40,
         client=SB,
         exclude_message_id=fan_message_id,
     )
     system_prompt, user_prompt = build_prompt_sections(
-        "napoleon",
+        "napoleon_lite" if napoleon_mode == "lite" else "napoleon",
         thread_id,
         raw_turns,
         latest_fan_text=_format_fan_turn(msg),

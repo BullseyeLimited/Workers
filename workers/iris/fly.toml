@@ -1,0 +1,12 @@
+app = "iris-worker"
+primary_region = "fra"
+
+[build]
+  dockerfile = "../../base/Dockerfile"
+  context    = "../.."
+
+[processes]
+  app = "python -m workers.iris.main"
+
+[deploy]
+  min_machines_running = 1

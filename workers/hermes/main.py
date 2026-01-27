@@ -41,6 +41,12 @@ CONTENT_PACK_ENABLED = os.getenv("CONTENT_PACK_ENABLED", "").lower() in {
     "yes",
     "on",
 }
+IRIS_CONTROL_ENABLED = os.getenv("IRIS_CONTROL_ENABLED", "").lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
 
 if not SUPABASE_URL or not SUPABASE_KEY:
     raise RuntimeError("Missing Supabase configuration for Hermes")
@@ -115,8 +121,9 @@ CONTENT_REQUEST_PATTERN = re.compile(
 CONTENT_HEADER_PATTERN = re.compile(r"^\s*([A-Z0-9_ -]+?)\s*:\s*(.+?)\s*$")
 
 
-def _load_prompt() -> str:
-    path = PROMPTS_DIR / "hermes.txt"
+def _load_prompt(*, mode: str = "full") -> str:
+    filename = "hermes_lite.txt" if str(mode).strip().lower() == "lite" else "hermes.txt"
+    path = PROMPTS_DIR / filename
     try:
         return path.read_text(encoding="utf-8")
     except Exception:
@@ -516,7 +523,13 @@ def parse_content_request(raw_text: str) -> dict | None:
     return request or None
 
 
-def _runpod_call(system_prompt: str, user_message: str) -> tuple[str, dict, dict]:
+def _runpod_call(
+    system_prompt: str,
+    user_message: str,
+    *,
+    temperature: float | None = None,
+    max_tokens: int | None = None,
+) -> tuple[str, dict, dict]:
     """
     Call the RunPod vLLM OpenAI-compatible server using chat completions.
     Returns (raw_text, request_payload) for logging.
@@ -540,8 +553,8 @@ def _runpod_call(system_prompt: str, user_message: str) -> tuple[str, dict, dict
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_message},
         ],
-        "temperature": float(os.getenv("HERMES_TEMPERATURE", "0.2")),
-        "max_tokens": int(os.getenv("HERMES_MAX_TOKENS", "4000")),
+        "temperature": float(temperature) if temperature is not None else float(os.getenv("HERMES_TEMPERATURE", "0.2")),
+        "max_tokens": int(max_tokens) if max_tokens is not None else int(os.getenv("HERMES_MAX_TOKENS", "4000")),
     }
 
     # Keep Hermes consistent with Kairos/Napoleon: RunPod can be slow/queued and
@@ -596,6 +609,13 @@ def process_job(payload: Dict[str, Any]) -> bool:
     fan_msg_id = payload["message_id"]
     attempt = int(payload.get("hermes_retry", 0))
     run_id = payload.get("run_id")
+    hermes_mode = (payload.get("hermes_mode") or "full").strip().lower()
+    kairos_mode_override = (payload.get("kairos_mode") or "").strip().lower()
+    if kairos_mode_override not in {"skip", "lite", "full"}:
+        kairos_mode_override = ""
+    if not IRIS_CONTROL_ENABLED:
+        hermes_mode = "full"
+        kairos_mode_override = ""
 
     if run_id:
         set_run_current_step(str(run_id), "hermes", client=SB)
@@ -783,6 +803,13 @@ def process_job(payload: Dict[str, Any]) -> bool:
             daily_plan_text = format_daily_plan_for_prompt(daily_plan_row)
         except Exception:
             daily_plan_text = "NO_DAILY_PLAN: true"
+        kairos_override_block = ""
+        if kairos_mode_override:
+            kairos_override_block = (
+                "\n\n<KAIROS_MODE_OVERRIDE>\n"
+                f"{kairos_mode_override}\n"
+                "</KAIROS_MODE_OVERRIDE>"
+            )
         user_block = (
             "<HERMES_INPUT>\n"
             f"{raw_turns}\n\n"
@@ -794,16 +821,22 @@ def process_job(payload: Dict[str, Any]) -> bool:
             f"{previous_napoleon_block}"
             f"{previous_location_block}"
             f"{content_index_block}\n"
+            f"{kairos_override_block}\n"
             "</HERMES_INPUT>"
         )
 
-        system_prompt = _load_prompt()
+        system_prompt = _load_prompt(mode=hermes_mode)
+        max_tokens = None
+        if hermes_mode == "lite":
+            max_tokens = int(os.getenv("HERMES_LITE_MAX_TOKENS", "1200"))
 
         request_payload = None
         response_payload = None
         try:
             raw_text, request_payload, response_payload = _runpod_call(
-                system_prompt, user_block
+                system_prompt,
+                user_block,
+                max_tokens=max_tokens,
             )
             parsed, error = parse_hermes_output(raw_text)
         except Exception as exc:  # noqa: BLE001
@@ -832,6 +865,9 @@ def process_job(payload: Dict[str, Any]) -> bool:
 
         if not parsed:
             parsed = _fail_closed_defaults()
+
+        if kairos_mode_override:
+            parsed["final_verdict_kairos"] = kairos_mode_override.upper()
 
         # Carry forward location within an active session; hard-reset after inactivity.
         seed_location = _normalize_location(previous_location) or "unknown"
@@ -883,6 +919,22 @@ def process_job(payload: Dict[str, Any]) -> bool:
                 "hermes_output_raw": hermes_blob.get("raw_output", ""),
             }
         ).eq("message_id", fan_msg_id).execute()
+
+    # Iris may override Kairos mode (when enabled); make sure we persist it so HermesJoin
+    # doesn't wait for a Kairos job we intentionally skipped.
+    if (not new_decision) and kairos_mode_override and isinstance(hermes_blob, dict):
+        desired = kairos_mode_override.upper()
+        parsed_blob = hermes_blob.get("parsed")
+        if isinstance(parsed_blob, dict) and parsed_blob.get("final_verdict_kairos") != desired:
+            parsed_blob["final_verdict_kairos"] = desired
+            hermes_blob["parsed"] = parsed_blob
+            try:
+                merged_extras = _merge_extras(existing_extras, {"hermes": hermes_blob})
+                SB.table("message_ai_details").update({"extras": merged_extras}).eq(
+                    "message_id", fan_msg_id
+                ).execute()
+            except Exception:
+                pass
     parsed = hermes_blob["parsed"]
 
     verdict_search = (parsed.get("final_verdict_search") or "NO").upper()

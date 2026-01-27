@@ -42,7 +42,7 @@ SB = create_client(
 )
 
 QUEUE = "reply.supervise"
-HERMES_QUEUE = "hermes.route"
+IRIS_QUEUE = "iris.decide"
 ARGUS_QUEUE = "argus.analyse"
 
 AUTO_ABORT_SECONDS = float(os.getenv("REPLY_AUTO_ABORT_SECONDS", "10"))
@@ -427,7 +427,7 @@ def _enqueue_pipeline(*, run_id: str, message_id: int) -> None:
             mode="skip",
             meta={"reason": "no_media"},
         )
-    send(HERMES_QUEUE, {"message_id": message_id, "run_id": run_id})
+    send(IRIS_QUEUE, {"message_id": message_id, "run_id": run_id})
 
 
 def _latest_unreplied_fan_turn(thread_id: int) -> dict | None:

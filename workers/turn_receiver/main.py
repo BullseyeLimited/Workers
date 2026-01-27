@@ -57,9 +57,9 @@ def get_creator_id(handle: str) -> int:
         raise HTTPException(404, f"unknown creator_handle {handle}")
     return data[0]["id"]
 
-def enqueue_hermes(mid: int):
-    # route every fan turn through Hermes for routing decisions
-    send("hermes.route", {"message_id": mid})
+def enqueue_iris(mid: int):
+    # route every fan turn through Iris for non-binding routing decisions
+    send("iris.decide", {"message_id": mid})
 
 def enqueue_argus(mid: int):
     # media-aware worker that will eventually wake Kairos
@@ -210,8 +210,8 @@ def _enqueue_reply_pipeline(*, message_id: int, run_id: str | None, has_media: b
                 meta={"reason": "no_media"},
             )
 
-    if not job_exists("hermes.route", message_id, client=SB):
-        send("hermes.route", payload)
+    if not job_exists("iris.decide", message_id, client=SB):
+        send("iris.decide", payload)
 
 
 def _replied_boundary_turn(thread_id: int) -> int:

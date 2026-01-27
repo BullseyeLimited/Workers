@@ -43,12 +43,12 @@ class TurnReceiverReplyEntryTests(unittest.TestCase):
 
         queues = [q for q, _ in self.sent]
         self.assertIn("argus.analyse", queues)
-        self.assertIn("hermes.route", queues)
+        self.assertIn("iris.decide", queues)
         self.assertNotIn("reply.supervise", queues)
 
-        hermes_payload = next(p for q, p in self.sent if q == "hermes.route")
-        self.assertEqual(10, hermes_payload.get("message_id"))
-        self.assertEqual("run-1", hermes_payload.get("run_id"))
+        iris_payload = next(p for q, p in self.sent if q == "iris.decide")
+        self.assertEqual(10, iris_payload.get("message_id"))
+        self.assertEqual("run-1", iris_payload.get("run_id"))
 
     def test_busy_enqueues_interrupt_only(self):
         turn_receiver._active_reply_run = lambda _thread_id: {"run_id": "run-0", "root_fan_message_id": 9}
@@ -62,7 +62,7 @@ class TurnReceiverReplyEntryTests(unittest.TestCase):
 
         queues = [q for q, _ in self.sent]
         self.assertIn("reply.supervise", queues)
-        self.assertNotIn("hermes.route", queues)
+        self.assertNotIn("iris.decide", queues)
 
     def test_busy_same_root_does_not_interrupt(self):
         turn_receiver._active_reply_run = lambda _thread_id: {"run_id": "run-0", "root_fan_message_id": 10}
@@ -76,7 +76,7 @@ class TurnReceiverReplyEntryTests(unittest.TestCase):
 
         queues = [q for q, _ in self.sent]
         self.assertNotIn("reply.supervise", queues)
-        self.assertIn("hermes.route", queues)
+        self.assertIn("iris.decide", queues)
 
     def test_retry_skips_when_already_replied(self):
         turn_receiver._active_reply_run = lambda _thread_id: None
@@ -95,4 +95,3 @@ class TurnReceiverReplyEntryTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

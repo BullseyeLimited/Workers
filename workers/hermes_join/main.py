@@ -14,8 +14,10 @@ from typing import Any, Dict
 
 from supabase import ClientOptions, create_client
 
+from workers.lib.cards import compact_psychic_card
 from workers.lib.content_pack import build_content_pack
 from workers.lib.job_utils import job_exists
+from workers.lib.prompt_builder import live_turn_window
 from workers.lib.reply_run_tracking import (
     is_run_active,
     set_run_current_step,
@@ -27,6 +29,12 @@ from workers.lib.simple_queue import ack, receive, send
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
 CONTENT_PACK_ENABLED = os.getenv("CONTENT_PACK_ENABLED", "").lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
+IRIS_CONTROL_ENABLED = os.getenv("IRIS_CONTROL_ENABLED", "").lower() in {
     "1",
     "true",
     "yes",
@@ -48,6 +56,7 @@ SB = create_client(
 
 QUEUE = "hermes.join"
 NAPOLEON_QUEUE = "napoleon.reply"
+WRITER_QUEUE = "napoleon.compose"
 
 HEADER_PATTERNS = {
     "search": re.compile(r"FINAL_VERDICT_SEARCH\s*:\s*(YES|NO)", re.IGNORECASE),
@@ -71,6 +80,137 @@ def _fail_closed_defaults() -> dict:
         "join_requirements": "KAIROS_ONLY",
         "web_research_brief": "NONE",
     }
+
+
+def _normalize_mode(value) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip().lower()
+    if not text:
+        return None
+    if text in {"skip", "skipped", "none", "no", "off", "0"}:
+        return "skip"
+    if text in {"lite", "light", "fast", "quick", "low"}:
+        return "lite"
+    if text in {"full", "deep", "high"}:
+        return "full"
+    return None
+
+
+def _extract_iris_modes(extras: dict) -> tuple[str, str | None, str, bool]:
+    """
+    Best-effort extract of Iris routing decisions from message_ai_details.extras.
+    Returns (hermes_mode, kairos_mode, napoleon_mode, has_iris).
+
+    When Iris control is disabled (default), this always returns legacy defaults
+    so Iris output cannot affect routing.
+    """
+
+    defaults = ("full", None, "full", False)
+    if not IRIS_CONTROL_ENABLED:
+        return defaults
+    if not isinstance(extras, dict):
+        return defaults
+    blob = extras.get("iris")
+    if not isinstance(blob, dict):
+        return defaults
+    parsed = blob.get("parsed")
+    if not isinstance(parsed, dict):
+        return defaults
+    hermes = _normalize_mode(parsed.get("hermes") or parsed.get("hermes_mode")) or "lite"
+    kairos = _normalize_mode(parsed.get("kairos") or parsed.get("kairos_mode"))
+    napoleon = _normalize_mode(parsed.get("napoleon") or parsed.get("napoleon_mode")) or "lite"
+    return hermes, kairos, napoleon, True
+
+
+def _format_fan_turn(row: dict) -> str:
+    parts: list[str] = []
+    text = (row.get("message_text") or "").strip()
+    media_analysis = (row.get("media_analysis_text") or "").strip()
+    media_payload = row.get("media_payload") or {}
+    items = []
+    if isinstance(media_payload, dict):
+        maybe_items = media_payload.get("items")
+        if isinstance(maybe_items, list):
+            items = maybe_items
+
+    if text:
+        parts.append(f"(text): {text}")
+
+    if items:
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            kind = (item.get("type") or "media").lower()
+            desc = (item.get("argus_text") or "").strip()
+            if not desc:
+                desc = (item.get("argus_preview") or "").strip()
+            if not desc:
+                desc = media_analysis
+            if not desc:
+                desc = item.get("argus_error") or "media attachment"
+            parts.append(f"({kind}): {desc}")
+    elif media_analysis:
+        parts.append(f"(media): {media_analysis}")
+
+    return "\n".join(parts) if parts else text
+
+
+def _build_writer_payload(
+    *, fan_msg_id: int, thread_id: int, turn_index: int | None, details: dict, msg_row: dict, run_id: str | None
+) -> dict:
+    raw_turns = live_turn_window(
+        thread_id,
+        boundary_turn=turn_index,
+        limit=20,
+        client=SB,
+        exclude_message_id=fan_msg_id,
+    )
+
+    thread_rows = (
+        SB.table("threads")
+        .select("creator_psychic_card,fan_psychic_card")
+        .eq("id", thread_id)
+        .limit(1)
+        .execute()
+        .data
+        or []
+    )
+    thread_row = thread_rows[0] if thread_rows and isinstance(thread_rows[0], dict) else {}
+
+    fan_psychic_card = compact_psychic_card(
+        thread_row.get("fan_psychic_card"),
+        max_entries_per_segment=2,
+        drop_superseded=True,
+        entry_fields=("id", "text", "confidence", "origin_tier"),
+    )
+
+    directive = (
+        "Reply FAST and naturally.\n"
+        "Keep it short.\n"
+        "Acknowledge what he said.\n"
+        "Answer any direct question.\n"
+        "Ask 1 simple follow-up question.\n"
+        "Match the vibe (flirty/teasing/soft) without overdoing it.\n"
+        "Do not over-explain."
+    )
+
+    writer_payload = {
+        "fan_message_id": int(fan_msg_id),
+        "thread_id": int(thread_id),
+        "creator_psychic_card": thread_row.get("creator_psychic_card") or {},
+        "thread_history": raw_turns or "",
+        "latest_fan_message": _format_fan_turn(msg_row) or (msg_row.get("message_text") or ""),
+        "turn_directive": directive,
+    }
+    moment_compass = (details.get("moment_compass") or "").strip()
+    if moment_compass:
+        writer_payload["moment_compass"] = moment_compass
+    if fan_psychic_card:
+        writer_payload["fan_psychic_card"] = fan_psychic_card
+    if run_id:
+        writer_payload["run_id"] = str(run_id)
+    return writer_payload
 
 
 def _parse_hermes_output(raw_text: str) -> dict | None:
@@ -212,32 +352,45 @@ def process_job(payload: Dict[str, Any]) -> bool:
             )
             return True
     select_fields = (
-        "thread_id,kairos_status,web_research_status,extras,hermes_status,hermes_output_raw"
+        "thread_id,kairos_status,web_research_status,extras,hermes_status,hermes_output_raw,moment_compass"
     )
     if CONTENT_PACK_ENABLED:
         select_fields += (
             ",content_request,content_pack,content_pack_status,content_pack_error,content_pack_created_at"
         )
-    details_rows = (
-        SB.table("message_ai_details")
-        .select(select_fields)
-        .eq("message_id", fan_msg_id)
-        .limit(1)
-        .execute()
-        .data
-        or []
-    )
+    try:
+        details_rows = (
+            SB.table("message_ai_details")
+            .select(select_fields)
+            .eq("message_id", fan_msg_id)
+            .limit(1)
+            .execute()
+            .data
+            or []
+        )
+    except Exception:
+        # Back-compat: older schemas may not have moment_compass.
+        fallback_fields = select_fields.replace(",moment_compass", "")
+        details_rows = (
+            SB.table("message_ai_details")
+            .select(fallback_fields)
+            .eq("message_id", fan_msg_id)
+            .limit(1)
+            .execute()
+            .data
+            or []
+        )
     if not details_rows:
         # Hermes hasn't persisted a routing decision row yet (or wrong DB/key).
         return True
     details = details_rows[0]
 
     # If this turn has media, wait for Argus to finish enriching the message row
-    # before letting Napoleon proceed.
+    # before letting downstream steps proceed.
     try:
         msg_rows = (
             SB.table("messages")
-            .select("media_status,media_payload")
+            .select("media_status,media_payload,message_text,media_analysis_text,turn_index")
             .eq("id", fan_msg_id)
             .limit(1)
             .execute()
@@ -258,6 +411,7 @@ def process_job(payload: Dict[str, Any]) -> bool:
         return True
 
     extras = details.get("extras") or {}
+    iris_hermes_mode, iris_kairos_mode, iris_napoleon_mode, has_iris = _extract_iris_modes(extras)
     hermes_status = details.get("hermes_status")
     hermes_output_raw = details.get("hermes_output_raw") or ""
     hermes_parsed = None
@@ -275,9 +429,25 @@ def process_job(payload: Dict[str, Any]) -> bool:
         elif hermes_status:
             hermes_parsed = _fail_closed_defaults()
 
-    if not hermes_parsed:
-        # Hermes decision missing; nothing to do yet.
+    # If Iris control is enabled and Iris decided to SKIP Hermes, Hermes output may
+    # never exist. In that case, build a minimal "routing decision" from Iris so
+    # we can still gate correctly.
+    if not hermes_parsed and has_iris and iris_hermes_mode == "skip":
+        hermes_parsed = {
+            "final_verdict_search": "NO",
+            "final_verdict_kairos": (iris_kairos_mode or "lite").upper(),
+            "join_requirements": "NONE",
+            "web_research_brief": "NONE",
+        }
+
+    # If Hermes is expected to run (Iris did not skip it), but we don't have a
+    # Hermes decision yet, wait.
+    if not hermes_parsed and (not has_iris or iris_hermes_mode != "skip"):
         return True
+
+    # Iris can optionally override Kairos mode, but only when explicitly enabled.
+    if hermes_parsed and has_iris and iris_kairos_mode:
+        hermes_parsed["final_verdict_kairos"] = (iris_kairos_mode or "lite").upper()
 
     content_request = _extract_content_request(details.get("content_request"))
     if CONTENT_PACK_ENABLED and not details.get("content_pack"):
@@ -330,8 +500,15 @@ def process_job(payload: Dict[str, Any]) -> bool:
     if join_blob.get("napoleon_enqueued_at"):
         return True
 
-    if job_exists(NAPOLEON_QUEUE, fan_msg_id, client=SB):
+    if join_blob.get("writer_enqueued_at"):
         return True
+
+    if iris_napoleon_mode != "skip":
+        if job_exists(NAPOLEON_QUEUE, fan_msg_id, client=SB):
+            return True
+    else:
+        if job_exists(WRITER_QUEUE, fan_msg_id, client=SB, field="fan_message_id"):
+            return True
 
     if run_id and not is_run_active(str(run_id), client=SB):
         upsert_step(
@@ -346,11 +523,25 @@ def process_job(payload: Dict[str, Any]) -> bool:
         )
         return True
 
-    napoleon_payload = {"message_id": fan_msg_id}
-    if run_id:
-        napoleon_payload["run_id"] = str(run_id)
-    send(NAPOLEON_QUEUE, napoleon_payload)
-    join_blob["napoleon_enqueued_at"] = datetime.now(timezone.utc).isoformat()
+    if iris_napoleon_mode == "skip":
+        writer_payload = _build_writer_payload(
+            fan_msg_id=int(fan_msg_id),
+            thread_id=int(details["thread_id"]),
+            turn_index=msg_row.get("turn_index"),
+            details=details,
+            msg_row=msg_row,
+            run_id=str(run_id) if run_id else None,
+        )
+        send(WRITER_QUEUE, writer_payload)
+        join_blob["writer_enqueued_at"] = datetime.now(timezone.utc).isoformat()
+    else:
+        napoleon_payload = {"message_id": fan_msg_id}
+        if has_iris:
+            napoleon_payload["napoleon_mode"] = iris_napoleon_mode
+        if run_id:
+            napoleon_payload["run_id"] = str(run_id)
+        send(NAPOLEON_QUEUE, napoleon_payload)
+        join_blob["napoleon_enqueued_at"] = datetime.now(timezone.utc).isoformat()
     merged_extras = _merge_extras(extras, {"join": join_blob})
 
     SB.table("message_ai_details").update({"extras": merged_extras}).eq(
