@@ -8,6 +8,7 @@ import traceback
 from datetime import datetime, timezone
 from typing import Dict, List, Tuple
 
+import requests
 from postgrest.exceptions import APIError
 from supabase import create_client, ClientOptions
 
@@ -23,6 +24,9 @@ from workers.lib.time_tier import parse_tier
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+RUNPOD_URL = (os.getenv("RUNPOD_URL") or "").rstrip("/")
+RUNPOD_MODEL = os.getenv("RUNPOD_MODEL_NAME", "gpt-oss-20b-uncensored")
+RUNPOD_REWRITE_MODEL = os.getenv("RUNPOD_REWRITE_MODEL_NAME") or RUNPOD_MODEL
 
 SB = create_client(
     SUPABASE_URL,
@@ -75,6 +79,13 @@ ABSTRACT_QUEUE_MAP = {
 
 MAX_RETRIES = int(os.getenv("ABSTRACT_MAX_RETRIES", "5"))
 TARGET_MATCH_MIN_RATIO = float(os.getenv("ABSTRACT_TARGET_MATCH_MIN", "0.6"))
+REWRITE_ENABLED = (os.getenv("ABSTRACT_OUTPUT_REWRITE") or "1").strip().lower() not in {
+    "0",
+    "false",
+    "no",
+}
+REWRITE_MAX_TOKENS = int(os.getenv("ABSTRACT_OUTPUT_REWRITE_MAX_TOKENS", "900"))
+REWRITE_TIMEOUT_SECONDS = int(os.getenv("ABSTRACT_OUTPUT_REWRITE_TIMEOUT", "120"))
 
 HEADER_RE = re.compile(
     r"^(ADD|REINFORCE|REVISE)\s+SEGMENT[\s_\-:]*([A-Z0-9_\-\. ]+)\s*$",
@@ -89,6 +100,17 @@ CONF_BRACKET_RE = re.compile(
     r"\[(tentative|possible|likely|confident|canonical)\]\s*$",
     re.IGNORECASE,
 )
+
+REWRITE_HINT_RE = re.compile(
+    r"(?im)^\s*(add|revise|reinforce)\b.*\bsegment\b"
+    r"|^\s*segment[\s_\-:]*\d+"
+    r"|^\s*text\b"
+    r"|^\s*confidence\b"
+    r"|^\s*reason\b"
+    r"|^\s*target_id\b"
+    r"|^\s*target\b"
+)
+_WS_RE = re.compile(r"\s+")
 
 SEGMENT_LABEL_MAP = {}
 for seg_id, label in SEGMENT_NAMES.items():
@@ -313,6 +335,151 @@ def parse_patch_output(raw_text: str) -> Tuple[List[dict], str]:
     if not summary:
         raise ValueError("summary section missing")
     return patches, summary
+
+
+def _should_attempt_rewrite(
+    raw_text: str, *, patches: List[dict], extract_status: str
+) -> bool:
+    if not REWRITE_ENABLED:
+        return False
+    if not RUNPOD_URL:
+        return False
+    if not (raw_text or "").strip():
+        return False
+    if extract_status != "ok":
+        return True
+    if patches:
+        return False
+    # Only try rewrite when the output *looks* like it contains card-update
+    # instructions that we failed to parse into patch blocks.
+    return bool(REWRITE_HINT_RE.search(raw_text or ""))
+
+
+def _rewrite_to_patch_contract(raw_text: str, tier: str) -> str | None:
+    """
+    Ask a second model pass to reformat an abstract writer output into strict patch blocks.
+
+    Critical safety rule: the rewriter must not add/omit facts; it should only reformat
+    whatever is already explicitly present in the original output.
+    """
+    if not RUNPOD_URL:
+        return None
+
+    url = f"{RUNPOD_URL}/v1/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {os.getenv('RUNPOD_API_KEY', '')}",
+        "Content-Type": "application/json",
+    }
+
+    user_prompt = f"""You are a STRICT OUTPUT FORMATTER.
+
+Your job: take the ORIGINAL_OUTPUT (from a different model) and rewrite it into the exact patch format expected by a regex parser.
+
+CRITICAL RULES (DO NOT BREAK THESE):
+- Do NOT add new facts, new updates, or new interpretations.
+- Do NOT paraphrase. Copy the original sentences/phrases as-is whenever possible.
+- If the ORIGINAL_OUTPUT does not explicitly contain a card update instruction, output NO patch block for it.
+- If you cannot confidently reformat without changing meaning, output the ORIGINAL_OUTPUT unchanged.
+
+OUTPUT CONTRACT (MUST MATCH EXACTLY):
+- Optional patch blocks first (0+).
+- Then ONE blank line.
+- Then the abstract summary text.
+
+PATCH BLOCK FORMAT:
+ADD SEGMENT_22
+TEXT: <copy-pasted text> [possible]
+CONFIDENCE: possible
+REASON: <copy-pasted evidence line(s)>
+
+REINFORCE SEGMENT_22
+TARGET_ID: <copy-pasted id if present>
+TARGET: <copy-pasted old text if present>
+TEXT: <copy-pasted text> [likely]
+CONFIDENCE: likely
+REASON: <copy-pasted evidence line(s)>
+
+REVISE SEGMENT_22
+TARGET_ID: <copy-pasted id if present>
+TARGET: <copy-pasted old text if present>
+TEXT: <copy-pasted text> [likely]
+CONFIDENCE: likely
+REASON: <copy-pasted evidence line(s)>
+
+Allowed confidence values (must match): tentative / possible / likely / confident / canonical
+TEXT must end with a bracket tag matching CONFIDENCE (e.g. [likely]).
+
+Tier for context: {tier}
+
+ORIGINAL_OUTPUT:
+<ORIGINAL_OUTPUT>
+{raw_text}
+</ORIGINAL_OUTPUT>
+"""
+
+    payload = {
+        "model": RUNPOD_REWRITE_MODEL,
+        "messages": [
+            {"role": "system", "content": "You are a careful formatter. No creativity."},
+            {"role": "user", "content": user_prompt},
+        ],
+        "max_tokens": REWRITE_MAX_TOKENS,
+        "temperature": 0,
+    }
+
+    resp = requests.post(
+        url, headers=headers, json=payload, timeout=REWRITE_TIMEOUT_SECONDS
+    )
+    resp.raise_for_status()
+    data = resp.json()
+    try:
+        if data.get("choices"):
+            choice = data["choices"][0]
+            message = choice.get("message") or {}
+            raw = message.get("content") or message.get("reasoning") or ""
+            if not raw:
+                raw = choice.get("text") or ""
+            raw = (raw or "").strip()
+            return raw or None
+    except Exception:
+        return None
+    return None
+
+
+def _normalize_ws(value: str) -> str:
+    return _WS_RE.sub(" ", (value or "").strip())
+
+
+def _contains_verbatim(haystack: str, needle: str) -> bool:
+    """
+    Case-insensitive containment check after whitespace normalization.
+
+    This is used as a safety gate so the rewrite pass can't introduce new facts:
+    every emitted patch text/reason/summary must already exist in the original output.
+    """
+    needle_norm = _normalize_ws(needle)
+    if not needle_norm:
+        return True
+    return needle_norm.lower() in _normalize_ws(haystack).lower()
+
+
+def _rewrite_is_verbatim(original: str, *, patches: List[dict], summary: str) -> bool:
+    if not _contains_verbatim(original, summary):
+        return False
+    for patch in patches or []:
+        text_body = _strip_confidence(patch.get("text") or "")
+        if not _contains_verbatim(original, text_body):
+            return False
+        reason = patch.get("reason") or ""
+        if reason and not _contains_verbatim(original, reason):
+            return False
+        target_text = patch.get("target_text") or ""
+        if target_text and not _contains_verbatim(original, target_text):
+            return False
+        target_id = str(patch.get("target_id") or "").strip()
+        if target_id and target_id not in (original or ""):
+            return False
+    return True
 
 
 def _one_step_confidence(current: str, incoming: str) -> str:
@@ -618,10 +785,11 @@ def _insert_summary_row(
     raw_text: str,
     raw_hash: str,
     extract_status: str,
+    writer_json: dict | None = None,
 ) -> int:
     summary_idx = tier_index or _next_tier_index(thread_id, tier)
     fan_action = patches or None
-    writer_json = {"raw_text": raw_text}
+    writer_json = writer_json or {"raw_text": raw_text}
     # Try update first (if row exists), then insert if missing.
     update_payload = {
         "abstract_summary": abstract_summary,
@@ -786,6 +954,8 @@ def process_job(payload: Dict) -> bool:
     ).hexdigest()
     attempt = int(payload.get("attempt") or 1)
 
+    writer_json: dict = {"raw_text": raw_text}
+
     try:
         patches, summary = parse_patch_output(raw_text)
         patches = _sanitize_patches(patches)
@@ -794,6 +964,32 @@ def process_job(payload: Dict) -> bool:
         patches, summary = [], ""
         extract_status = "failed"
         print(f"[card_patch_applier] parse failed: {exc}")
+
+    if _should_attempt_rewrite(raw_text, patches=patches, extract_status=extract_status):
+        try:
+            rewritten = _rewrite_to_patch_contract(raw_text, tier) or ""
+        except Exception as exc:  # noqa: BLE001
+            rewritten = ""
+            writer_json["rewrite_error"] = str(exc)
+
+        if rewritten and rewritten.strip() and rewritten.strip() != (raw_text or "").strip():
+            writer_json["rewritten_text"] = rewritten
+            writer_json["rewritten_model"] = RUNPOD_REWRITE_MODEL
+            writer_json["rewritten_hash"] = hashlib.sha256(
+                rewritten.encode("utf-8")
+            ).hexdigest()
+            try:
+                rewritten_patches, rewritten_summary = parse_patch_output(rewritten)
+                rewritten_patches = _sanitize_patches(rewritten_patches)
+                if _rewrite_is_verbatim(
+                    raw_text, patches=rewritten_patches, summary=rewritten_summary
+                ):
+                    patches, summary = rewritten_patches, rewritten_summary
+                    extract_status = "ok"
+                else:
+                    writer_json["rewrite_rejected"] = "not_verbatim"
+            except Exception as exc:  # noqa: BLE001
+                writer_json["rewrite_parse_error"] = str(exc)
 
     if extract_status != "ok":
         if attempt < MAX_RETRIES:
@@ -823,6 +1019,7 @@ def process_job(payload: Dict) -> bool:
             raw_text=raw_text,
             raw_hash=raw_hash,
             extract_status=extract_status,
+            writer_json=writer_json,
         )
         return True
 
@@ -837,6 +1034,7 @@ def process_job(payload: Dict) -> bool:
         raw_text=raw_text,
         raw_hash=raw_hash,
         extract_status=extract_status,
+        writer_json=writer_json,
     )
 
     if patches:

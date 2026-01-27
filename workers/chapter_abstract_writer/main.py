@@ -75,6 +75,7 @@ def process_job(payload: dict) -> bool:
     tier_index = int(payload.get("tier_index") or 0)
     start_turn = payload.get("start_turn")
     end_turn = payload.get("end_turn")
+    attempt = int(payload.get("attempt") or 1)
 
     extra_ctx = _recent_tier_abstracts(thread_id, "chapter", client=SB)
     prompt = build_prompt(
@@ -100,6 +101,7 @@ def process_job(payload: dict) -> bool:
             "tier_index": tier_index,
             "raw_text": raw_text,
             "raw_hash": raw_hash,
+            "attempt": attempt,
         },
     )
 
