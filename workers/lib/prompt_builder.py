@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from datetime import datetime, timezone
 from functools import lru_cache
 from pathlib import Path
@@ -72,6 +73,29 @@ _IDENTITY_PLACEHOLDERS = {
     "todo",
     "unknown",
 }
+
+_IDENTITY_KEYS_LINE = re.compile(
+    r"^IDENTITY_KEYS\s*:\s*(.*)$", re.IGNORECASE | re.MULTILINE
+)
+
+
+def _parse_identity_keys_text(value: str) -> list[str]:
+    if not value:
+        return []
+    raw = value.strip()
+    if not raw:
+        return []
+    parts = re.split(r"[\s,]+", raw)
+    keys: list[str] = []
+    seen = set()
+    for part in parts:
+        if not part:
+            continue
+        if part in seen:
+            continue
+        seen.add(part)
+        keys.append(part)
+    return keys
 
 
 def _turn_rollover_cutoff(boundary_turn: int | None) -> int:
@@ -313,6 +337,89 @@ def _format_identity_card(
     return _stringify(card) or "Identity card: empty"
 
 
+def _extract_identity_keys_from_extras(extras: Any) -> list[str]:
+    if not isinstance(extras, dict):
+        return []
+    hermes_blob = extras.get("hermes")
+    if not isinstance(hermes_blob, dict):
+        return []
+    parsed = hermes_blob.get("parsed")
+    if not isinstance(parsed, dict):
+        return []
+    keys = parsed.get("identity_keys")
+    if isinstance(keys, list):
+        return [str(key) for key in keys if str(key).strip()]
+    if isinstance(keys, str):
+        return _parse_identity_keys_text(keys)
+    return []
+
+
+def _parse_identity_keys_from_raw(raw_text: str) -> list[str]:
+    if not raw_text:
+        return []
+    match = _IDENTITY_KEYS_LINE.search(raw_text)
+    if not match:
+        return []
+    return _parse_identity_keys_text(match.group(1) or "")
+
+
+def _fetch_hermes_identity_keys(message_id: int | None, *, client=None) -> list[str]:
+    if not message_id:
+        return []
+    sb = _resolve_client(client)
+    rows = (
+        sb.table("message_ai_details")
+        .select("extras,hermes_output_raw")
+        .eq("message_id", message_id)
+        .limit(1)
+        .execute()
+        .data
+        or []
+    )
+    if not rows or not isinstance(rows[0], dict):
+        return []
+    row = rows[0]
+    keys = _extract_identity_keys_from_extras(row.get("extras") or {})
+    if keys:
+        return keys
+    return _parse_identity_keys_from_raw(row.get("hermes_output_raw") or "")
+
+
+def _filter_creator_identity_card(card: Any, identity_keys: list[str]) -> Any:
+    if not identity_keys:
+        return card
+    key_set = {key for key in identity_keys if key}
+    if not key_set:
+        return card
+
+    if isinstance(card, str):
+        stripped = card.strip()
+        if not stripped:
+            return card
+        try:
+            card = json.loads(stripped)
+        except Exception:
+            return card
+
+    if not isinstance(card, dict):
+        return card
+
+    filtered: dict[str, Any] = {}
+    for top_key, top_value in card.items():
+        if top_key in key_set:
+            filtered[top_key] = top_value
+            continue
+        if isinstance(top_value, dict):
+            subset = {
+                sub_key: sub_value
+                for sub_key, sub_value in top_value.items()
+                if sub_key in key_set
+            }
+            if subset:
+                filtered[top_key] = subset
+    return filtered
+
+
 def _stringify(value: Any) -> str:
     if value is None:
         return ""
@@ -471,7 +578,13 @@ def make_block(
     return "\n\n".join(blocks)
 
 
-def _load_cards(thread_id: int, *, client=None, worker_tier=None) -> Dict[str, str]:
+def _load_cards(
+    thread_id: int,
+    *,
+    client=None,
+    worker_tier=None,
+    identity_keys: list[str] | None = None,
+) -> Dict[str, str]:
     sb = _resolve_client(client)
     try:
         row = (
@@ -533,6 +646,10 @@ def _load_cards(thread_id: int, *, client=None, worker_tier=None) -> Dict[str, s
         creator_row.get("creator_identity_card")
         or row.get("creator_identity_card")
     )
+    if identity_keys:
+        creator_identity_card_value = _filter_creator_identity_card(
+            creator_identity_card_value, identity_keys
+        )
     creator_psychic_card = (
         creator_row.get("creator_psychic_card")
         or row.get("creator_psychic_card")
@@ -1143,7 +1260,20 @@ def _render_template(
             else:
                 context[macro] = make_block(thread_id, tier, limit, client=sb)
 
-    context.update(_load_cards(thread_id, client=sb, worker_tier=worker_tier))
+    identity_keys: list[str] = []
+    if template_name in {"napoleon", "napoleon_lite"} and analysis_message_id:
+        identity_keys = _fetch_hermes_identity_keys(
+            analysis_message_id, client=sb
+        )
+
+    context.update(
+        _load_cards(
+            thread_id,
+            client=sb,
+            worker_tier=worker_tier,
+            identity_keys=identity_keys,
+        )
+    )
 
     if include_episode_rolling:
         context.update(_recent_episode_abstracts(thread_id, client=sb))

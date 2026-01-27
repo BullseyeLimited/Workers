@@ -112,6 +112,9 @@ HEADER_PATTERNS = {
     ),
     "location": re.compile(r"MOMENT_LOCATION\s*:\s*(.+)", re.IGNORECASE),
 }
+IDENTITY_KEYS_PATTERN = re.compile(
+    r"^IDENTITY_KEYS\s*:\s*(.*)$", re.IGNORECASE | re.MULTILINE
+)
 BRIEF_PATTERN = re.compile(
     r"<WEB_RESEARCH_BRIEF>(.*?)</WEB_RESEARCH_BRIEF>", re.IGNORECASE | re.DOTALL
 )
@@ -267,6 +270,25 @@ def _parse_utc_datetime(value: Any) -> datetime | None:
     return dt.astimezone(timezone.utc)
 
 
+def _parse_identity_keys(value: str) -> list[str]:
+    if not value:
+        return []
+    raw = value.strip()
+    if not raw:
+        return []
+    parts = re.split(r"[\s,]+", raw)
+    keys: list[str] = []
+    seen = set()
+    for part in parts:
+        if not part:
+            continue
+        if part in seen:
+            continue
+        seen.add(part)
+        keys.append(part)
+    return keys
+
+
 def _normalize_location(value: Any) -> str:
     if value is None:
         return ""
@@ -414,6 +436,7 @@ def parse_hermes_output(raw_text: str) -> Tuple[dict | None, str | None]:
     kairos_match = HEADER_PATTERNS["kairos"].search(raw_text)
     join_match = HEADER_PATTERNS["join"].search(raw_text)
     location_match = HEADER_PATTERNS["location"].search(raw_text)
+    identity_match = IDENTITY_KEYS_PATTERN.search(raw_text)
 
     if search_match:
         parsed["final_verdict_search"] = search_match.group(1).upper()
@@ -434,6 +457,11 @@ def parse_hermes_output(raw_text: str) -> Tuple[dict | None, str | None]:
         parsed["moment_location"] = _normalize_location(location_match.group(1))
     else:
         parsed["moment_location"] = "unknown"
+
+    if identity_match:
+        parsed["identity_keys"] = _parse_identity_keys(identity_match.group(1))
+    else:
+        parsed["identity_keys"] = []
 
     brief_match = BRIEF_PATTERN.search(raw_text)
     if brief_match:
