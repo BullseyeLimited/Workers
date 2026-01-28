@@ -164,7 +164,7 @@ def runpod_call(system_prompt: str, user_message: str) -> tuple[str, dict, dict]
             {"role": "user", "content": user_message},
         ],
         "max_tokens": 4000,
-        "temperature": 1.1,
+        "temperature": 1.0,
     }
 
     resp = requests.post(url, headers=headers, json=payload, timeout=600)
