@@ -23,7 +23,6 @@ from supabase import ClientOptions, create_client
 
 from workers.lib.ai_response_store import record_ai_response
 from workers.lib.job_utils import job_exists
-from workers.lib.json_utils import safe_parse_model_json
 from workers.lib.prompt_builder import live_turn_window
 from workers.lib.reply_run_tracking import (
     is_run_active,
@@ -93,13 +92,13 @@ NAPOLEON_REASON: <very short reason>
 """
 
 MODE_PATTERN = re.compile(
-    r"(?P<key>HERMES|KAIROS|NAPOLEON)(?:_MODE)?\s*:\s*(?P<mode>SKIP|LITE|FULL)\b",
-    re.IGNORECASE,
+    r"^\s*(?P<key>HERMES|KAIROS|NAPOLEON)(?:[_ ]*MODE)?\s*[:=\-]\s*(?P<mode>.+?)\s*$",
+    re.IGNORECASE | re.MULTILINE,
 )
 
 REASON_PATTERN = re.compile(
-    r"(?P<key>HERMES|KAIROS|NAPOLEON)[_ ]*REASON\s*:\s*(?P<reason>.+)",
-    re.IGNORECASE,
+    r"^\s*(?P<key>HERMES|KAIROS|NAPOLEON)[_ ]*REASON\s*[:=\-]\s*(?P<reason>.+?)\s*$",
+    re.IGNORECASE | re.MULTILINE,
 )
 
 
@@ -118,25 +117,56 @@ def _merge_extras(existing: dict, patch: dict) -> dict:
     return merged
 
 
+def _clean_reason(value: Any) -> str:
+    text = str(value or "").strip()
+    text = re.sub(r"\s+", " ", text)
+    return text
+
+
+def _format_iris_headers(parsed: dict) -> str:
+    def mode(value: Any) -> str:
+        normalized = _normalize_mode(value) or "lite"
+        return normalized.upper()
+
+    def reason(value: Any) -> str:
+        cleaned = _clean_reason(value)
+        return cleaned if cleaned else "missing_reason"
+
+    return "\n".join(
+        [
+            f"HERMES_MODE: {mode(parsed.get('hermes'))}",
+            f"HERMES_REASON: {reason(parsed.get('hermes_reason'))}",
+            f"KAIROS_MODE: {mode(parsed.get('kairos'))}",
+            f"KAIROS_REASON: {reason(parsed.get('kairos_reason'))}",
+            f"NAPOLEON_MODE: {mode(parsed.get('napoleon'))}",
+            f"NAPOLEON_REASON: {reason(parsed.get('napoleon_reason'))}",
+        ]
+    )
+
+
 def _normalize_mode(value: Any) -> str | None:
     if value is None:
         return None
     text = str(value).strip().lower()
     if not text:
         return None
-    if text in {"skip", "skipped", "none", "no", "off", "0"}:
+    tokens = re.findall(r"[a-z]+", text)
+    if not tokens:
+        return None
+    token = tokens[0]
+    if token in {"skip", "skipped", "none", "no", "off"}:
         return "skip"
-    if text in {"lite", "light", "fast", "quick", "low"}:
+    if token in {"lite", "light", "fast", "quick", "low"}:
         return "lite"
-    if text in {"full", "deep", "high"}:
+    if token in {"full", "deep", "high"}:
         return "full"
     return None
 
 
 HEADER_PATTERNS = {
-    "hermes": re.compile(r"HERMES[_ ]*MODE\s*:\s*(FULL|LITE|SKIP)", re.IGNORECASE),
-    "kairos": re.compile(r"KAIROS[_ ]*MODE\s*:\s*(FULL|LITE|SKIP)", re.IGNORECASE),
-    "napoleon": re.compile(r"NAPOLEON[_ ]*MODE\s*:\s*(FULL|LITE|SKIP)", re.IGNORECASE),
+    "hermes": re.compile(r"HERMES[_ ]*MODE\s*[:=\-]\s*(.+)", re.IGNORECASE),
+    "kairos": re.compile(r"KAIROS[_ ]*MODE\s*[:=\-]\s*(.+)", re.IGNORECASE),
+    "napoleon": re.compile(r"NAPOLEON[_ ]*MODE\s*[:=\-]\s*(.+)", re.IGNORECASE),
 }
 
 
@@ -149,7 +179,7 @@ def parse_iris_output(raw_text: str) -> Tuple[dict | None, str | None]:
         match = pattern.search(raw_text)
         if not match:
             continue
-        parsed[key] = (match.group(1) or "").strip().lower()
+        parsed[key] = _normalize_mode(match.group(1))
 
     reasons: dict[str, str] = {}
     for match in REASON_PATTERN.finditer(raw_text):
@@ -158,13 +188,15 @@ def parse_iris_output(raw_text: str) -> Tuple[dict | None, str | None]:
         if key and reason:
             reasons[key] = reason
 
-    if len(parsed) == 3:
-        # Reasons are optional (but preferred); keep output stable.
+    missing_modes = [k for k in ("hermes", "kairos", "napoleon") if not parsed.get(k)]
+    if not missing_modes:
         out = dict(parsed)
         out["hermes_reason"] = reasons.get("hermes", "")
         out["kairos_reason"] = reasons.get("kairos", "")
         out["napoleon_reason"] = reasons.get("napoleon", "")
-        return out, None
+        missing_reasons = [k for k in ("hermes", "kairos", "napoleon") if not reasons.get(k)]
+        err = f"missing_reasons: {', '.join(missing_reasons)}" if missing_reasons else None
+        return out, err
 
     matches = list(MODE_PATTERN.finditer(raw_text))
     if matches:
@@ -185,36 +217,21 @@ def parse_iris_output(raw_text: str) -> Tuple[dict | None, str | None]:
                 "napoleon_reason": reasons.get("napoleon", ""),
             }, None
 
-    # Back-compat: accept JSON outputs too (we still parse them, but the prompt asks for headers).
-    data, error = safe_parse_model_json(raw_text)
-    if not error and isinstance(data, dict):
-        hermes = _normalize_mode(data.get("hermes") or data.get("hermes_mode"))
-        kairos = _normalize_mode(data.get("kairos") or data.get("kairos_mode"))
-        napoleon = _normalize_mode(data.get("napoleon") or data.get("napoleon_mode"))
-        missing = [k for k, v in (("hermes", hermes), ("kairos", kairos), ("napoleon", napoleon)) if not v]
-        if missing:
-            return None, f"missing_fields: {', '.join(missing)}"
-        return {
-            "hermes": hermes,
-            "kairos": kairos,
-            "napoleon": napoleon,
-            "hermes_reason": str(data.get("hermes_reason") or ""),
-            "kairos_reason": str(data.get("kairos_reason") or ""),
-            "napoleon_reason": str(data.get("napoleon_reason") or ""),
-        }, None
-
-    return None, error or "unparseable_output"
+    return None, f"missing_required_headers: {', '.join(missing_modes) if missing_modes else 'unknown'}"
 
 
-def _fail_closed_defaults() -> dict:
+def _fail_closed_defaults(error: str | None) -> dict:
     # Default bias: lite (fast but still thoughtful).
+    fallback_reason = "fallback: lite"
+    if error:
+        fallback_reason = "fallback: parse_failed"
     return {
         "hermes": "lite",
         "kairos": "lite",
         "napoleon": "lite",
-        "hermes_reason": "",
-        "kairos_reason": "",
-        "napoleon_reason": "",
+        "hermes_reason": fallback_reason,
+        "kairos_reason": fallback_reason,
+        "napoleon_reason": fallback_reason,
     }
 
 
@@ -271,11 +288,12 @@ def _runpod_call(system_prompt: str, user_message: str) -> tuple[str, dict, dict
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_message},
         ],
-        "temperature": float(os.getenv("IRIS_TEMPERATURE", "0.2")),
-        "max_tokens": int(os.getenv("IRIS_MAX_TOKENS", "200")),
+        "temperature": float(os.getenv("IRIS_TEMPERATURE", "0.1")),
+        "max_tokens": int(os.getenv("IRIS_MAX_TOKENS", "4000")),
     }
 
-    resp = requests.post(url, headers=headers, json=payload, timeout=120)
+    timeout_seconds = int(os.getenv("IRIS_TIMEOUT_SECONDS", "300"))
+    resp = requests.post(url, headers=headers, json=payload, timeout=timeout_seconds)
     resp.raise_for_status()
     data = resp.json()
     response_payload = data
@@ -284,12 +302,7 @@ def _runpod_call(system_prompt: str, user_message: str) -> tuple[str, dict, dict
     try:
         if data.get("choices"):
             msg = data["choices"][0].get("message") or {}
-            raw_text = (
-                msg.get("content")
-                or msg.get("reasoning")
-                or msg.get("reasoning_content")
-                or ""
-            )
+            raw_text = msg.get("content") or msg.get("reasoning") or msg.get("reasoning_content") or ""
             if not raw_text:
                 raw_text = data["choices"][0].get("text") or ""
     except Exception:
@@ -404,8 +417,10 @@ def process_job(payload: Dict[str, Any]) -> bool:
     request_payload = None
     response_payload = None
     raw_text = ""
+    raw_text_model = ""
     try:
         raw_text, request_payload, response_payload = _runpod_call(system_prompt, user_block)
+        raw_text_model = raw_text
         parsed, error = parse_iris_output(raw_text)
     except Exception as exc:  # noqa: BLE001
         parsed, error = None, f"runpod_error: {exc}"
@@ -427,12 +442,24 @@ def process_job(payload: Dict[str, Any]) -> bool:
     )
 
     if not parsed:
-        parsed = _fail_closed_defaults()
+        parsed = _fail_closed_defaults(error)
+    else:
+        # Normalize/clean so DB columns are stable even if the model output is messy.
+        for key in ("hermes", "kairos", "napoleon"):
+            parsed[key] = _normalize_mode(parsed.get(key)) or "lite"
+            parsed[f"{key}_reason"] = _clean_reason(parsed.get(f"{key}_reason")) or "missing_reason"
+
+    # Store a canonical, machine-readable header block instead of chain-of-thought.
+    # The full raw model response still lives in ai_raw_responses.response_json.
+    raw_text = _format_iris_headers(parsed)
 
     now_iso = datetime.now(timezone.utc).isoformat()
     iris_blob = {
         "status": status,
         "raw_output": raw_text,
+        "raw_model_output": (raw_text_model[:8000] + "…[truncated]")
+        if raw_text_model and len(raw_text_model) > 8000
+        else (raw_text_model or ""),
         "parsed": parsed,
         "error": error,
         "created_at": now_iso,
