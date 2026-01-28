@@ -30,6 +30,7 @@ from workers.iris_join.main import process_job as process_join_job
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+IRIS_ALLOW_SKIP = os.getenv("IRIS_ALLOW_SKIP", "").lower() in {"1", "true", "yes", "on"}
 
 if not SUPABASE_URL or not SUPABASE_KEY:
     raise RuntimeError("Missing Supabase configuration for Iris")
@@ -447,6 +448,11 @@ def process_job(payload: Dict[str, Any]) -> bool:
         for key in ("hermes", "kairos", "napoleon"):
             parsed[key] = _normalize_mode(parsed.get(key)) or "lite"
             parsed[f"{key}_reason"] = _clean_reason(parsed.get(f"{key}_reason")) or "missing_reason"
+        # Temporary policy: disable SKIP (treat as LITE) while we test Iris decisions.
+        if not IRIS_ALLOW_SKIP:
+            for key in ("hermes", "kairos", "napoleon"):
+                if parsed.get(key) == "skip":
+                    parsed[key] = "lite"
 
     # Store a canonical, machine-readable header block instead of chain-of-thought.
     # The full raw model response still lives in ai_raw_responses.response_json.

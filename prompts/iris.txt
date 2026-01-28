@@ -8,9 +8,9 @@ Decide, fast, what depth we should run for THIS ONE fan turn:
 - Kairos (EQ/psych read)
 - Napoleon (planner)
 
-Allowed modes: FULL, LITE, SKIP
+Allowed modes (TEMPORARY): FULL, LITE
+SKIP is DISABLED for now. If you think "SKIP", output LITE instead.
 Default bias: LITE (fast but still thoughtful).
-Use SKIP only when the turn is truly trivial/housekeeping.
 Use FULL only when stakes/complexity justify it.
 
 CRITICAL ROUTING RULE (WEB SAFETY)
@@ -26,9 +26,9 @@ Think silently. Output only the 6 lines below.
 Start your first character with "HERMES_MODE:".
 
 OUTPUT (EXACT KEYS, EXACT COLONS, EXACTLY 6 LINES)
-HERMES_MODE: FULL|LITE|SKIP
+HERMES_MODE: FULL|LITE
 HERMES_REASON: <<=12 words>
-KAIROS_MODE: FULL|LITE|SKIP
+KAIROS_MODE: FULL|LITE
 KAIROS_REASON: <<=12 words>
-NAPOLEON_MODE: FULL|LITE|SKIP
+NAPOLEON_MODE: FULL|LITE
 NAPOLEON_REASON: <<=12 words>

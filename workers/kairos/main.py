@@ -702,7 +702,13 @@ def process_job(payload: Dict[str, Any], row_id: int) -> bool:
     orig_system_prompt = payload.get("orig_system_prompt") or ""
     orig_user_prompt = payload.get("orig_user_prompt") or ""
     root_analysis = payload.get("root_analysis") or {}
-    kairos_mode = (payload.get("kairos_mode") or "full").lower()
+    kairos_mode = str(payload.get("kairos_mode") or "full").strip().lower()
+    if kairos_mode not in {"lite", "full"}:
+        kairos_mode = "full"
+    # Temporary policy: treat Kairos LITE the same as FULL (we keep the Iris decision
+    # in message_ai_details.iris_* columns, but we run the full Kairos prompt).
+    if kairos_mode == "lite":
+        kairos_mode = "full"
 
     if run_id:
         set_run_current_step(str(run_id), "kairos", client=SB)
