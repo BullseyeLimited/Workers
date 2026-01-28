@@ -1,4 +1,4 @@
-app = "web-research-worker"
+app = "websearch-worker"
 primary_region = "fra"
 
 [build]
