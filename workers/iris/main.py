@@ -1,9 +1,4 @@
-"""
-Iris decider worker — logs a fast "depth decision" for each fan turn.
-
-For now Iris is NON-BINDING: we do not change routing based on Iris output.
-We only record decisions (for iteration) and then pass the job to Hermes.
-"""
+"""Iris decider worker — runs first and routes a fan turn through the pipeline."""
 
 from __future__ import annotations
 
@@ -31,6 +26,7 @@ from workers.lib.reply_run_tracking import (
     upsert_step,
 )
 from workers.lib.simple_queue import ack, receive, send
+from workers.iris_join.main import process_job as process_join_job
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
@@ -76,6 +72,9 @@ SB = create_client(
 
 QUEUE = "iris.decide"
 HERMES_QUEUE = "hermes.route"
+KAIROS_QUEUE = "kairos.analyse"
+JOIN_QUEUE = "iris.join"
+LEGACY_JOIN_QUEUE = "hermes.join"
 
 PROMPTS_DIR = Path(__file__).resolve().parents[2] / "prompts"
 
@@ -503,12 +502,39 @@ def process_job(payload: Dict[str, Any]) -> bool:
         )
         return True
 
-    # Non-binding phase: always continue the existing pipeline by enqueuing Hermes.
-    if not job_exists(HERMES_QUEUE, fan_msg_id, client=SB):
-        hermes_payload = {"message_id": fan_msg_id}
-        if run_id:
-            hermes_payload["run_id"] = str(run_id)
-        send(HERMES_QUEUE, hermes_payload)
+    # Iris-controlled routing (enabled by setting IRIS_CONTROL_ENABLED on downstream workers).
+    iris_hermes_mode = (parsed.get("hermes") or "lite").strip().lower()
+    iris_kairos_mode = (parsed.get("kairos") or "lite").strip().lower()
+    iris_napoleon_mode = (parsed.get("napoleon") or "lite").strip().lower()
+
+    if iris_hermes_mode != "skip":
+        if not job_exists(HERMES_QUEUE, fan_msg_id, client=SB):
+            hermes_payload = {
+                "message_id": fan_msg_id,
+                # Keep the original Iris modes for visibility; Hermes/Napoleon may map lite->full for now.
+                "hermes_mode": iris_hermes_mode,
+            }
+            if run_id:
+                hermes_payload["run_id"] = str(run_id)
+            send(HERMES_QUEUE, hermes_payload)
+
+    if iris_kairos_mode != "skip":
+        if not job_exists(KAIROS_QUEUE, fan_msg_id, client=SB):
+            kairos_payload = {
+                "message_id": fan_msg_id,
+                "kairos_mode": iris_kairos_mode,
+            }
+            if run_id:
+                kairos_payload["run_id"] = str(run_id)
+            send(KAIROS_QUEUE, kairos_payload)
+
+    # If Hermes is skipped, ensure the joiner still runs (otherwise the pipeline can stall).
+    if iris_hermes_mode == "skip":
+        if not job_exists(JOIN_QUEUE, fan_msg_id, client=SB):
+            join_payload = {"message_id": fan_msg_id}
+            if run_id:
+                join_payload["run_id"] = str(run_id)
+            send(JOIN_QUEUE, join_payload)
 
     if run_id:
         upsert_step(
@@ -528,14 +554,29 @@ def process_job(payload: Dict[str, Any]) -> bool:
 if __name__ == "__main__":
     _log_supabase_identity()
     print("[Iris] started - waiting for jobs", flush=True)
+    prefer_join = False
     while True:
-        job = receive(QUEUE, 30)
+        if prefer_join:
+            job = (
+                receive(JOIN_QUEUE, 30)
+                or receive(LEGACY_JOIN_QUEUE, 30)
+                or receive(QUEUE, 30)
+            )
+        else:
+            job = (
+                receive(QUEUE, 30)
+                or receive(JOIN_QUEUE, 30)
+                or receive(LEGACY_JOIN_QUEUE, 30)
+            )
+        prefer_join = not prefer_join
         if not job:
             time.sleep(1)
             continue
         row_id = job["row_id"]
+        queue_name = job.get("queue") or QUEUE
         try:
-            if process_job(job["payload"]):
+            ok = process_job(job["payload"]) if queue_name == QUEUE else process_join_job(job["payload"])
+            if ok:
                 ack(row_id)
         except Exception as exc:  # noqa: BLE001
             print("[Iris] error:", exc, flush=True)

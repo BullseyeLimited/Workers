@@ -42,7 +42,7 @@ SB = create_client(
 )
 
 QUEUE = "web.research"
-JOIN_QUEUE = "hermes.join"
+JOIN_QUEUE = "iris.join"
 PROMPTS_DIR = Path(__file__).resolve().parents[2] / "prompts"
 
 OPENAI_API_KEY = os.getenv("WEB_RESEARCH_OPENAI_API_KEY") or os.getenv("OPENAI_API_KEY")

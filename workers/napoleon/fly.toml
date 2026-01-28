@@ -3,6 +3,7 @@ primary_region = "fra"
 
 [env]
   CONTENT_PACK_ENABLED = "true"
+  IRIS_CONTROL_ENABLED = "true"
 
 [build]
   dockerfile = "../../base/Dockerfile"

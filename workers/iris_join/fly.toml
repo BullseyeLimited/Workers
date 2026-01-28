@@ -1,4 +1,4 @@
-app = "hermesjoin-worker"
+app = "irisjoin-worker"
 primary_region = "fra"
 
 [env]
@@ -9,7 +9,7 @@ primary_region = "fra"
   context    = "../.."
 
 [processes]
-  app = "python -m workers.hermes_join.main"
+  app = "python -m workers.iris_join.main"
 
 [deploy]
   min_machines_running = 0

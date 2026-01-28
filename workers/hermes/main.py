@@ -1,5 +1,5 @@
 """
-Hermes router worker — decides Kairos mode, web research need, and orchestrates fork/join.
+Hermes router worker — decides web research need, content gating, and identity card keys.
 """
 
 from __future__ import annotations
@@ -31,7 +31,6 @@ from workers.lib.reply_run_tracking import (
     upsert_step,
 )
 from workers.lib.simple_queue import ack, receive, send
-from workers.hermes_join.main import process_job as process_join_job
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
@@ -87,29 +86,20 @@ SB = create_client(
 )
 
 QUEUE = "hermes.route"
-KAIROS_QUEUE = "kairos.analyse"
 WEB_QUEUE = "web.research"
-JOIN_QUEUE = "hermes.join"
+JOIN_QUEUE = "iris.join"
 
 PROMPTS_DIR = Path(__file__).resolve().parents[2] / "prompts"
 DEFAULT_PROMPT = """
 You are Hermes. Output format:
 FINAL_VERDICT_SEARCH: YES|NO
-FINAL_VERDICT_KAIROS: FULL|LITE|SKIP
-JOIN_REQUIREMENTS: KAIROS_ONLY|WEB_ONLY|BOTH|NONE
 MOMENT_LOCATION: <short string or UNKNOWN>
+IDENTITY_KEYS: <key1> <key2>
 <WEB_RESEARCH_BRIEF>...NONE or what to search...</WEB_RESEARCH_BRIEF>
 """
 
 HEADER_PATTERNS = {
     "search": re.compile(r"FINAL_VERDICT_SEARCH\s*:\s*(YES|NO)", re.IGNORECASE),
-    "kairos": re.compile(
-        r"FINAL_VERDICT_KAIROS\s*:\s*(FULL|LITE|SKIP)", re.IGNORECASE
-    ),
-    "join": re.compile(
-        r"JOIN_REQUIREMENTS\s*:\s*(KAIROS_ONLY|WEB_ONLY|BOTH|NONE)",
-        re.IGNORECASE,
-    ),
     "location": re.compile(r"MOMENT_LOCATION\s*:\s*(.+)", re.IGNORECASE),
 }
 IDENTITY_KEYS_PATTERN = re.compile(
@@ -243,10 +233,9 @@ def _fetch_previous_napoleon_output(
 def _fail_closed_defaults() -> dict:
     return {
         "final_verdict_search": "NO",
-        "final_verdict_kairos": "FULL",
-        "join_requirements": "KAIROS_ONLY",
         "web_research_brief": "NONE",
         "moment_location": "unknown",
+        "identity_keys": [],
     }
 
 def _parse_utc_datetime(value: Any) -> datetime | None:
@@ -433,8 +422,6 @@ def parse_hermes_output(raw_text: str) -> Tuple[dict | None, str | None]:
     missing: list[str] = []
 
     search_match = HEADER_PATTERNS["search"].search(raw_text)
-    kairos_match = HEADER_PATTERNS["kairos"].search(raw_text)
-    join_match = HEADER_PATTERNS["join"].search(raw_text)
     location_match = HEADER_PATTERNS["location"].search(raw_text)
     identity_match = IDENTITY_KEYS_PATTERN.search(raw_text)
 
@@ -442,16 +429,6 @@ def parse_hermes_output(raw_text: str) -> Tuple[dict | None, str | None]:
         parsed["final_verdict_search"] = search_match.group(1).upper()
     else:
         missing.append("FINAL_VERDICT_SEARCH")
-
-    if kairos_match:
-        parsed["final_verdict_kairos"] = kairos_match.group(1).upper()
-    else:
-        missing.append("FINAL_VERDICT_KAIROS")
-
-    if join_match:
-        parsed["join_requirements"] = join_match.group(1).upper()
-    else:
-        missing.append("JOIN_REQUIREMENTS")
 
     if location_match:
         parsed["moment_location"] = _normalize_location(location_match.group(1))
@@ -626,7 +603,7 @@ def _has_valid_decision(blob: dict | None) -> bool:
     parsed = blob.get("parsed") if isinstance(blob.get("parsed"), dict) else None
     if not parsed:
         return False
-    required = ["final_verdict_search", "final_verdict_kairos", "join_requirements"]
+    required = ["final_verdict_search"]
     return all(parsed.get(k) for k in required)
 
 
@@ -638,12 +615,12 @@ def process_job(payload: Dict[str, Any]) -> bool:
     attempt = int(payload.get("hermes_retry", 0))
     run_id = payload.get("run_id")
     hermes_mode = (payload.get("hermes_mode") or "full").strip().lower()
-    kairos_mode_override = (payload.get("kairos_mode") or "").strip().lower()
-    if kairos_mode_override not in {"skip", "lite", "full"}:
-        kairos_mode_override = ""
     if not IRIS_CONTROL_ENABLED:
         hermes_mode = "full"
-        kairos_mode_override = ""
+    # Temporary policy: treat Hermes LITE the same as FULL (we keep the Iris decision
+    # in message_ai_details.iris_* columns, but we run the full Hermes prompt).
+    if hermes_mode == "lite":
+        hermes_mode = "full"
 
     if run_id:
         set_run_current_step(str(run_id), "hermes", client=SB)
@@ -831,13 +808,6 @@ def process_job(payload: Dict[str, Any]) -> bool:
             daily_plan_text = format_daily_plan_for_prompt(daily_plan_row)
         except Exception:
             daily_plan_text = "NO_DAILY_PLAN: true"
-        kairos_override_block = ""
-        if kairos_mode_override:
-            kairos_override_block = (
-                "\n\n<KAIROS_MODE_OVERRIDE>\n"
-                f"{kairos_mode_override}\n"
-                "</KAIROS_MODE_OVERRIDE>"
-            )
         user_block = (
             "<HERMES_INPUT>\n"
             f"{raw_turns}\n\n"
@@ -849,7 +819,6 @@ def process_job(payload: Dict[str, Any]) -> bool:
             f"{previous_napoleon_block}"
             f"{previous_location_block}"
             f"{content_index_block}\n"
-            f"{kairos_override_block}\n"
             "</HERMES_INPUT>"
         )
 
@@ -893,9 +862,6 @@ def process_job(payload: Dict[str, Any]) -> bool:
 
         if not parsed:
             parsed = _fail_closed_defaults()
-
-        if kairos_mode_override:
-            parsed["final_verdict_kairos"] = kairos_mode_override.upper()
 
         # Carry forward location within an active session; hard-reset after inactivity.
         seed_location = _normalize_location(previous_location) or "unknown"
@@ -948,54 +914,13 @@ def process_job(payload: Dict[str, Any]) -> bool:
             }
         ).eq("message_id", fan_msg_id).execute()
 
-    # Iris may override Kairos mode (when enabled); make sure we persist it so HermesJoin
-    # doesn't wait for a Kairos job we intentionally skipped.
-    if (not new_decision) and kairos_mode_override and isinstance(hermes_blob, dict):
-        desired = kairos_mode_override.upper()
-        parsed_blob = hermes_blob.get("parsed")
-        if isinstance(parsed_blob, dict) and parsed_blob.get("final_verdict_kairos") != desired:
-            parsed_blob["final_verdict_kairos"] = desired
-            hermes_blob["parsed"] = parsed_blob
-            try:
-                merged_extras = _merge_extras(existing_extras, {"hermes": hermes_blob})
-                SB.table("message_ai_details").update({"extras": merged_extras}).eq(
-                    "message_id", fan_msg_id
-                ).execute()
-            except Exception:
-                pass
     parsed = hermes_blob["parsed"]
 
     verdict_search = (parsed.get("final_verdict_search") or "NO").upper()
-    verdict_kairos = (parsed.get("final_verdict_kairos") or "FULL").upper()
     research_brief = parsed.get("web_research_brief") or "NONE"
-    need_kairos = verdict_kairos != "SKIP"
     need_web = verdict_search == "YES"
 
     if run_id:
-        kairos_mode = "lite" if verdict_kairos == "LITE" else "full"
-        if need_kairos:
-            upsert_step(
-                run_id=str(run_id),
-                step="kairos",
-                attempt=0,
-                status="pending",
-                client=SB,
-                message_id=int(fan_msg_id),
-                mode=kairos_mode,
-                meta={"source": "hermes"},
-            )
-        else:
-            upsert_step(
-                run_id=str(run_id),
-                step="kairos",
-                attempt=0,
-                status="skipped",
-                client=SB,
-                message_id=int(fan_msg_id),
-                mode="skip",
-                meta={"source": "hermes"},
-            )
-
         if need_web:
             upsert_step(
                 run_id=str(run_id),
@@ -1032,39 +957,7 @@ def process_job(payload: Dict[str, Any]) -> bool:
         )
         return True
 
-    # If Hermes explicitly chooses to skip Kairos, reflect that the Kairos lane is
-    # effectively "done" for this turn so dashboards don't show a perpetual pending.
-    if not need_kairos:
-        try:
-            row = (
-                SB.table("message_ai_details")
-                .select("kairos_status")
-                .eq("message_id", fan_msg_id)
-                .limit(1)
-                .execute()
-                .data
-                or []
-            )
-            current = (row[0].get("kairos_status") if row else None) if row else None
-            if not current or str(current).lower() == "pending":
-                SB.table("message_ai_details").update({"kairos_status": "ok"}).eq(
-                    "message_id", fan_msg_id
-                ).execute()
-        except Exception:
-            pass
-
     # Idempotent forks
-    if need_kairos:
-        kairos_mode = "lite" if verdict_kairos == "LITE" else "full"
-        if not job_exists(KAIROS_QUEUE, fan_msg_id, client=SB):
-            kairos_payload = {
-                "message_id": fan_msg_id,
-                "kairos_mode": kairos_mode,
-            }
-            if run_id:
-                kairos_payload["run_id"] = str(run_id)
-            send(KAIROS_QUEUE, kairos_payload)
-
     if need_web:
         if not job_exists(WEB_QUEUE, fan_msg_id, client=SB):
             web_payload = {"message_id": fan_msg_id, "brief": research_brief}
@@ -1072,12 +965,13 @@ def process_job(payload: Dict[str, Any]) -> bool:
                 web_payload["run_id"] = str(run_id)
             send(WEB_QUEUE, web_payload)
 
-    if not need_kairos and not need_web:
-        if not job_exists(JOIN_QUEUE, fan_msg_id, client=SB):
-            join_payload = {"message_id": fan_msg_id}
-            if run_id:
-                join_payload["run_id"] = str(run_id)
-            send(JOIN_QUEUE, join_payload)
+    # Always wake the joiner once Hermes has persisted its routing decision.
+    # This keeps the pipeline robust even when Kairos/Web finished early in parallel.
+    if not job_exists(JOIN_QUEUE, fan_msg_id, client=SB):
+        join_payload = {"message_id": fan_msg_id}
+        if run_id:
+            join_payload["run_id"] = str(run_id)
+        send(JOIN_QUEUE, join_payload)
 
     if run_id:
         upsert_step(
@@ -1090,9 +984,7 @@ def process_job(payload: Dict[str, Any]) -> bool:
             ended_at=datetime.now(timezone.utc).isoformat(),
             meta={
                 "hermes_status": hermes_blob.get("status"),
-                "final_verdict_kairos": verdict_kairos,
                 "final_verdict_search": verdict_search,
-                "join_requirements": parsed.get("join_requirements"),
             },
         )
     return True
@@ -1101,21 +993,16 @@ def process_job(payload: Dict[str, Any]) -> bool:
 if __name__ == "__main__":
     _log_supabase_identity()
     print("[Hermes] started - waiting for jobs", flush=True)
-    prefer_join = False
     while True:
-        queue_order = (JOIN_QUEUE, QUEUE) if prefer_join else (QUEUE, JOIN_QUEUE)
-        job = receive(queue_order[0], 30) or receive(queue_order[1], 30)
-        prefer_join = not prefer_join
+        job = receive(QUEUE, 30)
         if not job:
             time.sleep(1)
             continue
 
         row_id = job["row_id"]
-        queue_name = job.get("queue") or QUEUE
         payload = job["payload"]
         try:
-            ok = process_job(payload) if queue_name == QUEUE else process_join_job(payload)
-            if ok:
+            if process_job(payload):
                 ack(row_id)
         except Exception as exc:  # noqa: BLE001
             print("[Hermes] error:", exc, flush=True)

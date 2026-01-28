@@ -46,7 +46,7 @@ SB = create_client(
 )
 
 QUEUE = "argus.analyse"
-JOIN_QUEUE = "hermes.join"
+JOIN_QUEUE = "iris.join"
 
 OPENAI_KEY = os.getenv("ARGUS_OPENAI_API_KEY") or os.getenv("OPENAI_API_KEY")
 OPENAI_BASE_URL = os.getenv("ARGUS_OPENAI_BASE_URL") or os.getenv("OPENAI_BASE_URL") or "https://api.openai.com/v1"

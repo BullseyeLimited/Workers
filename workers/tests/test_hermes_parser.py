@@ -10,14 +10,12 @@ from workers.hermes.main import parse_hermes_output
 class HermesParserTests(unittest.TestCase):
     def test_parses_standard_output(self):
         raw = """FINAL_VERDICT_SEARCH: YES
-FINAL_VERDICT_KAIROS: lite
-JOIN_REQUIREMENTS: both
+MOMENT_LOCATION: unknown
+IDENTITY_KEYS: creator_profile
 <WEB_RESEARCH_BRIEF>Check company news</WEB_RESEARCH_BRIEF>"""
         parsed, err = parse_hermes_output(raw)
         self.assertIsNone(err)
         self.assertEqual("YES", parsed["final_verdict_search"])
-        self.assertEqual("LITE", parsed["final_verdict_kairos"])
-        self.assertEqual("BOTH", parsed["join_requirements"])
         self.assertEqual("Check company news", parsed["web_research_brief"])
         self.assertEqual("unknown", parsed["moment_location"])
 
@@ -26,9 +24,8 @@ JOIN_REQUIREMENTS: both
         some intro text
         final_verdict_search   :   no
         notes...
-        FINAL_VERDICT_KAIROS:SKIP
-
-        join_requirements : web_only
+        moment_location : Bedroom
+        identity_keys: none
         <WEB_RESEARCH_BRIEF>
         NONE
         </WEB_RESEARCH_BRIEF>
@@ -36,8 +33,7 @@ JOIN_REQUIREMENTS: both
         parsed, err = parse_hermes_output(raw)
         self.assertIsNone(err)
         self.assertEqual("NO", parsed["final_verdict_search"])
-        self.assertEqual("SKIP", parsed["final_verdict_kairos"])
-        self.assertEqual("WEB_ONLY", parsed["join_requirements"])
+        self.assertEqual("bedroom", parsed["moment_location"])
         self.assertEqual("NONE", parsed["web_research_brief"])
 
     def test_missing_headers_fail(self):
@@ -48,8 +44,6 @@ JOIN_REQUIREMENTS: both
 
     def test_parses_moment_location(self):
         raw = """FINAL_VERDICT_SEARCH: NO
-FINAL_VERDICT_KAIROS: FULL
-JOIN_REQUIREMENTS: kairos_only
 MOMENT_LOCATION: Bedroom
 <WEB_RESEARCH_BRIEF>NONE</WEB_RESEARCH_BRIEF>"""
         parsed, err = parse_hermes_output(raw)

@@ -50,7 +50,7 @@ SB = create_client(
     ),
 )
 QUEUE = "kairos.analyse"
-JOIN_QUEUE = "hermes.join"
+JOIN_QUEUE = "iris.join"
 
 TRANSLATOR_MODEL = os.getenv("TRANSLATOR_MODEL", "gpt-4o-mini")
 TRANSLATOR_BASE_URL = os.getenv("TRANSLATOR_BASE_URL", "https://api.openai.com/v1")

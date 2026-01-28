@@ -13,6 +13,10 @@ Default bias: LITE (fast but still thoughtful).
 Use SKIP only when the turn is truly trivial/housekeeping.
 Use FULL only when stakes/complexity justify it.
 
+CRITICAL ROUTING RULE (WEB SAFETY)
+If you have ANY suspicion that web research might be needed now or soon (facts, prices, locations, “latest”, news, verification),
+you MUST NOT choose HERMES_MODE: SKIP. Choose LITE or FULL so Hermes can decide web search properly.
+
 Input: <IRIS_INPUT>...</IRIS_INPUT> is your full world (recent turns + latest fan message).
 
 CRITICAL OUTPUT CONTRACT (STRICT)

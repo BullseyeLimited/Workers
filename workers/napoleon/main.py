@@ -1702,6 +1702,10 @@ def process_job(payload):
     napoleon_mode = str(payload.get("napoleon_mode") or "full").strip().lower()
     if napoleon_mode not in {"lite", "full"}:
         napoleon_mode = "full"
+    # Temporary policy: treat Napoleon LITE the same as FULL (we keep the Iris decision
+    # in message_ai_details.iris_* columns, but we run the full Napoleon prompt).
+    if napoleon_mode == "lite":
+        napoleon_mode = "full"
     if not IRIS_CONTROL_ENABLED:
         napoleon_mode = "full"
     attempt = 0

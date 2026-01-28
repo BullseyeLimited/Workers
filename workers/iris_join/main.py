@@ -1,6 +1,4 @@
-"""
-Hermes join gate — enqueues Napoleon once required upstream results are present (or failed).
-"""
+"""Iris join gate — enqueues Napoleon once required upstream results are present (or failed)."""
 
 from __future__ import annotations
 
@@ -54,19 +52,12 @@ SB = create_client(
     ),
 )
 
-QUEUE = "hermes.join"
+QUEUE = "iris.join"
 NAPOLEON_QUEUE = "napoleon.reply"
 WRITER_QUEUE = "napoleon.compose"
 
 HEADER_PATTERNS = {
     "search": re.compile(r"FINAL_VERDICT_SEARCH\s*:\s*(YES|NO)", re.IGNORECASE),
-    "kairos": re.compile(
-        r"FINAL_VERDICT_KAIROS\s*:\s*(FULL|LITE|SKIP)", re.IGNORECASE
-    ),
-    "join": re.compile(
-        r"JOIN_REQUIREMENTS\s*:\s*(KAIROS_ONLY|WEB_ONLY|BOTH|NONE)",
-        re.IGNORECASE,
-    ),
 }
 BRIEF_PATTERN = re.compile(
     r"<WEB_RESEARCH_BRIEF>(.*?)</WEB_RESEARCH_BRIEF>", re.IGNORECASE | re.DOTALL
@@ -76,8 +67,6 @@ BRIEF_PATTERN = re.compile(
 def _fail_closed_defaults() -> dict:
     return {
         "final_verdict_search": "NO",
-        "final_verdict_kairos": "FULL",
-        "join_requirements": "KAIROS_ONLY",
         "web_research_brief": "NONE",
     }
 
@@ -121,6 +110,25 @@ def _extract_iris_modes(extras: dict) -> tuple[str, str | None, str, bool]:
     kairos = _normalize_mode(parsed.get("kairos") or parsed.get("kairos_mode"))
     napoleon = _normalize_mode(parsed.get("napoleon") or parsed.get("napoleon_mode")) or "lite"
     return hermes, kairos, napoleon, True
+
+
+def _infer_need_kairos(
+    *,
+    has_iris: bool,
+    iris_kairos_mode: str | None,
+    kairos_status: str | None,
+    fan_msg_id: int,
+    client,
+) -> bool:
+    if has_iris:
+        return (_normalize_mode(iris_kairos_mode) or "lite") != "skip"
+
+    status = (kairos_status or "").strip().lower()
+    if status in {"ok", "failed"}:
+        return True
+
+    # Best-effort: if a Kairos job exists in the queue, we should wait for it.
+    return job_exists("kairos.analyse", fan_msg_id, client=client)
 
 
 def _format_fan_turn(row: dict) -> str:
@@ -221,23 +229,11 @@ def _parse_hermes_output(raw_text: str) -> dict | None:
     missing: list[str] = []
 
     search_match = HEADER_PATTERNS["search"].search(raw_text)
-    kairos_match = HEADER_PATTERNS["kairos"].search(raw_text)
-    join_match = HEADER_PATTERNS["join"].search(raw_text)
 
     if search_match:
         parsed["final_verdict_search"] = search_match.group(1).upper()
     else:
         missing.append("FINAL_VERDICT_SEARCH")
-
-    if kairos_match:
-        parsed["final_verdict_kairos"] = kairos_match.group(1).upper()
-    else:
-        missing.append("FINAL_VERDICT_KAIROS")
-
-    if join_match:
-        parsed["join_requirements"] = join_match.group(1).upper()
-    else:
-        missing.append("JOIN_REQUIREMENTS")
 
     brief_match = BRIEF_PATTERN.search(raw_text)
     if brief_match:
@@ -300,18 +296,16 @@ def _build_content_pack_from_request(
     return build_content_pack(client, thread_id=thread_id, **params)
 
 
-def compute_requirements(hermes_parsed: dict) -> tuple[bool, bool]:
-    verdict_search = (hermes_parsed.get("final_verdict_search") or "NO").upper()
-    verdict_kairos = (hermes_parsed.get("final_verdict_kairos") or "FULL").upper()
-    need_kairos = verdict_kairos != "SKIP"
-    need_web = verdict_search == "YES"
+def compute_requirements(*, verdict_search: str, kairos_mode: str | None) -> tuple[bool, bool]:
+    need_web = (verdict_search or "NO").strip().upper() == "YES"
+    mode = _normalize_mode(kairos_mode) or "full"
+    need_kairos = mode != "skip"
     return need_kairos, need_web
 
 
 def completion_state(
-    hermes_parsed: dict, kairos_status: str | None, web_status: str | None
+    *, need_kairos: bool, need_web: bool, kairos_status: str | None, web_status: str | None
 ) -> tuple[bool, bool, bool]:
-    need_kairos, need_web = compute_requirements(hermes_parsed)
     kairos_done = (not need_kairos) or (kairos_status in {"ok", "failed"})
     web_done = (not need_web) or (web_status in {"ok", "failed"})
     return need_kairos, need_web, (kairos_done and web_done)
@@ -435,8 +429,6 @@ def process_job(payload: Dict[str, Any]) -> bool:
     if not hermes_parsed and has_iris and iris_hermes_mode == "skip":
         hermes_parsed = {
             "final_verdict_search": "NO",
-            "final_verdict_kairos": (iris_kairos_mode or "lite").upper(),
-            "join_requirements": "NONE",
             "web_research_brief": "NONE",
         }
 
@@ -444,10 +436,6 @@ def process_job(payload: Dict[str, Any]) -> bool:
     # Hermes decision yet, wait.
     if not hermes_parsed and (not has_iris or iris_hermes_mode != "skip"):
         return True
-
-    # Iris can optionally override Kairos mode, but only when explicitly enabled.
-    if hermes_parsed and has_iris and iris_kairos_mode:
-        hermes_parsed["final_verdict_kairos"] = (iris_kairos_mode or "lite").upper()
 
     content_request = _extract_content_request(details.get("content_request"))
     if CONTENT_PACK_ENABLED and not details.get("content_pack"):
@@ -477,10 +465,21 @@ def process_job(payload: Dict[str, Any]) -> bool:
     web_blob = extras.get("web_research") or {}
     web_status = web_blob.get("status") or details.get("web_research_status")
 
+    verdict_search = (hermes_parsed.get("final_verdict_search") or "NO").upper()
+    need_web = verdict_search == "YES"
+    need_kairos = _infer_need_kairos(
+        has_iris=has_iris,
+        iris_kairos_mode=iris_kairos_mode,
+        kairos_status=details.get("kairos_status"),
+        fan_msg_id=int(fan_msg_id),
+        client=SB,
+    )
+
     need_kairos, need_web, done = completion_state(
-        hermes_parsed,
-        details.get("kairos_status"),
-        web_status,
+        need_kairos=need_kairos,
+        need_web=need_web,
+        kairos_status=details.get("kairos_status"),
+        web_status=web_status,
     )
 
     if not need_kairos:
