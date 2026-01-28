@@ -3,6 +3,7 @@ name: deploy-all-workers
 on:
   push:
     branches: [ main ]
+  workflow_dispatch:
 
 jobs:
   deploy:
@@ -16,6 +17,8 @@ jobs:
             config: workers/kairos/fly.toml
           - app: napoleon-worker
             config: workers/napoleon/fly.toml
+          - app: napoleon-writer-worker
+            config: workers/napoleon_writer/fly.toml
           - app: historian-worker
             config: workers/historian/fly.toml
 
