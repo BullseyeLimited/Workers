@@ -166,14 +166,12 @@ BEGIN SEASON_INPUT
 <INPUT>
 
 <ROLLING_HISTORY>  
-[SEASON N-2]: {Abstract_of_Season_N-2}  
-[SEASON N-1]: {Abstract_of_Season_N-1}  
+[SEASON N-2]: {Abstract_N-2}  
+[SEASON N-1]: {Abstract_N-1}  
 </ROLLING_HISTORY>
 
 <RAW_CHAPTERS>  
-[CHAPTER 1]: {Content_or_Summary_of_Chapter_1}  
-[CHAPTER 2]: {Content_or_Summary_of_Chapter_2}  
-[CHAPTER 3]: {Content_or_Summary_of_Chapter_3}  
+{RAW_TURNS}
 </RAW_CHAPTERS>
 
 </INPUT>
