@@ -935,14 +935,15 @@ def live_turn_window(
                 content_lines.append(f"[CONTENT_OFFER {status}{price_label}] {label}")
         if content_lines:
             text = f"{text}\n" + "\n".join(content_lines)
+        ts = _format_turn_timestamp(row.get("created_at"))
+        header = f"{turn_label} @ {ts} ({sender_label})"
         if annotations_by_message_id:
             msg_id = row.get("id")
             if msg_id is not None:
                 annotation = annotations_by_message_id.get(int(msg_id))
                 if annotation:
-                    text = f"{text}\n{annotation}"
-        ts = _format_turn_timestamp(row.get("created_at"))
-        lines.append(f"{turn_label} @ {ts} ({sender_label}): {text}")
+                    header = f"{header} {annotation}"
+        lines.append(f"{header}: {text}")
 
     return "\n".join(lines)
 

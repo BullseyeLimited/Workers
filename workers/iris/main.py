@@ -268,13 +268,13 @@ def _format_fan_turn(row: dict) -> str:
     return "\n".join(parts) if parts else text
 
 
-def _format_previous_mode_history(
+def _recent_iris_mode_annotations(
     thread_id: int,
     *,
     boundary_turn: int | None,
     exclude_message_id: int | None,
     client,
-) -> tuple[str, dict[int, str]]:
+) -> dict[int, str]:
     history = iris_mode_history(
         thread_id,
         boundary_turn=boundary_turn,
@@ -288,13 +288,11 @@ def _format_previous_mode_history(
             return "UNKNOWN"
         return str(value).strip().upper()
 
-    lines: list[str] = []
     annotations: dict[int, str] = {}
-    for idx, entry in enumerate(history, 1):
+    for entry in history:
         hermes = _mode_label(entry.get("hermes"))
         kairos = _mode_label(entry.get("kairos"))
         napoleon = _mode_label(entry.get("napoleon"))
-        lines.append(f"T-{idx}: HERMES={hermes}, KAIROS={kairos}, NAPOLEON={napoleon}")
         msg_id = entry.get("message_id")
         if msg_id:
             try:
@@ -302,9 +300,7 @@ def _format_previous_mode_history(
             except Exception:
                 continue
 
-    body = "\n".join(lines).strip() if lines else "[No previous Iris decisions]"
-    block = f"<PREVIOUS_MODE_HISTORY>\n{body}\n</PREVIOUS_MODE_HISTORY>"
-    return block, annotations
+    return annotations
 
 
 def _runpod_call(system_prompt: str, user_message: str) -> tuple[str, dict, dict]:
@@ -434,7 +430,7 @@ def process_job(payload: Dict[str, Any]) -> bool:
         except Exception:
             pass
 
-    previous_mode_history_block, annotations_by_message_id = _format_previous_mode_history(
+    annotations_by_message_id = _recent_iris_mode_annotations(
         thread_id,
         boundary_turn=turn_index,
         exclude_message_id=fan_msg_id,
@@ -453,7 +449,6 @@ def process_job(payload: Dict[str, Any]) -> bool:
 
     user_block = (
         "<IRIS_INPUT>\n"
-        f"{previous_mode_history_block}\n\n"
         f"{raw_turns}\n\n"
         "LATEST_FAN_MESSAGE:\n"
         f"{latest_fan_text}\n"
