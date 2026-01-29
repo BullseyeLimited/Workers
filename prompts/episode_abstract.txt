@@ -154,8 +154,8 @@ Only when you’re sure the updates and summary are internally consistent and fu
 ADD SEGMENT_XX_SEGMENTNAME (for a new entry) or
 REINFORCE SEGMENT_XX_SEGMENTNAME or
 REVISE SEGMENT_XX_SEGMENTNAME.
-(Use the segment’s number and exact uppercase name as given in the list. The orchestrator will supply the correct SEGMENT_X identifier prefix; just make sure it matches the segment you intend.)
-	•	If it’s a REVISE or REINFORCE, on the next line include TARGET_ID: <ID_of_existing_entry> exactly, which will be provided in the baseline card for that entry. (For ADD, no target_id line is needed.)
+(Use the segment’s number and exact uppercase name as given in the list. You must include the full SEGMENT_XX_... label in the header line.)
+	•	TARGET_ID: (optional) Only include this line if the input explicitly provides an entry id to target. If no id is provided, omit TARGET_ID entirely.
 	•	Then the next line is TEXT:  followed by the updated text you wrote for that entry (including the confidence label at the end).
 	•	Next line: CONFIDENCE:  followed by the confidence level word.
 	•	Next line: REASON:  followed by the one-sentence explanation with turn reference.
@@ -170,7 +170,6 @@ CONFIDENCE: possible
 REASON: T5 – Persona called him "darling" and he sent multiple ❤️ emojis and a tip, showing he loved it.  
 
 REVISE SEGMENT_09_CONSENT_BOUNDARY_POSTURE_GENERAL  
-TARGET_ID: 09-02  
 TEXT: He now explicitly states discomfort sooner when a topic goes too far, rather than silently enduring. [tentative]  
 CONFIDENCE: tentative  
 REASON: T9 – He said "Actually, let's not go there" when the roleplay became intense, updating his previous passive boundaries.  
