@@ -18,7 +18,7 @@ from supabase import ClientOptions, create_client
 
 from workers.lib.ai_response_store import record_ai_response
 from workers.lib.job_utils import job_exists
-from workers.lib.prompt_builder import live_turn_window
+from workers.lib.prompt_builder import iris_mode_history, live_turn_window
 from workers.lib.reply_run_tracking import (
     is_run_active,
     set_run_current_step,
@@ -268,6 +268,45 @@ def _format_fan_turn(row: dict) -> str:
     return "\n".join(parts) if parts else text
 
 
+def _format_previous_mode_history(
+    thread_id: int,
+    *,
+    boundary_turn: int | None,
+    exclude_message_id: int | None,
+    client,
+) -> tuple[str, dict[int, str]]:
+    history = iris_mode_history(
+        thread_id,
+        boundary_turn=boundary_turn,
+        limit=5,
+        client=client,
+        exclude_message_id=exclude_message_id,
+    )
+
+    def _mode_label(value: Any) -> str:
+        if not value:
+            return "UNKNOWN"
+        return str(value).strip().upper()
+
+    lines: list[str] = []
+    annotations: dict[int, str] = {}
+    for idx, entry in enumerate(history, 1):
+        hermes = _mode_label(entry.get("hermes"))
+        kairos = _mode_label(entry.get("kairos"))
+        napoleon = _mode_label(entry.get("napoleon"))
+        lines.append(f"T-{idx}: HERMES={hermes}, KAIROS={kairos}, NAPOLEON={napoleon}")
+        msg_id = entry.get("message_id")
+        if msg_id:
+            try:
+                annotations[int(msg_id)] = f"(HERMES={hermes}, KAIROS={kairos}, NAPOLEON={napoleon})"
+            except Exception:
+                continue
+
+    body = "\n".join(lines).strip() if lines else "[No previous Iris decisions]"
+    block = f"<PREVIOUS_MODE_HISTORY>\n{body}\n</PREVIOUS_MODE_HISTORY>"
+    return block, annotations
+
+
 def _runpod_call(system_prompt: str, user_message: str) -> tuple[str, dict, dict]:
     base = (os.getenv("IRIS_RUNPOD_URL") or os.getenv("RUNPOD_URL") or "").rstrip("/")
     if not base:
@@ -395,18 +434,26 @@ def process_job(payload: Dict[str, Any]) -> bool:
         except Exception:
             pass
 
+    previous_mode_history_block, annotations_by_message_id = _format_previous_mode_history(
+        thread_id,
+        boundary_turn=turn_index,
+        exclude_message_id=fan_msg_id,
+        client=SB,
+    )
     raw_turns = live_turn_window(
         thread_id,
         boundary_turn=turn_index,
         limit=20,
         exclude_message_id=fan_msg_id,
         client=SB,
+        annotations_by_message_id=annotations_by_message_id or None,
     )
     raw_turns = raw_turns or "[No raw turns provided]"
     latest_fan_text = _format_fan_turn(msg_row)
 
     user_block = (
         "<IRIS_INPUT>\n"
+        f"{previous_mode_history_block}\n\n"
         f"{raw_turns}\n\n"
         "LATEST_FAN_MESSAGE:\n"
         f"{latest_fan_text}\n"

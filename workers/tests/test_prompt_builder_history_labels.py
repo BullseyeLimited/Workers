@@ -6,6 +6,7 @@ import json
 from workers.lib.prompt_builder import (
     _ordinal,
     _recency_prefix,
+    iris_mode_history,
     live_turn_window,
     latest_kairos_json,
     make_block,
@@ -175,6 +176,98 @@ class PromptBuilderHistoryLabelTests(unittest.TestCase):
         self.assertTrue(lines[0].startswith("Turn 3 @"))
         self.assertTrue(lines[1].startswith("Turn 2 @"))
         self.assertTrue(lines[2].startswith("Turn 1 @"))
+
+    def test_live_turn_window_appends_annotations(self):
+        client = _FakeClient(
+            tables={
+                "messages": [
+                    {
+                        "id": 3,
+                        "turn_index": 3,
+                        "sender": "fan",
+                        "message_text": "newest",
+                        "media_analysis_text": None,
+                        "created_at": "2026-01-01T00:00:03Z",
+                        "content_id": None,
+                    },
+                    {
+                        "id": 2,
+                        "turn_index": 2,
+                        "sender": "creator",
+                        "message_text": "middle",
+                        "media_analysis_text": None,
+                        "created_at": "2026-01-01T00:00:02Z",
+                        "content_id": None,
+                    },
+                    {
+                        "id": 1,
+                        "turn_index": 1,
+                        "sender": "fan",
+                        "message_text": "oldest",
+                        "media_analysis_text": None,
+                        "created_at": "2026-01-01T00:00:01Z",
+                        "content_id": None,
+                    },
+                ],
+                "content_offers": [],
+                "content_deliveries": [],
+                "content_items": [],
+                "summaries": [],
+            }
+        )
+
+        rendered = live_turn_window(
+            1,
+            boundary_turn=4,
+            client=client,
+            annotations_by_message_id={3: "(HERMES=LITE, KAIROS=FULL, NAPOLEON=LITE)"},
+        )
+        self.assertIn("(HERMES=LITE, KAIROS=FULL, NAPOLEON=LITE)", rendered)
+
+    def test_iris_mode_history_extracts_parsed_modes(self):
+        client = _FakeClient(
+            tables={
+                # Returned newest-first (turn_index desc).
+                "messages": [
+                    {"id": 9, "turn_index": 9, "sender": "fan"},
+                    {"id": 7, "turn_index": 7, "sender": "fan"},
+                ],
+                "message_ai_details": [
+                    {
+                        "message_id": 9,
+                        "extras": {
+                            "iris": {
+                                "parsed": {
+                                    "hermes": "lite",
+                                    "kairos": "full",
+                                    "napoleon": "lite",
+                                }
+                            }
+                        },
+                    },
+                    {
+                        "message_id": 7,
+                        "extras": {
+                            "iris": {
+                                "parsed": {
+                                    "hermes": "full",
+                                    "kairos": "lite",
+                                    "napoleon": "skip",
+                                }
+                            }
+                        },
+                    },
+                ],
+            }
+        )
+
+        history = iris_mode_history(1, boundary_turn=10, client=client, limit=5)
+        self.assertEqual(2, len(history))
+        self.assertEqual(9, history[0]["message_id"])
+        self.assertTrue(history[0]["has_iris"])
+        self.assertEqual("lite", history[0]["hermes"])
+        self.assertEqual("full", history[0]["kairos"])
+        self.assertEqual("lite", history[0]["napoleon"])
 
     def test_latest_kairos_json_uses_same_message_id(self):
         client = _FakeClient(

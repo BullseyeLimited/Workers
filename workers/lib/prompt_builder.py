@@ -725,6 +725,7 @@ def live_turn_window(
     *,
     client=None,
     exclude_message_id: int | None = None,
+    annotations_by_message_id: dict[int, str] | None = None,
 ) -> str:
     sb = _resolve_client(client)
 
@@ -934,10 +935,127 @@ def live_turn_window(
                 content_lines.append(f"[CONTENT_OFFER {status}{price_label}] {label}")
         if content_lines:
             text = f"{text}\n" + "\n".join(content_lines)
+        if annotations_by_message_id:
+            msg_id = row.get("id")
+            if msg_id is not None:
+                annotation = annotations_by_message_id.get(int(msg_id))
+                if annotation:
+                    text = f"{text}\n{annotation}"
         ts = _format_turn_timestamp(row.get("created_at"))
         lines.append(f"{turn_label} @ {ts} ({sender_label}): {text}")
 
     return "\n".join(lines)
+
+
+def iris_mode_history(
+    thread_id: int,
+    boundary_turn: int | None = None,
+    limit: int = 5,
+    *,
+    client=None,
+    exclude_message_id: int | None = None,
+) -> list[dict[str, Any]]:
+    """
+    Return the last `limit` Iris routing decisions (fan turns only) for this thread.
+
+    This is used to help Iris avoid slow FULL loops (or bland LITE loops) by seeing
+    its own recent mode selections in-context.
+    """
+
+    def _normalize_mode(value: Any) -> str | None:
+        if value is None:
+            return None
+        text = str(value).strip().lower()
+        if not text:
+            return None
+        tokens = re.findall(r"[a-z]+", text)
+        if not tokens:
+            return None
+        token = tokens[0]
+        if token in {"skip", "skipped", "none", "no", "off"}:
+            return "skip"
+        if token in {"lite", "light", "fast", "quick", "low"}:
+            return "lite"
+        if token in {"full", "deep", "high"}:
+            return "full"
+        return None
+
+    sb = _resolve_client(client)
+
+    query = (
+        sb.table("messages")
+        .select("id,turn_index,sender")
+        .eq("thread_id", thread_id)
+        .eq("sender", "fan")
+        .order("turn_index", desc=True)
+        .limit(limit)
+    )
+    if boundary_turn is not None:
+        query = query.lt("turn_index", boundary_turn)
+    if exclude_message_id is not None:
+        query = query.neq("id", exclude_message_id)
+    fan_rows = query.execute().data or []
+
+    message_ids: list[int] = []
+    for row in fan_rows:
+        try:
+            message_ids.append(int(row.get("id")))
+        except Exception:
+            continue
+
+    details_by_message_id: dict[int, Any] = {}
+    if message_ids:
+        details_rows = (
+            sb.table("message_ai_details")
+            .select("message_id,extras")
+            .in_("message_id", message_ids)
+            .execute()
+            .data
+            or []
+        )
+        for row in details_rows:
+            try:
+                mid = int(row.get("message_id"))
+            except Exception:
+                continue
+            details_by_message_id[mid] = row.get("extras")
+
+    out: list[dict[str, Any]] = []
+    for row in fan_rows:
+        msg_id = row.get("id")
+        if msg_id is None:
+            continue
+        try:
+            msg_id_int = int(msg_id)
+        except Exception:
+            continue
+
+        extras = details_by_message_id.get(msg_id_int) or {}
+        iris_blob = extras.get("iris") if isinstance(extras, dict) else None
+        parsed = iris_blob.get("parsed") if isinstance(iris_blob, dict) else None
+
+        hermes = None
+        kairos = None
+        napoleon = None
+        has_iris = False
+        if isinstance(parsed, dict):
+            hermes = _normalize_mode(parsed.get("hermes") or parsed.get("hermes_mode"))
+            kairos = _normalize_mode(parsed.get("kairos") or parsed.get("kairos_mode"))
+            napoleon = _normalize_mode(parsed.get("napoleon") or parsed.get("napoleon_mode"))
+            has_iris = hermes is not None or kairos is not None or napoleon is not None
+
+        out.append(
+            {
+                "message_id": msg_id_int,
+                "turn_index": row.get("turn_index"),
+                "hermes": hermes,
+                "kairos": kairos,
+                "napoleon": napoleon,
+                "has_iris": has_iris,
+            }
+        )
+
+    return out
 
 
 def _extract_summary_text(value: Any) -> str:
