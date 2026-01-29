@@ -78,6 +78,81 @@ _IDENTITY_KEYS_LINE = re.compile(
     r"^IDENTITY_KEYS\s*:\s*(.*)$", re.IGNORECASE | re.MULTILINE
 )
 
+try:
+    IDENTITY_KEYS_CARRY_FORWARD_SECONDS = int(
+        os.getenv("IDENTITY_KEYS_CARRY_FORWARD_SECONDS", "14400") or "14400"
+    )
+except Exception:
+    IDENTITY_KEYS_CARRY_FORWARD_SECONDS = 14400
+
+
+def _normalize_iris_mode(value: Any) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip().lower()
+    if not text:
+        return None
+    if text in {"skip", "skipped", "none", "no", "off", "0"}:
+        return "skip"
+    if text in {"lite", "light", "fast", "quick", "low"}:
+        return "lite"
+    if text in {"full", "deep", "high"}:
+        return "full"
+    return None
+
+
+def _parse_utc_datetime(value: Any) -> datetime | None:
+    if not value:
+        return None
+    if isinstance(value, datetime):
+        dt = value
+    elif isinstance(value, (int, float)):
+        dt = datetime.fromtimestamp(value, tz=timezone.utc)
+    elif isinstance(value, str):
+        raw = value.strip()
+        if not raw:
+            return None
+        raw = raw.replace("Z", "+00:00")
+        try:
+            dt = datetime.fromisoformat(raw)
+        except ValueError:
+            try:
+                dt = datetime.fromtimestamp(float(raw), tz=timezone.utc)
+            except Exception:
+                return None
+    else:
+        return None
+
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
+def _within_ttl(*, previous_created_at: datetime | None, now: datetime, ttl_seconds: int) -> bool:
+    if ttl_seconds <= 0:
+        return False
+    if previous_created_at is None:
+        return False
+    try:
+        age_seconds = (now - previous_created_at).total_seconds()
+    except Exception:
+        return False
+    if age_seconds < 0:
+        return True
+    return age_seconds <= ttl_seconds
+
+
+def _extract_iris_hermes_mode(extras: Any) -> str | None:
+    if not isinstance(extras, dict):
+        return None
+    iris_blob = extras.get("iris")
+    if not isinstance(iris_blob, dict):
+        return None
+    parsed = iris_blob.get("parsed")
+    if not isinstance(parsed, dict):
+        return None
+    return _normalize_iris_mode(parsed.get("hermes") or parsed.get("hermes_mode"))
+
 
 def _parse_identity_keys_text(value: str) -> list[str]:
     if not value:
@@ -363,13 +438,106 @@ def _parse_identity_keys_from_raw(raw_text: str) -> list[str]:
     return _parse_identity_keys_text(match.group(1) or "")
 
 
+def _extract_hermes_created_at(extras: Any) -> datetime | None:
+    if not isinstance(extras, dict):
+        return None
+    hermes_blob = extras.get("hermes")
+    if not isinstance(hermes_blob, dict):
+        return None
+    return _parse_utc_datetime(hermes_blob.get("created_at"))
+
+
+def _fetch_previous_hermes_identity_keys(
+    *,
+    thread_id: int,
+    message_id: int,
+    client,
+    now: datetime,
+    ttl_seconds: int,
+) -> list[str]:
+    try:
+        rows = (
+            client.table("message_ai_details")
+            .select("extras,hermes_output_raw,message_id")
+            .eq("thread_id", int(thread_id))
+            .lt("message_id", int(message_id))
+            .order("message_id", desc=True)
+            .limit(25)
+            .execute()
+            .data
+            or []
+        )
+    except Exception:
+        return []
+
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        extras = row.get("extras") or {}
+        keys = _extract_identity_keys_from_extras(extras)
+        if not keys:
+            keys = _parse_identity_keys_from_raw(row.get("hermes_output_raw") or "")
+        if not keys:
+            continue
+        created_at = _extract_hermes_created_at(extras)
+        if created_at and not _within_ttl(
+            previous_created_at=created_at,
+            now=now,
+            ttl_seconds=ttl_seconds,
+        ):
+            return []
+        return keys
+
+    return []
+
+
+def resolve_hermes_identity_keys(
+    *,
+    current_keys: list[str],
+    current_extras: Any,
+    thread_id: int | None,
+    message_id: int | None,
+    client,
+    now: datetime | None = None,
+    ttl_seconds: int | None = None,
+) -> list[str]:
+    """
+    Hermes can optionally emit IDENTITY_KEYS to filter the creator identity card for Napoleon.
+
+    If Hermes is skipped this turn (Iris says HERMES_MODE=SKIP), we reuse the most recent
+    Hermes IDENTITY_KEYS for up to a TTL window to keep prompts stable and small.
+    """
+
+    if current_keys:
+        return current_keys
+    if not thread_id or not message_id:
+        return []
+    if _extract_iris_hermes_mode(current_extras) != "skip":
+        return []
+
+    now_dt = now or datetime.now(timezone.utc)
+    ttl = (
+        int(ttl_seconds)
+        if ttl_seconds is not None
+        else int(IDENTITY_KEYS_CARRY_FORWARD_SECONDS)
+    )
+    ttl = max(0, ttl)
+    return _fetch_previous_hermes_identity_keys(
+        thread_id=int(thread_id),
+        message_id=int(message_id),
+        client=client,
+        now=now_dt,
+        ttl_seconds=ttl,
+    )
+
+
 def _fetch_hermes_identity_keys(message_id: int | None, *, client=None) -> list[str]:
     if not message_id:
         return []
     sb = _resolve_client(client)
     rows = (
         sb.table("message_ai_details")
-        .select("extras,hermes_output_raw")
+        .select("thread_id,extras,hermes_output_raw")
         .eq("message_id", message_id)
         .limit(1)
         .execute()
@@ -379,10 +547,22 @@ def _fetch_hermes_identity_keys(message_id: int | None, *, client=None) -> list[
     if not rows or not isinstance(rows[0], dict):
         return []
     row = rows[0]
-    keys = _extract_identity_keys_from_extras(row.get("extras") or {})
-    if keys:
-        return keys
-    return _parse_identity_keys_from_raw(row.get("hermes_output_raw") or "")
+    extras = row.get("extras") or {}
+    keys = _extract_identity_keys_from_extras(extras)
+    if not keys:
+        keys = _parse_identity_keys_from_raw(row.get("hermes_output_raw") or "")
+    thread_id = row.get("thread_id")
+    try:
+        thread_id_int = int(thread_id) if thread_id is not None else None
+    except Exception:
+        thread_id_int = None
+    return resolve_hermes_identity_keys(
+        current_keys=keys,
+        current_extras=extras,
+        thread_id=thread_id_int,
+        message_id=int(message_id),
+        client=sb,
+    )
 
 
 def _filter_creator_identity_card(card: Any, identity_keys: list[str]) -> Any:

@@ -14,6 +14,7 @@ from workers.lib.cards import compact_psychic_card
 from workers.lib.ai_response_store import record_ai_response
 from workers.lib.content_pack import format_content_pack_for_napoleon
 from workers.lib.daily_plan_utils import fetch_daily_plan_row, format_daily_plan_for_prompt
+from workers.lib.job_utils import job_exists
 from workers.lib.json_utils import safe_parse_model_json
 from workers.lib.prompt_builder import build_prompt_sections, live_turn_window
 from workers.lib.reply_run_tracking import (
@@ -136,6 +137,55 @@ def _indent_block(text: str, *, spaces: int = 4) -> str:
     pad = " " * max(0, int(spaces))
     lines = (text or "").splitlines()
     return "\n".join(pad + line if line.strip() else "" for line in lines).rstrip()
+
+
+def _fallback_turn_directive() -> str:
+    return (
+        "Reply FAST and naturally.\n"
+        "Keep it short.\n"
+        "Acknowledge what he said.\n"
+        "Answer any direct question.\n"
+        "Ask 1 simple follow-up question.\n"
+        "Match the vibe (flirty/teasing/soft) without overdoing it.\n"
+        "Do not over-explain."
+    )
+
+
+def _enqueue_writer_fallback(
+    *,
+    fan_message_id: int,
+    thread_id: int,
+    raw_turns: str,
+    msg_row: dict,
+    thread_row: dict,
+    details_row: dict,
+    run_id: str | None,
+) -> None:
+    if job_exists(WRITER_QUEUE, fan_message_id, client=SB, field="fan_message_id"):
+        return
+
+    writer_payload = {
+        "fan_message_id": int(fan_message_id),
+        "thread_id": int(thread_id),
+        "creator_psychic_card": thread_row.get("creator_psychic_card") or {},
+        "thread_history": raw_turns or "",
+        "latest_fan_message": _format_fan_turn(msg_row) or (msg_row.get("message_text") or ""),
+        "turn_directive": _fallback_turn_directive(),
+    }
+    moment_compass = (details_row.get("moment_compass") or "").strip()
+    if moment_compass:
+        writer_payload["moment_compass"] = moment_compass
+    fan_psychic_card = compact_psychic_card(
+        thread_row.get("fan_psychic_card"),
+        max_entries_per_segment=2,
+        drop_superseded=True,
+        entry_fields=("id", "text", "confidence", "origin_tier"),
+    )
+    if fan_psychic_card:
+        writer_payload["fan_psychic_card"] = fan_psychic_card
+    if run_id:
+        writer_payload["run_id"] = str(run_id)
+    send(WRITER_QUEUE, writer_payload)
 
 
 def _inject_into_napoleon_input(user_prompt: str, injection: str) -> str:
