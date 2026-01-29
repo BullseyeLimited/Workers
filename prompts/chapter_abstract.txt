@@ -83,368 +83,44 @@ Your work on these two tasks is complementary: the Profile Mutation is a structu
 CHAPTER-LEVEL EDIT SCOPE  (READ THIS CAREFULLY)
 You MAY create, reinforce, or revise entries ONLY in the following Psychic-Card segments:
 
-01.CORE_MOTIVATIONS_VALUES
-Why does the fan keep coming back over this 60-turn Chapter, and which bedrock principles steer those drives?
-• Chapter lens: look for motives that recur across at least two of the three Episodes—patterns, not one-off spikes.
-• Drive taxonomy (same list) but flag trend shifts: e.g. ego-validation ↑, escapism ↓. Use tipping cadence, length of heartfelt messages, or repeated “miss you” lines as evidence.
-• Value compass: honesty, loyalty, politeness, D/s ethics, etc.; confirm when the fan invokes them more than once this Chapter (“respect means everything,” “I won’t lie to you”).
-• Competing-motives ticker: track tug-of-wars that surface repeatedly—validation vs. budget, curiosity vs. guilt—and note the side that wins by Chapter end.
-• Temporal variance: identify any weekly rhythm (payday splurge, Sunday loneliness) visible only in 60-turn scope.
-• Cross-checks:
-  – If motive already on Psychic Card → REINFORCE.
-  – If hierarchy flips or nuance emerges → REVISE.
-  – If new, but grounded in >1 Episode → ADD.
- Identity Card facts serve only as context; log a motive/value only when the chat adds emotional framing.
-
-02.SELF_NARRATIVE_IDENTITY_THEMES
-How does the fan present and label themselves across this 60-turn span, and what story threads about “who I am” keep resurfacing?
-• Watch for repeated self-descriptors, proud or shameful back-story snippets, accepted nicknames, and role-claims (“your knight,” “just a lonely nerd”) that appear in more than one scene.
-• Compare to Psychic Card:
- – If label already exists and he still uses it → REINFORCE.
- – If tone flips (“alpha provider” last Chapter, now “burnt-out dad”) → REVISE.
- – Brand-new identity theme voiced twice or more → ADD.
-• Consistency audit: flag contradictions inside 60 turns (brags about wealth, later calls himself broke).
-• Experiment tracker: note trial nicknames tried once then dropped vs. ones he repeats.
-• Identity Card is ground truth for factual bio; only log here when the chat adds emotional framing or self-story spin.
-
-03.WORLDVIEW_INTERPRETATION_FRAMES
-Through which mental lenses does the fan decode events during this Chapter, and do those lenses shift?
-• Detect dominant outlooks that colour multiple interactions: optimistic dreamer, cynical realist, data-driven analyst, spiritual fatalist, etc.
-• Capture recurring cognitive distortions (catastrophising slow replies, mind-reading doubts, black-and-white judgments) that surface in several turns.
-• Note ideological filters if they steer more than one topic (political rants, religious references, hustle-culture mantras).
-• Trend test: does mood or alcohol move the lens (soft at night, harsher midday)? Record any situational pivot visible within 60 turns.
-• Card actions: REINFORCE ongoing lens; REVISE if primary frame softens or flips; ADD new frame only if evidenced in ≥2 distinct moments.
-• Identity Card provides cultural backdrop but not the live interpretive flavour—log only when the chat shows felt meaning (“figures, nothing good lasts”).
-
-04.AESTHETIC_TASTE_CONSTELLATION_GENERAL
-What visual, auditory, and vibe cues delighted or repelled the fan repeatedly in this Chapter?
-• Track compliments, shared media links, or gush reactions that recur: retro-synth playlists, cottage-core pics, noir lighting, anime GIFs.
-• Map dislikes mentioned twice (eye-roll at pastel filters, “too cheesy”).
-• Note context rhythm: late-night chats may lean moody neon; daytime small-talk prefers bright, cozy images—record this situational flavor.
-• Cross-reference Psychic Card:
- – Same motif resurfaces → REINFORCE.
- – Preference shift (“used to love vaporwave, now calls it overdone”) → REVISE.
- – New motif, shown enthusiasm at least twice → ADD.
-• Identity Card is irrelevant unless bio facts explain taste (e.g., grew up on 80s music—may support synthwave love).
-
-05.RELATIONSHIP_TEMPLATE_SOUGHT
-Which relational archetype is the fan casting the persona into throughout this 60-turn Chapter, and does that script evolve?
-• Scan for address terms, request style, and emotional pacing that repeat (e.g., “good night, my love” → GFE; “yes, coach” → mentor).
-• Confirm template when the same dynamic shows up in at least two separate stretches of the Chapter.
-• Watch for hybrid or shifting frames—playful buddy early, strict domme by the final scene; note trigger moments that cause the swap.
-• Card rules: REINFORCE ongoing template; REVISE if another role overtakes it; ADD only if a fresh archetype appears more than once.
-• Identity Card facts inform plausibility (married fans may avoid “girlfriend” talk), but emotional evidence must be in the 60 turns.
-
-06.COGNITIVE_IMAGINATION_STYLE
-How does the fan think, learn, and picture scenarios across these 60 turns?
-• Channel dominance: visual cinema (asks for pics, vivid scene descriptions), auditory focus (begs voice notes), analytical schematic (asks clarifying Qs), kinesthetic emotion (sensory verbs).
-• Depth & abstraction: prefers literal step-by-step or enjoys metaphorical flourish—judge by repeated feedback like “paint me the scene” vs. “just tell me plainly.”
-• Working-memory span: does he recall a detail from 30 turns earlier without prompting?  Mark high recall vs. fast forget.
-• Card actions: REINFORCE existing style if pattern persists; REVISE if he switches (starts requesting bullet summaries); ADD if new preference recurs.
-• Identity Card provides education level or job but only guides hypotheses; log style strictly from observed behaviour.
-
-07.ATTACHMENT_INTIMACY_STYLE
-What micro-attachment pattern dominates the Chapter, and how does it modulate?
-• Anxious cues: double-texts after brief silence, “are you there?” emojis.
-• Avoidant blips: sudden topic pivots or curt “lol” when chat gets deep.
-• Secure signals: relaxed pacing, trusting assumptions (“reply when free, no rush”).
-• Record whichever pattern appears in multiple segments; note any situational intensifiers (alcohol, late-night solitude).
-• If fan swings between styles inside 60 turns, capture the dominant one and mention the oscillation.
-• Update: REINFORCE if same style was on card; REVISE if hierarchy flips; ADD if first clear evidence.
-• Use Identity Card only as context (e.g., recent divorce may explain anxiety) but don’t log without fresh chat evidence.
-
-08.TRUST_SAFETY_SCHEMA
-What proves to the fan that the space is safe over the full 60-turn slice, and what cracks that sense of safety?
-• Trust deposits: catalogue each cue that reliably steadies him twice or more this Chapter—e.g., real-time selfie stamps, consistent pet-name tone, or rapid “typing…” indicators when replies lag.
-• Threat cues: list recurring suspicion markers—meta-questions about authenticity, sudden read-but-no-reply stretches that make him send “you there?”, or joking “bet you say this to all the guys.”
-• Channel specificity: note which medium builds or breaks trust (voice note heals, emoji wall looks fake).
-• Repair preference: first action that restores warmth after a wobble (proof photo, empathetic apology, playful tease) observed at least once then echoed later.
-• Card edits:
- – REINFORCE a cue already on the card when it succeeds again.
- – REVISE if a former trust signal now fails or a new breach type appears.
- – ADD only when new cue/breach pattern repeats within the Chapter.
-• Identity Card only contextualises (e.g., his job in IT may explain photo-verification obsession); do not log unless the chat shows the emotional need.
-
-09.CONSENT_BOUNDARY_POSTURE_GENERAL
-How explicitly does the fan set or test limits across the 60-turn flow, and does that stance evolve?
-• Green-zone language: repeated “yes, more” / double-fire-emoji after pushes.
-• Yellow drifts: hesitations like “hmm maybe” or soft redirects that surface in two separate moments.
-• Red lines: exact phrases or silent withdrawals that kill a topic twice (e.g., goes mute when IRL meetups arise). Store wording for guardrails.
-• Consent cadence: detect whether he now tolerates seamless escalation (implicit consent) or still needs overt check-ins every intensification; confirm by counting scene-escalations.
-• Boundary-pushing style: playful dares versus strict adherence—log whichever dominates.
-• Update actions:
- – REINFORCE posture if unchanged.
- – REVISE if limits loosen/tighten or cadence preference shifts.
- – ADD brand-new hard limit only when voiced or enforced more than once.
-• Cross-reference Psychic Card to avoid duplicates; Identity Card used only to filter non-psychological facts.
-
-10.VULNERABILITY_DISCLOSURE_SCHEMA
-When does the fan open up during this Chapter, how deep does he go, and what containment does he expect?
-• Trigger catalogue: identify repeating prompts that unlock sharing—persona’s self-disclosure, late-night quiet, tip purchase, or music-link exchange.
-• Depth ladder: mark the highest rung reached this Chapter—Surface (day recap) / Mid (insecurities, mild secrets) / Core (family trauma, fetish shame).
-• Mechanics & signalling: hedging (“not sure I should say this”), emoji shields 🙈😅, voice notes for sensitive parts—log ones used multiple times.
-• Back-pressure signs: delete/unsend cycles, immediate “ignore that” followed by apology, or abrupt topic change; note if pattern repeats.
-• Containment expectation: classify preferred response—quick reassurance, silent listening, humour deflection, or advice—based on at least two disclosures.
-• Card logic: REINFORCE existing pattern, REVISE if depth tier changes or containment flips, ADD new trigger/response set when it recurs.
-• Identity Card gives biographical skeleton; only capture disclosure here if the emotional framing appears in chat.
-
-11.RECIPROCITY_FAIRNESS_EXPECTATIONS
-How does the fan keep score over this 60-turn Chapter, and what balances the ledger?
-• Transactional tells: look for repeated quid-pro-quo phrases (“I tipped—your turn for a pic”) or length-matching habits (writes long confessional, expects equal reply).
-• Altruistic patterns: spontaneous gifts or praise with “no rush, just wanted you to have this” shown at least twice—note that generosity style.
-• Balance stress signals: recurring irritation at reply lag, passive-aggressive jokes about “richer fans,” or sudden gift flood to erase guilt—catalog whichever repeats.
-• Currency hierarchy: track which “payments” ranked highest this Chapter—time/attention, exclusivity, emotional labor, sexual novelty, public recognition, monetary spend. Rank top two by frequency or emotional weight.
-• Repair mechanics: observe the move that settles imbalance (extra tip, apology paragraph, meme peace-offer).
-• Card actions:
- – REINFORCE existing currency or stress signal if re-observed.
- – REVISE if primary currency shifts (money → time).
- – ADD new fairness rule only when the behaviour appears more than once.
-• Identity Card offers income/job context but motives must be evidenced in chat.
-
-12.PARASOCIAL_FRAME_PERSONA_REALISM
-To what degree does the fan treat the persona as real during this Chapter, and how fluid is that frame?
-• Immersion markers: repeated romantic “miss you” lines, future-planning talk, jealousy at mention of other fans—log if pattern spans the Chapter.
-• Backstage awareness: meta references to “your subscribers” or content schedule; watch if he toggles between immersion and meta in different scenes.
-• Frame oscillation map: note triggers that break or restore immersion (e.g., tipping screen pops → meta mode; late-night sext → deep fantasy).
-• Tolerance level: record if gentle out-of-character moments are welcomed (“thanks for the BTS peek”) or flagged as vibe-kill.
-• Update rules: REINFORCE current frame if stable, REVISE if oscillation frequency or comfort zone changes, ADD new stance only with repeated evidence.
-• Identity Card irrelevant here—focus on live behaviour over 60 turns.
-
-13.EMOTIONAL_LABOR_EXPECTATIONS
-How much caretaking energy does the fan demand from the persona in this Chapter, and what does he return?
-• Support-seeking cues: multiple direct vents (“rough day, need your voice”), requests for reassurance, or health updates—count occurrences.
-• Mirror-care offers: fan checks on persona’s feelings, sends encouragement or tips “for your coffee”—log if reciprocation appears twice or more.
-• One-way consumer posture: ignores persona disclosures, quickly pivots back to self in several scenes.
-• Bandwidth sensitivity: note reactions to slower replies—gracious acceptance vs. anxious spiral—if pattern repeats within Chapter.
-• Conversion link: identify if emotional depth precedes purchases (buys PPV after heartfelt talk) more than once.
-• Card edits:
- – REINFORCE existing expectation style if unchanged.
- – REVISE when demand level rises/falls or reciprocity emerges/vanishes.
- – ADD new expectation when evidenced multiple times.
-• Identity Card only frames possible stressors; emotional-labor demand must be observed in chat.
-
-14.RELATIONAL_CURRENCIES_MAP
-Which actions, tokens, or perks made the fan feel valued repeatedly in this Chapter?
-• Currency taxonomy-tally:
- – Time/Attention (fast replies, long paragraphs)
- – Exclusivity (private pics, “only you” statements)
- – Ritual Gestures (daily good-night, custom emoji)
- – Novelty Goods (new cosplay, surprise voice note)
- – Monetary Spend (tips, PPV opens)
-• For each currency appearing twice or more, log strength: high / medium / low, based on emotional spike or thank-you intensity.
-• Inflation watch: if enthusiasm for a currency fades inside 60 turns (“another selfie? lol”), mark devaluation.
-• Trade-off pattern: track shifts—e.g., money tight this Chapter, so he pushes for longer chat time instead.
-• Card rules: REINFORCE existing top currencies, REVISE priority order when ranking flips, ADD new currency only on repeat evidence.
-• Identity Card informs budget hypotheses but not logged without chat proof.
-
-15.EMOTIONAL_LANDSCAPE_TRIGGER_MAP
-Which feelings dominated the Chapter, and what buttons repeatedly ignited or soothed them?
-• Baseline trajectory: start → middle → end mood snapshot (e.g., began stressed, grew playful, closed relaxed).
-• Positive triggers: compliments on intelligence, dog GIFs, late-night cozy talk—log those sparking visible uplift more than once.
-• Negative triggers: slow replies, politics mention, explicit crudity—mark any causing emoji dip, silence, or apology loop twice.
-• Intensity scale: mild / strong / tipping-spree mania—assign per trigger class.
-• Update: REINFORCE existing triggers, REVISE polarity if a supposed turn-on now dulls, ADD new trigger class after repeat.
-• Identity Card may explain sensitivities but triggers must emerge in turns.
-
-16.REGULATION_COPING_DEFENSE_REPERTOIRE
-How did the fan manage emotional spikes across the 60-turn window?
-• Healthy tools recurring: humour self-medication, music links, explicit “deep breath 🧘” prompts—note if used multiple times.
-• Maladaptive defenses: sarcasm wall, abrupt ghosting for 5+ turns, over-apologising loop—track repeats.
-• Escalation curve: time between trigger and coping act—fast (<2 turns) vs. delayed (>5).
-• Channel shifts: switches to voice notes when sad, or shrinks to one-word texts—catalog medium change that repeats.
-• Intervention receptivity: which persona move calms him fastest (playful distraction vs. direct reassurance) evidenced twice.
-• Card edits: REINFORCE existing coping style, REVISE if new dominant tool replaces old, ADD fresh strategy on repeat.
-
-17.STRESSORS_SOOTHERS_CLASSES
-Which broad categories of things reliably tense the fan up or calm him down across this 60-turn Chapter?
-• Stressor classes: feeling ignored, family topics, financial talk, explicit humiliation, weekday work rants—log any class that sparks tension twice (emoji shrink, silence, “ugh”).
-• Soother classes: cozy late-night vibe, pet-name reassurance, lo-fi music links, playful memes—capture those that restore positivity in multiple scenes.
-• Context tags: note time-of-day or situational links (workday stressors, post-midnight soothers).
-• Use classes, not single phrases, so planners can swap synonyms safely.
-• Card edits: REINFORCE existing class, REVISE if intensity flips, ADD new class only with repeat evidence.
-
-18.SHAME_GUILT_SENSITIVITY_ZONES
-Where are the fan’s emotional landmines this Chapter, and how do they manifest?
-• Shame flashpoints: body-image remarks, kink embarrassment—log if blushing emojis 🙈, apologies, or quick topic change recur.
-• Guilt triggers: “sorry I’m needy,” tipping to atone for slow replies—note patterns seen more than once.
-• Defense choreography: humour mask, over-explaining, submissive flattery—catalog the two most common.
-• Relief valves: which persona response defuses shame fastest (normalising, light tease, quick reassurance) evidenced twice.
-• Update rules: REINFORCE zone already on card, REVISE if sensitivity eases/tightens, ADD new zone on repeat.
-
-19.SELF_ESTEEM_VALIDATION_NEEDS
-How full is the fan’s ego tank this Chapter, and what fuel type does he crave?
-• Appetite scale: classify as Low / Medium / High based on frequency of compliment-fishing or gratitude floods.
-• Preferred praise flavour: intellectual respect, physical allure, effort acknowledgment, or moral kudos—identify top two repeated.
-• Delivery format bias: private whisper, public shout-out, emoji storm, kinky title—log whichever elicits strongest positive spike twice.
-• Criticism tolerance: observe reaction to playful teasing—laughs along (resilient) vs. withdraws (fragile).
-• Oscillation note: mark any swing (confident early, insecure later) and possible triggers.
-• Card actions: REINFORCE existing need profile, REVISE if level shifts or new praise flavour dominates, ADD on repeat evidence.
-
-20.JEALOUSY_POSSESSIVENESS_PROFILE
-How does the fan respond when the illusion of exclusive access wobbles during this 60-turn Chapter?
-• Trigger catalogue: persona mentions other fans, delayed replies ≥ 5 min, public posts not addressed to him—log any trigger that sparks a jealousy cue twice.
-• Expression channels: direct protest (“who else is online with you?”), sulky one-word replies, competitive tip spike, or self-deprecating jokes—rank the two most frequent.
-• Escalation slope: note average latency from trigger to first jealous action and whether spend or silence is his typical outlet.
-• Soothe protocol: record which persona move calms him in multiple incidents (private reassurance, playful pet-name, exclusive selfie).
-• Update logic: REINFORCE existing jealousy style; REVISE if tolerance improves/declines or new trigger emerges; ADD only when pattern recurs within Chapter.
-
-21.AFTERCARE_COMEDOWN_PROTOCOL
-What does the fan need after intense emotional or erotic peaks in this Chapter to feel settled?
-• Cool-down signals: repeated “hold me a sec,” heart-emoji floods, or abrupt switch to mundane chat—track whichever closes more than one high-intensity scene.
-• Preferred care package: tender voice note, summary of what the moment meant, light humour reset—log methods that successfully soothe him at least twice.
-• Timing window: note how soon he seeks aftercare (immediately vs. next chat) and whether time-of-day matters (needs tuck-in texts past midnight).
-• Card rules: REINFORCE protocol already on card, REVISE if new ritual replaces old, ADD fresh aftercare style when evidenced multiple times.
-
-22.TONE_LANGUAGE_STYLE
-What linguistic tone and lexical quirks dominate the fan’s messages over the 60-turn span, and what flavour from the persona resonates best?
-• Fan’s baseline: formal & grammatically precise, emoji-rich casual, playful sarcasm, or profanity-laced—determine dominant style by volume.
-• Mirroring wins: identify persona tone that triggers longest or warmest replies (sweet pet-names, snarky banter, poetic imagery) across several exchanges.
-• Signature lexicon: note recurring keywords, catch-phrases, or pet-names he uses (“cutie,” “bruv”)—store those for authentic mirroring.
-• Sensitivity lines: track any negative reaction to persona’s word choices (crude slang causes “lol too much” twice).
-• Update actions: REINFORCE existing tone map, REVISE if stylistic preference shifts, ADD new lexical token when it appears more than once in Chapter.
-
-23.HUMOR_PLAY_BOUNDARIES
-What humour style keeps the fan laughing over 60 turns, and where does the line sit?
-• Preferred comedy: sarcasm, dad-jokes, dark humour, pun wars—log whichever lands successfully in multiple instances (emoji 😂, “LOL” bursts).
-• Off-limits jokes: any topic that earns silence, “too far 😅,” or a topic pivot twice—flag as boundary.
-• Tease tolerance: track if playful mockery energises him (banter volley >3 lines) or bruises ego (quick “ouch”).
-• Persona mirroring: note humour moves that elicit biggest positive spike to guide future banter.
-• Card edits: REINFORCE existing humour map; REVISE if boundary shifts; ADD new comedic preference or no-go zone on repeat evidence.
-
-24.CADENCE_LENGTH_DENSITY_PREFERENCES
-What message rhythm, length, and content density keep the fan in flow this Chapter?
-• Cadence: average acceptable reply gap—does he double-text at 3 min silence or wait calmly 10 min?  Record threshold that triggers impatience twice.
-• Length sweet-spot: one-liners vs. chunky paragraphs—determine by which persona format earns fuller responses or thanks in multiple scenes.
-• Density: high-concept packed lines vs. sparse simple sentences—gauge from feedback like “tl;dr?” or “love the detail.”
-• Multi-message tolerance: enjoys suspenseful split messages or prefers consolidated blocks—observe reaction consistency.
-• Update actions: REINFORCE existing pacing, REVISE if tolerance changes, ADD new preference on repeat.  Identity Card only gives timezone context; pacing evidence must be in chat.
-
-25.TEMPORAL_PATTERNS_TIMING_RHYTHM
-Across these 60 turns, when does the fan tend to engage and how does mood shift with timing?
-• Daily rhythm: note peak chat windows (post-work 6-8 pm, midnight insomnia) if seen in at least two separate days inside Chapter.
-• Mood by slot: relaxed at night, businesslike at lunch—capture repeat correlation.
-• Micro-rituals: recurring “good morning” or “bedtime” check-ins—even if Chapter spans one evening, log habitual greetings appearing every few hours.
-• Burst vs. drip: does he dump many messages in short bursts then vanish, or keep steady trickle—identify dominant pattern.
-• Card edits: REINFORCE timing already stored; REVISE if schedule shifts; ADD new pattern when evidenced more than once within the Chapter window.
-
-26.GUIDANCE_AGENCY_PREFERENCES
-Who holds the wheel during this 60-turn Chapter, and how does the fan react to control shifts?
-• Leadership signals: catalog every time the fan issues directives (“tell me a story,” “you pick the pace”) versus defers (“your turn to lead”).  Mark pattern that recurs in ≥2 distinct stretches.
-• Agency craving modes: submissive follower, collaborative co-pilot, scene director—determine dominant mode and note context flips (dominant in sexting, follower in emotional talk).
-• Reaction audit: record emotional response when persona assumes control (gratitude, excitement, push-back).
-• Cross-reference Psychic Card:
- – REINFORCE if same agency preference repeats.
- – REVISE if balance shifts (was follower, now directing).
- – ADD new nuance only when observed multiple times.
-• Identity Card provides status clues (manager job may explain control habits) but do not log unless behaviour appears in chat.
-
-27.AMBIGUITY_META_COMM_TOLERANCE
-How comfortable is the fan with subtext, implied meaning, or stepping “out of scene” during the Chapter?
-• Implicit vs. explicit slider: track responses to soft hints (“guess what I’m thinking”) vs. direct statements—log preference when pattern repeats.
-• Meta windows: note acceptance or rejection of brief OOC clarifications (“real quick—are you okay with X?”).  If he thanks you twice, he’s meta-friendly; if he groans “stay in character,” he’s meta-averse.
-• Confusion stress: catalog emojis 🤔, “wait what?” moments; measure if persona’s quick clarifications settle him.
-• Safe-word or code acceptance: record any agreed signals (“banana” = pause) reused in separate scenes.
-• Card edits follow repeat evidence: REINFORCE, REVISE tolerance shift, ADD new meta rule.
-
-28.CONFLICT_REPAIR_STYLE
-When friction sparks inside these 60 turns, how does the fan fight, flee, or fix?
-• Conflict triggers logged elsewhere—here focus on his response script: avoids (silence), conciliates (immediate apology/tip), confronts (direct call-out), or diffuses with humour.  Identify style recurring in ≥2 incidents.
-• Repair tokens that work: apology, validating reflection, playful reset—note which one he accepts multiple times.
-• Escalation curve: count back-and-forths before peace; log if he resolves quickly or drags issue.
-• Card actions: REINFORCE existing style, REVISE if new tactic dominates, ADD fresh repair preference on repeat.
-
-29.COGNITIVE_LOAD_COMPLEXITY_TOLERANCE
-How many simultaneous ideas, narrative threads, or sensory layers can the fan juggle during this 60-turn Chapter before confusion or fatigue sets in—and what restores clarity?
-• Bandwidth gauge: track scenes where persona stacks complexity (multi-character RP, puzzle clues, rapid plot jumps).  If fan follows effortlessly—asks follow-up questions, enriches lore—mark HIGH tolerance; if he posts “lol what?” or skips detail twice, mark LOW.
-• Domain split: he may handle emotional nuance yet stumble on layered erotica, or vice-versa.  Log domain-specific ceilings seen multiple times.
-• Over-load symptoms: delayed or fragmented replies, explicit “I’m lost,” 🤔 emoji, or dropping the storyline mid-turn; catalog at least two instances to confirm.
-• Recovery hacks: bullet-point recaps, humour resets, TL;DR summaries—note which persona tactic restores flow more than once.
-• Cross-reference:
- – REINFORCE if tolerance level matches card.
- – REVISE if stamina shrank/grew across Chapter.
- – ADD new domain nuance (e.g., enjoys intricate emotional arcs but not multi-branch kink plots) when evidenced twice.
-• Identity Card knowledge (occupation, education) may explain capacity but only log when behaviour in chat validates it.
-
-30.SUGGESTIBILITY_PRIMING_SENSITIVITY
-How readily does the fan’s mood and content follow the persona’s subtle breadcrumbs across the Chapter, and is he aware of being steered?
-• High-suggestibility tells: lexical echo (“slow and soft” mirrored twice), mood sync within one reply, instant compliance to vague invitations (“imagine the lights dim…” leads to rp escalation).
-• Resistance signs: ignores hints until explicit, redirects topic, or asks “what exactly do you want?” in more than one case.
-• Awareness axis: classify as Unconscious Follower, Conscious Co-author, or Resistant Analyst by noting self-aware comments (“you’re planting ideas again 😏”) that recur.
-• Modal responsiveness: text primes flop but emoji strings work, or vice-versa—identify channel that succeeds at least twice.
-• Ethical guardrail flag: if combo = high suggestible + unaware → persona must insert explicit consent lines; note requirement.
-• Card actions: REINFORCE existing sensitivity, REVISE if responsiveness changes medium (voice notes unlock new suggestibility), ADD fresh cue/result pair when repeated.
-• Identity Card only contextual; evidence must be in turns.
-
-31.AROUSAL_INHIBITION_PROFILE
-Which stimulus classes repeatedly ignite or douse the fan’s turn-on over 60 turns, and how stable is the wiring?
-• Top ignition switches (repeat at least twice): romantic buildup, explicit anatomical detail, praise kink, taboo buzzwords, voice-note breathiness, sensory adjectives—rank by observed intensity (emoji 💦🔥, reply speed, tip spike).
-• Instant inhibitors (repeat): crude slang he hates, real-life partner mention, moral guilt trigger—note chilling effect (short replies, “lol too much”).
-• Context tags: log situational factors—time of day, alcohol, privacy (“roommate home”)—that modulate response inside Chapter.
-• Wiring type confirmation: mental storytelling vs. visual media vs. auditory cues—determine primary channel when same cue stokes arousal multiple times.
-• Dual-state tracking: capture any excitement-plus-shame pairing (aroused but apologises) occurring in two scenes.
-• Update protocol:
- – REINFORCE existing triggers/inhibitors when they resurface.
- – REVISE polarity if a cue flips (word once hot now cringe).
- – ADD new trigger/inhibitor only when evidenced more than once in Chapter.
-• Identity Card irrelevant to arousal unless real-life constraint explicitly discussed; rely on chat evidence.
-
-32.POLARITY_POWER_DYNAMICS
-What dominance-submission dial does the fan favor during this 60-turn Chapter, and how consistently does he hold it?
-• Role appetite sampling: log repeated self-labels or imperatives—“yes, mistress” (sub), “kneel for me” (dom), playful egalitarian banter. Count appearances to name the dominant stance.
-• Control gestures: who asks permission, who dictates scene beats; note pattern if it recurs in separate scenes.
-• Emotional valence: loving-nurturing, competitive, humiliating—categorise by language and emoji tone used multiple times.
-• Consent throttle: track explicit “safe-word?” requests or “don’t boss me tonight” lines; log if stance shifts with mood or time-of-day.
-• Power fatigue: if work-stress nights push him into passive comfort-seeking, flag context switch.
-• Card edits: REINFORCE stance already logged, REVISE if new polarity dominates, ADD nuance (switchy oscillation) only when seen in ≥2 points.  Identity Card gives status clues but behaviour must be in chat.
-
-33.FANTASY_ROLEPLAY_FETISH_CANON
-Which specific scenarios, props, or fetish nodes solidified into personal lore this Chapter?
-• Scenario sparks: teacher/student, vampire seduction, feet worship, etc.—mark when same fantasy surfaces in two separate sessions or is requested for continuation.
-• Canon test: fan references prior scene without prompt (“pick up where we left the dungeon”)—locks it in.
-• Fetish detail capture: objects (rope, silk blindfold), body-part focus, outfits—store verbatim phrases repeated.
-• Boundaries inside fantasy: ok with illusion of non-consent but insists on explicit safe-word—note rules reiterated across turns.
-• Cross-media tie-in: if he buys PPV matching fantasy twice, boost confidence.
-• Update: REINFORCE existing canon, REVISE if a once-loved scenario now rejected, ADD brand-new node on repeat evidence.
-
-34.SEXUAL_ARC_LEDGER
-Which longer erotic storylines or motifs progressed over this 60-turn window?
-• Arc identification: name any multi-scene narrative (e.g., “Knight & Princess quest,” “Ongoing chastity tease”) that appears in ≥2 distinct chunks this Chapter.
-• Status tracker: mark current stage (setup, midway, climax deferred) and fan’s eagerness to continue (“can’t wait for next part”).
-• Symbol/prop continuity: log recurring tokens (virtual collar, lucky dice) that carry meaning across episodes within the Chapter.
-• Evolution notes: did power balance, emotional depth, or explicitness escalate?  Record turning points.
-• Card edits:
- – REINFORCE arc already on ledger when advanced.
- – REVISE if storyline tone shifts (playful to intense).
- – ADD new arc only when at least two beats establish continuity.
-
-35.PACE_ESCALATION_STYLE
-At what speed and through which checkpoints did the fan prefer tension—emotional or erotic—to climb throughout this Chapter?
-• Tempo spectra: classify dominant pace—Slow-burn (≥15 turns of tease before explicit), Moderate flow (build within 5–10 turns), Flash-fire (instantly explicit).  Determine by counting repeat patterns.
-• Gatekeeping rituals: identify signals he consistently waits for—explicit “say yes first,” emoji 🍑, spending trigger (unlocks PPV) before escalation.
-• Acceleration triggers: note phrases or actions that repeatedly shift gear (pet-name deployment, first voice note, suspense ellipses).
-• Brake signals: track repeated “wait, too fast,” sudden silence, or comfort-seeking lines that halt climb.
-• Multi-step tolerance: log whether he enjoys nonlinear ramps (flirt → deep talk → sext) or demands monotonic build.
-• Context modifiers: record situational pace changes (post-work wind-down = slow, weekend alone time = rapid).
-• Card edits: REINFORCE existing tempo style; REVISE if pace preference changes; ADD new ritual/trigger when seen multiple times.
-
-36.DIRTY_TALK_SENSORY_PREFERENCES
-What flavour of erotic language and sensory channel lit him up or shut him down across 60 turns?
-• Explicitness ladder: log highest rung accepted repeatedly—poetic metaphor, mid-explicit (soft anatomy terms), graphic slang.
-• Descriptor palette: which adjectives/details recur: visual (lace, moonlight), aural (whisper, breath), kinesthetic (grip, arch), emotional (crave, adore).
-• Channel hunger: count requests/reactions to text narration, voice notes, images/GIFs.  Rank channels by arousal spike.
-• Rhythm & formatting: paragraphs vs. staccato sexting, use of asterisks actions—note style that earns fastest heated replies.
-• Negative language kinks: record words or pet-names that prompt chill or “lol too crude” twice.
-• Update: REINFORCE known prefs, REVISE if tolerance widens/narrows, ADD new hot word/channel on repeat evidence.
-
-37.AVERSION_SQUICK_MAP
-Which tones, tropes, or content pieces reliably produced “ew / nope” or boredom in this Chapter?
-• Soft aversions: lukewarm “haha idk,” delayed replies, skipping audio—log items that dampen vibe twice.
-• Hard squicks: explicit “that’s gross,” deletion of sent image, tip refund, vanishing mid-scene—capture exact triggers.
-• Category clustering: degradation kink, baby-talk, hyper-romantic sap, bodily-fluid slang—group repeated aversions for future avoidance.
-• Tedium fatigue: note scenario that bored him when reused (office fantasy third time).
-• Context dependence: record if aversion flips with timing (daytime prudish, night ok).
-• Recovery levers: which persona moves restore engagement (apology, topic switch) shown more than once.
-• Card actions: REINFORCE existing aversion list, REVISE if tolerance changes, ADD new squick category after repeat.
+Chapter-Level Update Scope: Only the following profile segments are in scope for Chapter-level analysis. Focus on patterns and traits that emerge across the three episodes (~60 turns) of this Chapter. Skip isolated incidents or one-off behaviors unless they mark a significant change or new trend.
+	•	01.CORE_MOTIVATIONS_VALUES: Identify the fan’s fundamental drives throughout this Chapter. What recurring needs or values keep him engaged across multiple episodes (e.g. seeking validation, companionship, sexual exploration)? Note any motive that surfaces in more than one episode. Also flag if a particular motivation grows stronger or weaker by the Chapter’s end. If he shows internal conflict between desires (attention vs. guilt, etc.), observe which side wins out by the end of the Chapter.
+	•	02.SELF_NARRATIVE_IDENTITY_THEMES: Capture how the fan describes or views himself over the course of this Chapter. Look for self-descriptions, roles, or labels he repeats in different episodes (“lonely dad,” “your protector,” “just a boring guy”). Does he share personal stories or adopt certain roles multiple times? Note any shifts: for instance, if early on he seems confident but later calls himself a failure, or vice versa. Focus on identity themes he emphasizes more than once, rather than one-off facts, to understand how he sees himself.
+	•	03.WORLDVIEW_INTERPRETATION_FRAMES: Determine the lens through which the fan interprets things throughout the Chapter. Does he come off as optimistic or cynical, romantic or skeptical, across episodes? Note patterns in his reactions: e.g. if he repeatedly assumes the worst when she’s slow to reply, that suggests a pessimistic or anxious outlook. Watch for recurring cognitive distortions or assumptions (“you probably say this to everyone” appearing in multiple episodes). Also track any ideological or philosophical references he makes more than once (mentions of fate, specific values, etc.). If his perspective shifts under certain conditions (stress, late at night, after drinking, etc.), document those context-based changes.
+	•	04.AESTHETIC_TASTE_CONSTELLATION_GENERAL: Log the fan’s general content and aesthetic preferences that appear repeatedly outside erotic contexts. Across this Chapter, what styles, vibes, or media does he respond positively to more than once? For example, does he consistently praise cozy, intimate imagery (multiple candle-lit photos), show excitement about a certain music genre or movie theme in various episodes, or react happily to a particular texting style or emoji vibe? Conversely, note if he expresses dislike for something more than once (e.g. calls a type of filter “cheesy” on two occasions). These repeated likes and dislikes form a pattern of his tastes. Only include preferences evidenced by his chat behavior.
+	•	05.RELATIONSHIP_TEMPLATE_SOUGHT: Identify the relationship role or dynamic the fan seems to seek with the persona during this Chapter. How does he address her and behave across episodes? For example, if he consistently uses romantic pet names and craves affection, he’s aiming for a girlfriend experience. If in multiple instances he’s deferential and calls her “Ma’am” or waits for her lead, he might be seeking a submissive dynamic. Maybe he treats her like a close friend/confidante if he keeps things platonic and personal. Note whichever template he sticks to most often. If he shifts dynamics between episodes (e.g. friendly in one, romantic in another), highlight that change or evolution.
+	•	06.COGNITIVE_IMAGINATION_STYLE: Observe how the fan prefers to think and imagine across this Chapter. Does one mode of engagement stand out? For instance, if in multiple episodes he asks for detailed visual descriptions or comments on how things look, he’s a visual thinker. If he’s keen on sounds (loving voice notes or talking about music repeatedly), that’s an auditory focus. If he often talks about feelings and atmosphere, he’s more experiential/immersive. Or perhaps he asks many factual questions and needs clarity, indicating an analytical style. Also note his memory and attention: does he bring up details from earlier episodes unprompted (strong recall) or repeatedly forget things he was told (short attention)? Highlight any cognitive style patterns that appear across episodes.
+	•	07.ATTACHMENT_INTIMACY_STYLE: Assess the fan’s pattern of handling emotional closeness or distance throughout the Chapter. Does he exhibit anxious behavior over multiple episodes (e.g. double-texting “are you there?” when she delays, expressing worry she’ll leave)? Or avoidant tendencies (changing the subject or making a joke whenever things get too personal, more than once)? Perhaps he generally acts secure and trusting across episodes (patient with reply times, open but not clingy). Identify the dominant attachment behavior that shows up in more than one episode. If his style fluctuates, note the context—maybe he’s usually secure but becomes anxious late at night or when certain topics arise. Summarize how needy vs. relaxed he is about intimacy and any triggers that consistently affect this.
+	•	08.TRUST_SAFETY_SCHEMA: Determine what makes the fan feel safe and trusting versus insecure across this Chapter’s episodes. Look for recurring trust-builders: did certain actions from her (like sending candid selfies, using warm nicknames, replying promptly) reliably put him at ease each time? Also identify repeated trust-breakers or doubt triggers: e.g. if in two separate episodes he got uneasy when she mentioned other fans or if delayed replies made him question her sincerity each time, note those patterns. Does he need specific “proof” or reassurance repeatedly (like he only relaxes after she says something reassuring or provides some validation every time he worries)? Additionally, if a particular remedy worked multiple times (for example, whenever he got insecure, her quick apology or personal voice note immediately calmed him), mark that. In short, capture the consistent cues that build his trust and those that undermine it.
+	•	09.CONSENT_BOUNDARY_POSTURE_GENERAL: Observe the fan’s overall approach to boundaries and consent during this Chapter. Does he usually give clear, enthusiastic consent when she steers things forward (e.g. multiple eager “yes please” responses or other obvious green lights)? Or does he often show hesitation when things escalate (maybe twice he responded with nervous laughter or a timid “maybe…” indicating discomfort)? Note any pattern in how he says no or sets limits: for instance, if on more than one occasion he fell silent or changed the subject to avoid a topic, that suggests a firm boundary there. Also, did his comfort level change over the Chapter? Perhaps early on he was cautious about anything sexual, but by the end he consented more freely (or vice versa). Summarize his general consent style (open and eager, cautious and needing reassurance, very boundary-conscious, etc.) as evidenced by multiple occurrences.
+	•	10.VULNERABILITY_DISCLOSURE_SCHEMA: When and how does the fan open up emotionally across this Chapter? Identify triggers that repeatedly led him to share something personal. Did he tend to reveal deeper feelings only late at night in a couple of episodes, or only after she shared something about herself first? For example, if in two separate episodes he confided serious feelings right after she asked him gently about his day, that pattern suggests he opens up when feeling specifically invited or safe. Gauge how deep his disclosures generally went: did he mostly stick to surface updates and small frustrations, or did he delve into insecurities and more sensitive personal issues multiple times? Note any telltale behaviors around vulnerability: perhaps he often prefaced a confession with “I normally don’t say this…,” or each time he shared something big he quickly followed with “sorry for oversharing.” Also, what response did he seem to need afterward? If every time he opened up he looked for immediate reassurance or a change of subject, mark that. Summarize the circumstances and style of his emotional disclosures in this Chapter.
+	•	11.RECIPROCITY_FAIRNESS_EXPECTATIONS: Examine how the fan manages give-and-take in the relationship over the Chapter. Does he show a pattern of expecting something in return for his efforts? For instance, if in multiple episodes he tipped or gave a lot of attention and then hinted that he deserved a special reward or more of her time, that indicates a transactional expectation. Conversely, if he repeatedly gave (gifts, compliments, support) without asking for anything back (“I just wanted you to have this” in more than one episode), he might have a more generous approach. Watch for any signs of resentment or score-keeping: if he made comments like “I guess other guys get more attention” or seemed upset when he felt ignored on several occasions, that’s a fairness issue. Identify what “currency” he values most from her by looking at what he consistently seeks (e.g. her time, exclusive attention, praise, sexual content). Summarize whether he expects a balanced mutual exchange or exhibits entitlement/one-sidedness, based on repeated behaviors.
+	•	12.PARASOCIAL_FRAME_PERSONA_REALISM: How immersed is the fan in the fantasy of the persona versus aware of the transactional reality during this Chapter? Note if over multiple episodes he mostly talks to her as if she’s truly his partner (full immersion: saying “I miss you so much,” making real future plans, showing jealousy as if they’re exclusive). Alternatively, does he break the fourth wall now and then? If in more than one instance he made meta comments acknowledging her job or the platform (“I know I’m just another subscriber” or referring to her other fans), that shows realism creeping in. Map any oscillation: perhaps he’s usually deep in the girlfriend experience fantasy, but certain triggers (like discussing money or scheduling content) caused him to briefly acknowledge the real situation each time. Summarize how strongly he stayed in the parasocial romantic frame vs. moments of realistic awareness, based on recurring cues.
+	•	13.EMOTIONAL_LABOR_EXPECTATIONS: Assess how much emotional support the fan sought from her, and how much he gave in return, over this Chapter. Did he frequently look to her for comfort or to vent (implying a high emotional labor demand on her)? Count how often he needed her reassurance or a sympathetic ear across episodes. Then note if he reciprocated at all: did he ever ask about her feelings or offer her emotional support, even once? If he’s consistently receiving care but never giving it, he expects a one-way dynamic. If he occasionally checked on her or offered comfort in return, there’s some balance. Also observe how he reacted if she was less emotionally available (for example, if she was busy or slow to respond in an episode, did he react with understanding or did he become more needy/upset?). Summarize whether he mostly seeks to be cared for, or if he also provides care, and how demanding he is emotionally.
+	•	14.RELATIONAL_CURRENCIES_MAP: Determine which actions from the persona made the fan feel most valued during this Chapter, based on his repeated reactions. What did she do that clearly delighted him across episodes? Did he consistently light up when she gave him focused attention and quick replies? Did he cherish exclusive gestures (like content she said was “just for you”) each time? Maybe routine affectionate acts (like her saying good night with a sweet message) gave him a warm feeling whenever it happened. On the other hand, consider if any of these lost impact over time (for example, if in Episode 1 he was overjoyed by a compliment but by Episode 3 he barely reacted to similar praise). Identify the top “currencies” that mattered to him (quality time, verbal affection, surprises, etc.) by noting which things got an enthusiastic response more than once. Indicate which gestures had high impact versus mild impact, judging by how strongly he reacted each time.
+	•	15.EMOTIONAL_LANDSCAPE_TRIGGER_MAP: Outline the main emotions the fan went through and their triggers this Chapter. Summarize his emotional arc across the episodes (e.g. started anxious, then mostly happy and flirty, with a brief moment of jealousy, ending very affectionate). Then note what reliably lifted his mood: perhaps compliments, pet names, or playful jokes consistently made him smile or relax. Next, note what repeatedly brought his mood down: maybe slow replies on multiple days made him insecure, or certain serious topics (like discussing an ex or money issues) upset him each time they came up. Gauge the intensity of these reactions in general terms (a minor annoyance vs. a big upset, a little happiness boost vs. extreme excitement). Summarize the key positive triggers that brighten his mood and the key negative triggers that sour it, as observed across episodes.
+	•	16.REGULATION_COPING_DEFENSE_REPERTOIRE: Analyze how the fan copes with stress or strong emotions, noting any strategy he uses repeatedly. For instance, does he crack jokes whenever there’s tension (suggesting humor is his go-to defense)? Does he go silent and withdraw each time he feels hurt or upset (avoidance pattern)? List any coping behaviors that appear more than once. Also, how quickly does he bounce back from a negative moment? If every time she reassured him he recovered almost immediately, note that; if he tended to stay gloomy for a while, note that too. Additionally, mention if the persona found a tactic that consistently helped (like each time she gave him a certain kind of compliment or apology, he calmed down). Summarize his typical coping style and what reliably helps him regain emotional balance.
+	•	17.STRESSORS_SOOTHERS_CLASSES: Group the things that repeatedly stressed the fan versus those that comforted him this Chapter. Identify broad themes from the recurring triggers. For example, did he get upset whenever he felt ignored or uncertain about her feelings? If that happened multiple times, “fear of neglect” could be one stressor category. Did references to real-life issues (work, family) make him tense on several occasions? Note those too. Conversely, what types of interaction soothed him each time? Perhaps gentle reassurance and pet names calmed him repeatedly, or playful distractions (jokes, memes) lifted his mood whenever he was down. Use simple labels to describe these patterns (e.g. Neglect Worry as a stressor, Affectionate Validation as a soother). Summarize the key stress triggers and comfort measures that emerged through the Chapter.
+	•	18.SHAME_GUILT_SENSITIVITY_ZONES: Note any topics that repeatedly made the fan feel embarrassed or guilty this Chapter. For example, if each time a certain subject (like body image) came up he immediately became self-conscious or apologetic, that’s a shame trigger. If he apologized multiple times for “bothering” her or being needy, that reveals a guilt trigger. Observe how he reacts when these feelings hit: does he try to laugh it off every time, over-apologize, or change the subject? Also note what helped relieve his shame or guilt, if anything (did her saying “it’s okay” consistently comfort him?). Summarize the common shame/guilt triggers and how he typically responds.
+	•	19.SELF_ESTEEM_VALIDATION_NEEDS: Gauge the fan’s self-confidence in this Chapter and how much praise he seeks. Does he frequently fish for compliments and reassurance, or only rarely? If he often prompts her for validation (like asking “Do you really think so?” multiple times), his need for affirmation is high. If he seldom does, he’s more self-assured. Note what kind of compliments mean the most to him: does he light up when she praises his looks, his personality, or his efforts? Focus on whichever type of praise clearly made him happiest in multiple instances. Also observe his reaction to teasing or criticism: if even gentle jokes hurt him in more than one episode, his self-esteem may be fragile. If he laughs along with playful teasing, he’s likely secure. Summarize how confident or insecure he appears across episodes and which affirmations have the strongest effect on him.
+	•	20.JEALOUSY_POSSESSIVENESS_PROFILE: Note if and how jealousy surfaced over this Chapter. Did multiple episodes show him getting insecure or possessive when others were mentioned? If he made jealous remarks or inquiries more than once (even subtly, like a passive-aggressive joke about “other guys”), that’s a pattern. Log what set it off (mention of other fans, her talking about real life, etc.) and how he reacted each time (confronting it, sulking, trying to outdo others, making self-pitying comments, etc.). If no jealousy appears at all, note that too. Summarize whether jealousy is an issue for him, and if so, what tends to trigger it and how he expresses it.
+	•	21.AFTERCARE_COMEDOWN_PROTOCOL: Describe what the fan seems to need right after intense emotional or erotic moments, based on patterns this Chapter. If there were high points (like a steamy scene or deep emotional exchange) in multiple episodes, how did he want to wind down afterward? Maybe each time he lingered in a tender, affectionate mood—suggesting he craves gentle aftercare. Or perhaps he consistently shifted to a casual topic or humor to cool off, indicating he prefers to normalize things quickly. Note any repeated strategy from her side that he responded well to (for example, if every time after a climax or emotional peak she sent a sweet voice note and it calmed him, mark that pattern). Summarize his preferred way of coming down from a high, as evidenced by at least a couple instances.
+	•	22.TONE_LANGUAGE_STYLE: Characterize the fan’s overall communication tone this Chapter and which persona tone he responded to best. Was he mostly playful and emoji-filled, formal and polite, or flirtatious and romantic across episodes? Note any distinctive language habits (maybe he consistently uses certain emojis, catchphrases, or pet names). Also observe what tone from her gets the best reaction: if every time she was sweet and loving he replied eagerly, or if her snarky teasing consistently made him engage more, mark that. Likewise, mention any style from her that clearly put him off (perhaps a crude term or overly stiff tone that on two occasions made him less responsive). In short, capture his communication style and the tones from her that work well or poorly for him.
+	•	23.HUMOR_PLAY_BOUNDARIES: Note what humor style the fan enjoys versus what crosses a line, based on multiple instances this Chapter. Did he respond with genuine laughter and engagement whenever she joked or teased in a certain way? Identify any style of joke that consistently landed well with him. Also log anything that clearly didn’t sit right with him: for example, if twice a particular teasing remark made him uncomfortable or quiet, that type of joke is off-limits for him. Consider how he handles being the butt of a joke: does he happily banter back when she pokes fun, or do even mild jabs make him defensive (as seen more than once)? Summarize his sense of humor and where the boundary lies between fun play and going too far.
+	•	24.CADENCE_LENGTH_DENSITY_PREFERENCES: Note the fan’s preferred chat pacing and message length this Chapter. Is he impatient with slow replies or relaxed? (For example, if he often double-texts within minutes, he has low tolerance for delays; if he never follows up even after long pauses, he’s patient.) Also, does he engage better with long, detailed messages or with short, snappy ones? If across episodes he consistently responded more enthusiastically to one style (loved detailed paragraphs or thrived on quick one-liners), that’s his preference. Consider whether info-dense messages overwhelm him: do repeated instances show him ignoring or getting confused by long, complex texts, or does he handle them well? Finally, note if he likes a rapid-fire burst of several messages versus one-at-a-time — did multiple short messages excite him or throw him off when it happened more than once? Summarize the pacing and format that keep him most comfortable and responsive.
+	•	25.TEMPORAL_PATTERNS_TIMING_RHYTHM: Look at when the fan tends to engage and how timing affects things across the Chapter. Did he usually message at certain times? (For example, was he consistently active late at night or did he tend to check in every afternoon?) Note any such timing patterns. Also, did his mood or behavior differ by time of day? Perhaps he was more open and flirtatious at night but brief or distracted during work hours. If the Chapter spans multiple days, mention any daily rituals (like he always says good morning or goodnight at particular times). Summarize his communication rhythm (preferred times and any pattern like bursts vs. steady pacing) and how timing correlates with his mood or engagement style.
+	•	26.GUIDANCE_AGENCY_PREFERENCES: Describe who tended to lead the interactions and how the fan felt about it. Across episodes, did he prefer that she take charge, or did he often steer the conversation? For example, if he repeatedly said “your choice” or waited for her cues, he’s comfortable being led; if he frequently made requests or gave instructions (“let’s do this now”) in multiple episodes, he likes to assert control. Note if this changed in different contexts (maybe he led during sexual roleplay but followed her lead during emotional talks). Also, how did he react when she took initiative? If he responded gratefully or enthusiastically each time she led, he enjoys her leadership. If he seemed uneasy or overrode her plans more than once, he prefers to guide. Summarize whether he leans submissive, dominant, or collaborative in directing the flow, with any nuances observed.
+	•	27.AMBIGUITY_META_COMM_TOLERANCE: How comfortable is the fan with subtlety and breaking character? Does he get hints, or need things spelled out? If in multiple cases she hinted at something and he picked up on it, he enjoys implicit cues. But if she had to clarify explicitly more than once, he likely prefers direct communication. Also note his reaction to any out-of-character (meta) talk or consent checks: did he take it in stride (even thank her for asking) or did it disrupt the mood? If confusion arose in a scenario, did he ask for clarification or just quietly go along? Summarize whether he embraces subtle, playful communication or requires clear, explicit exchanges.
+	•	28.CONFLICT_REPAIR_STYLE: How does the fan handle friction or misunderstandings, and how are they resolved? If disagreements occurred, did he tend to avoid them (e.g. quickly apologize or drop the issue) or confront them directly? Note any pattern across episodes (deflecting with humor each time, going silent, immediately apologizing, etc.). Also observe what usually fixed the conflict: did a simple apology or reassurance from her consistently calm him? Did he need an in-depth talk, or was a light joke enough to resolve tension? Summarize his go-to conflict style and what helps repair things when tension arises.
+	•	29.COGNITIVE_LOAD_COMPLEXITY_TOLERANCE: How much complexity can the fan handle before losing track? If in more than one instance she introduced elaborate scenarios or dense information and he followed along easily (even adding his own details), he handles complexity well. If instead he showed confusion or only responded to part of a complicated message multiple times, he may prefer simpler interactions. Look for signs of overload: repeated “I’m confused” messages, skipping over details, or long pauses when things got complicated. Also, note if he manages emotional complexity better than factual complexity (or vice versa). Summarize how well he keeps up with complicated content and if certain types of complexity consistently challenge him.
+	•	30.SUGGESTIBILITY_PRIMING_SENSITIVITY: How readily does the fan go along with subtle suggestions from the persona? If she hints at an idea or mood and in multiple episodes he immediately follows her lead (mirroring her tone or actions without needing a direct request), he’s highly suggestible. If she often has to be very explicit before he catches on, he’s less so. Note if he shows awareness of her influence: for instance, does he ever joke that she’s “putting ideas in his head” or otherwise indicate he realizes she’s guiding him? Or does he just go along without comment every time? Summarize how easily he is guided by her cues and whether he needs overt prompts or just a slight nudge.
+	•	31.AROUSAL_INHIBITION_PROFILE: Identify what consistently turned the fan on or off in sexual contexts this Chapter. What themes or actions reliably aroused him? Did slow, romantic build-ups make him eager each time, or was it more the explicit, dirty talk that got him going? Note the top recurring turn-ons (particular kinks, certain words, or types of content like voice notes or pictures that excited him repeatedly). Likewise, log any recurring turn-offs: did a particular crude term or scenario deflate his arousal each time it came up? Did he ever show mixed feelings (aroused but also guilty or hesitant) about something in more than one episode? Also consider timing or context if relevant (e.g. he only got in the mood late at night, consistently). Summarize his key arousal triggers and inhibitors that appeared more than once.
+	•	32.POLARITY_POWER_DYNAMICS: Describe the dominant sexual power dynamic the fan gravitates toward in this Chapter. Across the intimate interactions, does he consistently take a submissive role, a dominant role, or remain fairly equal? For instance, if on multiple occasions he explicitly asked her to take charge or used submissive language (“I’m yours to command”), he leans submissive. If instead he frequently initiated or gave directions in their sexual exchanges, he leans dominant. It might be balanced as well—maybe in some episodes he led, in others he followed. Note whichever role he took most often. Also mention any nuances: for example, was his style of dominance or submission gentle and loving versus more intense? Did he use any safewords or set limits within their play (or insist on her doing so) more than once, indicating how he handles power exchange safely? If his behavior changed with context (e.g. submissive when seeking comfort but dominant in pure fantasy scenes), capture that pattern. Summarize the overall dynamic he preferred and any evolution in it across episodes.
+	•	33.FANTASY_ROLEPLAY_FETISH_CANON: Track any specific fantasy scenarios, roles, or fetish elements that became recurring themes in this Chapter. Did they establish any “signature” roleplays or storylines that carried through multiple episodes? For example, if they did a teacher–student roleplay in one episode and then referenced or continued that same scenario later, that fantasy has entered their personal canon. Note any such scenario he clearly enjoyed enough to revisit. Also log any fetish elements that popped up repeatedly (say he has a foot fetish and it came up in two different episodes, or he often asks for a particular prop or scenario). The key is that it’s not a one-off: he either explicitly brings it up again or it naturally recurs, showing it’s something he’s invested in. If he referenced a previous scene on his own (“Remember when you tied me up last time…”), that’s a strong sign it’s now part of their ongoing fantasy repertoire. Summarize the fantasies or kink themes that became part of their shared “story” by repeating in this Chapter.
+	•	34.SEXUAL_ARC_LEDGER: Note if there is an ongoing erotic storyline or multi-session sexual arc spanning this Chapter. Did the content of the three episodes connect into one larger sexual narrative or game? For instance, maybe they started a slow-burn BDSM training scenario in Episode 1 and continued it in Episodes 2 and 3 — that would be a continuous arc. Or perhaps he’s engaged in a challenge (like a tease-and-denial game) that persists across episodes. If such an arc exists, describe it and how far it progressed by the end of the Chapter. Did they reach a climax or resolution, or is it ongoing? For example, “They’re midway through a knight-and-princess roleplay saga and plan to conclude it next Chapter,” or “He’s three days into a week-long chastity challenge with no release yet.” Also mention if he expresses eagerness for the next part (“can’t wait for tomorrow to continue our story”). If there’s no multi-episode sexual arc (each episode was self-contained), note that no long erotic storyline emerged this Chapter.
+	•	35.PACE_ESCALATION_STYLE: Determine how quickly the fan likes emotional or sexual intensity to build during a chat. Does he favor a slow burn (needing prolonged flirting across episodes before things get explicit), or does he often jump into intimacy quickly (escalating within a few exchanges each time)? Note the general pace that recurs. Also see if he has typical “green light” cues or conditions for escalation: e.g. maybe he only goes explicit after she clearly says she wants it, or only after a certain amount of emotional bonding. Conversely, mention any repeated signs of him pumping the brakes if things move too fast (like if more than once he said “wait” or got uncomfortable when she escalated quickly). Summarize whether he leans towards slow, moderate, or rapid escalation and any recurring cues that influence the pace.
+	•	36.DIRTY_TALK_SENSORY_PREFERENCES: Identify the style of dirty talk and sensory details that arouse the fan most, as well as any that put him off. Note his preferred level of explicitness: did he respond more to poetic innuendo, or did graphic language excite him more? If a certain level of vulgar detail made him uncomfortable, mark that limit. Also observe which sensory cues he loved: if every time she described a tactile sensation or a soft moan he lit up, those channels (touch, sound) clearly work for him. Likewise, if vivid visual imagery consistently excited him, record that. If he showed a clear preference for a sexting format (storytelling narrative vs. roleplay actions) more than once, mention it. And log any specific words or pet names that turned him off each time they came up (for example, a degrading nickname he hated). Overall, capture what style of erotic language turns him on the most and what to avoid.
+	•	37.AVERSION_SQUICK_MAP: Identify any content or approach that the fan clearly did not enjoy this Chapter, even if he didn’t openly object. These are minor turn-offs that occurred more than once. Look for patterns: did a particular romantic trope or erotic detail consistently get a lukewarm response? For example, if both times she tried an overly sappy gesture he only reacted politely and not enthusiastically, excessive mushiness might not be his thing. Or if a certain edgy scenario came up twice and each time he went quiet or changed topic, that’s a soft aversion for him. Include any repeated mild annoyance or boredom cues (maybe he got obviously bored when she reused the same joke or pet name). Note these dislikes, even if he tolerated them politely, so she can steer away from those angles.
 
 38.THIRD_PARTY_VOYEUR_DYNAMICS
 How did the fan react whenever additional eyes or bodies—real, imagined, or narrative—entered the scene during this Chapter, and what boundaries surfaced?
@@ -636,11 +312,6 @@ Which hard facts from the Identity Card carry strong emotional charge in this Ch
 • Cross-reference rule: Identity Card supplies the raw fact; this segment stores the emotional overlay only when the Chapter’s chat gives clear evidence.
 
 
-
-
-
-
-----------------------------------------------
 You may touch only the listed SEGMENTS_ labels and must ignore any others in the Psychic Card
 
 Analysis Workflow (How to Approach the Tasks)
@@ -1057,6 +728,7 @@ BEGIN EPISODE_INPUT
 </RAW_TURNS>
 
 <INPUT>
+
 
 
 
