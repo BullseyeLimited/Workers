@@ -32,6 +32,7 @@ TEST_TABLE = os.getenv("TEST_CONVERSATIONS_TABLE", "test_conversations")
 POLL_SECONDS = float(os.getenv("TEST_HARNESS_POLL_SECONDS", "2"))
 FAN_BATCH_SIZE = int(os.getenv("TEST_HARNESS_FAN_BATCH", "10"))
 CREATOR_BATCH_SIZE = int(os.getenv("TEST_HARNESS_CREATOR_BATCH", "10"))
+TEST_SOURCE_CHANNEL = os.getenv("TEST_SOURCE_CHANNEL", "live").strip().lower() or "live"
 
 FAN_SIM_ENABLED = os.getenv("TEST_FAN_SIM_ENABLED", "false").lower() in {
     "1",
@@ -306,7 +307,7 @@ def _insert_fan_message(row: dict) -> int | None:
         "ext_message_id": ext_message_id,
         "sender": "fan",
         "message_text": message_text,
-        "source_channel": "test",
+        "source_channel": TEST_SOURCE_CHANNEL,
         "created_at": created_at,
         "turn_index": turn_index,
         "media_status": "pending" if has_media else None,
@@ -422,6 +423,8 @@ def _mirror_creator_messages(thread_id: int, limit: int) -> int:
         except APIError as exc:
             err = exc.args[0] if exc.args and isinstance(exc.args[0], dict) else {}
             if err.get("code") == "23505":
+                continue
+            if "duplicate key" in str(exc).lower():
                 continue
             raise
     return count
