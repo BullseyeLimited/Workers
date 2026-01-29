@@ -38,6 +38,16 @@ IRIS_CONTROL_ENABLED = os.getenv("IRIS_CONTROL_ENABLED", "").lower() in {
     "yes",
     "on",
 }
+# When Hermes is skipped, we can keep the previous content context stable by
+# carrying forward the last content_request for a short window.
+#
+# Default: 4 hours.
+try:
+    CONTENT_REQUEST_CARRY_FORWARD_SECONDS = int(
+        os.getenv("CONTENT_REQUEST_CARRY_FORWARD_SECONDS", "14400") or "14400"
+    )
+except Exception:
+    CONTENT_REQUEST_CARRY_FORWARD_SECONDS = 14400
 
 if not SUPABASE_URL or not SUPABASE_KEY:
     raise RuntimeError("Missing Supabase configuration for Hermes Join")
@@ -69,6 +79,47 @@ def _fail_closed_defaults() -> dict:
         "final_verdict_search": "NO",
         "web_research_brief": "NONE",
     }
+
+
+def _parse_utc_datetime(value: Any) -> datetime | None:
+    if not value:
+        return None
+    if isinstance(value, datetime):
+        dt = value
+    elif isinstance(value, (int, float)):
+        dt = datetime.fromtimestamp(value, tz=timezone.utc)
+    elif isinstance(value, str):
+        raw = value.strip()
+        if not raw:
+            return None
+        raw = raw.replace("Z", "+00:00")
+        try:
+            dt = datetime.fromisoformat(raw)
+        except ValueError:
+            try:
+                dt = datetime.fromtimestamp(float(raw), tz=timezone.utc)
+            except Exception:
+                return None
+    else:
+        return None
+
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
+def _within_ttl(*, previous_created_at: datetime | None, now: datetime, ttl_seconds: int) -> bool:
+    if ttl_seconds <= 0:
+        return False
+    if previous_created_at is None:
+        return False
+    try:
+        age_seconds = (now - previous_created_at).total_seconds()
+    except Exception:
+        return False
+    if age_seconds < 0:
+        return True
+    return age_seconds <= ttl_seconds
 
 
 def _normalize_mode(value) -> str | None:
@@ -268,6 +319,97 @@ def _extract_content_request(value) -> dict | None:
     return None
 
 
+def _fetch_previous_content_request(
+    *, thread_id: int, fan_msg_id: int, client
+) -> tuple[dict | None, datetime | None, int | None]:
+    """
+    Best-effort: fetch the most recent content_request prior to this fan message.
+    Returns (request_dict, created_at_utc, source_message_id).
+    """
+
+    try:
+        rows = (
+            client.table("message_ai_details")
+            .select("message_id,content_request,content_pack_created_at")
+            .eq("thread_id", int(thread_id))
+            .lt("message_id", int(fan_msg_id))
+            .order("message_id", desc=True)
+            .limit(10)
+            .execute()
+            .data
+            or []
+        )
+    except Exception:
+        return None, None, None
+
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        request = _extract_content_request(row.get("content_request"))
+        if not request:
+            continue
+        created_at = _parse_utc_datetime(row.get("content_pack_created_at"))
+        source_message_id = row.get("message_id")
+        try:
+            source_message_id_int = int(source_message_id) if source_message_id is not None else None
+        except Exception:
+            source_message_id_int = None
+        return request, created_at, source_message_id_int
+
+    return None, None, None
+
+
+def resolve_content_request_for_pack(
+    *,
+    current_request: dict | None,
+    has_iris: bool,
+    iris_hermes_mode: str,
+    thread_id: int,
+    fan_msg_id: int,
+    client,
+    now: datetime | None = None,
+    ttl_seconds: int | None = None,
+) -> tuple[dict, bool]:
+    """
+    Decide which content_request to use for building a content pack.
+
+    Returns (request, inferred):
+    - inferred=False means we used an explicit request from this turn (or defaulted
+      due to normal Hermes behavior).
+    - inferred=True means Hermes was skipped and we carried-forward (or fell back)
+      to keep the pipeline stable.
+    """
+
+    if current_request:
+        return current_request, False
+
+    # Only "carry forward" when Iris explicitly skipped Hermes for this turn.
+    if not (has_iris and _normalize_mode(iris_hermes_mode) == "skip"):
+        return {"zoom": 0}, False
+
+    now_dt = now or datetime.now(timezone.utc)
+    ttl = (
+        int(ttl_seconds)
+        if ttl_seconds is not None
+        else int(CONTENT_REQUEST_CARRY_FORWARD_SECONDS)
+    )
+    ttl = max(0, ttl)
+
+    previous_request, previous_created_at, _source_message_id = _fetch_previous_content_request(
+        thread_id=int(thread_id),
+        fan_msg_id=int(fan_msg_id),
+        client=client,
+    )
+    if previous_request and _within_ttl(
+        previous_created_at=previous_created_at,
+        now=now_dt,
+        ttl_seconds=ttl,
+    ):
+        return previous_request, True
+
+    return {"zoom": 0}, True
+
+
 def _build_content_pack_from_request(
     request: dict, thread_id: int, *, client
 ) -> dict:
@@ -440,8 +582,26 @@ def process_job(payload: Dict[str, Any]) -> bool:
     content_request = _extract_content_request(details.get("content_request"))
     if CONTENT_PACK_ENABLED and not details.get("content_pack"):
         # Always provide Napoleon with a content pack when enabled.
-        # If Hermes did not specify a camera request, default to Zoom 0 (overview).
-        request = content_request or {"zoom": 0}
+        #
+        # Iris upgrade: if Hermes was SKIPPED for this turn, keep content stable by
+        # reusing the previous content_request (if recent). After a TTL window,
+        # degrade to Zoom 0 (overview) until Hermes runs again.
+        request, inferred = resolve_content_request_for_pack(
+            current_request=content_request,
+            has_iris=has_iris,
+            iris_hermes_mode=iris_hermes_mode,
+            thread_id=int(details["thread_id"]),
+            fan_msg_id=int(fan_msg_id),
+            client=SB,
+        )
+        if inferred:
+            # Persist the inferred request so repeated Hermes skips stay stable.
+            try:
+                SB.table("message_ai_details").update({"content_request": request}).eq(
+                    "message_id", fan_msg_id
+                ).execute()
+            except Exception:
+                pass
         try:
             content_pack = _build_content_pack_from_request(
                 request, details["thread_id"], client=SB
