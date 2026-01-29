@@ -1,5 +1,4 @@
 import datetime
-import json
 import os
 import time
 import uuid
@@ -16,7 +15,7 @@ from workers.lib.simple_queue import send
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
 if not SUPABASE_URL or not SUPABASE_KEY:
-    raise RuntimeError("Missing Supabase configuration for test harness")
+    raise RuntimeError("Missing Supabase configuration for fan sim")
 
 SB = create_client(
     SUPABASE_URL,
@@ -28,20 +27,31 @@ SB = create_client(
     ),
 )
 
-TEST_TABLE = os.getenv("TEST_CONVERSATIONS_TABLE", "test_conversations")
-POLL_SECONDS = float(os.getenv("TEST_HARNESS_POLL_SECONDS", "2"))
-FAN_BATCH_SIZE = int(os.getenv("TEST_HARNESS_FAN_BATCH", "10"))
-CREATOR_BATCH_SIZE = int(os.getenv("TEST_HARNESS_CREATOR_BATCH", "10"))
-TEST_SOURCE_CHANNEL = os.getenv("TEST_SOURCE_CHANNEL", "live").strip().lower() or "live"
+THREAD_IDS_RAW = os.getenv("FAN_SIM_THREAD_IDS", "").strip()
+if not THREAD_IDS_RAW:
+    raise RuntimeError("FAN_SIM_THREAD_IDS is required (comma-separated thread ids)")
 
-FAN_SIM_ENABLED = os.getenv("TEST_FAN_SIM_ENABLED", "false").lower() in {
-    "1",
-    "true",
-    "yes",
-    "on",
-}
-FAN_SIM_MAX_TURNS = int(os.getenv("TEST_FAN_SIM_MAX_TURNS", "30"))
-FAN_SIM_HISTORY_LIMIT = int(os.getenv("TEST_FAN_SIM_HISTORY_LIMIT", "0"))
+THREAD_IDS = [
+    int(part)
+    for part in [p.strip() for p in THREAD_IDS_RAW.replace(";", ",").split(",")]
+    if part.strip()
+]
+if not THREAD_IDS:
+    raise RuntimeError("FAN_SIM_THREAD_IDS did not contain any ids")
+
+POLL_SECONDS = float(os.getenv("FAN_SIM_POLL_SECONDS", "2"))
+CURSOR_TABLE = os.getenv("FAN_SIM_CURSOR_TABLE", "fan_sim_cursors").strip() or "fan_sim_cursors"
+HISTORY_LIMIT = int(os.getenv("FAN_SIM_HISTORY_LIMIT", "0"))
+MAX_TURNS = int(os.getenv("FAN_SIM_MAX_TURNS", "0"))
+SIM_ENABLED = os.getenv("FAN_SIM_ENABLED", "true").lower() in {"1", "true", "yes", "on"}
+
+BOOTSTRAP_MODE = os.getenv("FAN_SIM_BOOTSTRAP", "latest").lower().strip()
+# BOOTSTRAP_MODE:
+#   "latest" (default): set cursor to latest creator message and wait for new ones
+#   "reply_latest": reply once to the latest creator message if no cursor yet
+
+RAW_SOURCE_CHANNEL = (os.getenv("FAN_SIM_SOURCE_CHANNEL") or "live").strip().lower()
+SOURCE_CHANNEL = RAW_SOURCE_CHANNEL if RAW_SOURCE_CHANNEL in {"live", "scheduler", "backfill"} else "live"
 
 
 def _utcnow() -> datetime.datetime:
@@ -130,9 +140,7 @@ def _active_reply_run(thread_id: int) -> dict | None:
     return active
 
 
-def _create_reply_run(
-    *, thread_id: int, message_id: int, snapshot_end_turn_index: int
-) -> str | None:
+def _create_reply_run(*, thread_id: int, message_id: int, snapshot_end_turn_index: int) -> str | None:
     payload = {
         "thread_id": int(thread_id),
         "trigger_source": "fan",
@@ -140,7 +148,7 @@ def _create_reply_run(
         "snapshot_end_turn_index": int(snapshot_end_turn_index),
         "status": "active",
         "current_step": "queued",
-        "metadata": {"source": "test_harness"},
+        "metadata": {"source": "fan_sim"},
     }
     try:
         row = SB.table("reply_runs").insert(payload).execute().data
@@ -179,16 +187,14 @@ def _enqueue_reply_pipeline(*, message_id: int, run_id: str | None, has_media: b
                 client=SB,
                 message_id=int(message_id),
                 mode="skip",
-                meta={"reason": "test_harness_no_media"},
+                meta={"reason": "fan_sim_no_media"},
             )
 
     if not job_exists("iris.decide", message_id, client=SB):
         send("iris.decide", payload)
 
 
-def _kick_reply_flow(
-    *, message_id: int, thread_id: int, turn_index: int, has_media: bool
-) -> None:
+def _kick_reply_flow(*, message_id: int, thread_id: int, turn_index: int, has_media: bool) -> None:
     active_run = _active_reply_run(int(thread_id))
     if active_run:
         active_root = active_run.get("root_fan_message_id")
@@ -288,202 +294,109 @@ def _next_turn_index(thread_id: int) -> int:
     return int(latest_turn or 0) + 1
 
 
-def _insert_fan_message(row: dict) -> int | None:
-    thread_id = row.get("thread_id")
-    if not thread_id:
-        return None
-    message_text = row.get("message_text") or ""
-    created_at = row.get("created_at") or _utcnow().isoformat()
-    ext_message_id = f"test-{row.get('id') or uuid.uuid4()}"
-    media_payload = row.get("media_payload")
-    has_media = False
-    if isinstance(media_payload, dict):
-        items = media_payload.get("items")
-        has_media = isinstance(items, list) and len(items) > 0
-
-    turn_index = _next_turn_index(int(thread_id))
-    payload = {
-        "thread_id": int(thread_id),
-        "ext_message_id": ext_message_id,
-        "sender": "fan",
-        "message_text": message_text,
-        "source_channel": TEST_SOURCE_CHANNEL,
-        "created_at": created_at,
-        "turn_index": turn_index,
-        "media_status": "pending" if has_media else None,
-        "media_payload": media_payload if has_media else None,
-    }
-    try:
-        res = SB.table("messages").insert(payload, upsert=False).execute().data
-        if not res:
-            return None
-        msg_id = res[0]["id"]
-    except APIError as exc:
-        err = exc.args[0] if exc.args and isinstance(exc.args[0], dict) else {}
-        if err.get("code") == "23505":
-            existing = (
-                SB.table("messages")
-                .select("id")
-                .eq("thread_id", int(thread_id))
-                .eq("ext_message_id", ext_message_id)
-                .limit(1)
-                .execute()
-                .data
-                or []
-            )
-            if existing:
-                msg_id = existing[0]["id"]
-            else:
-                return None
-        else:
-            raise
-    SB.table("threads").update({"turn_count": turn_index}).eq(
-        "id", int(thread_id)
-    ).execute()
-    _kick_reply_flow(
-        message_id=int(msg_id),
-        thread_id=int(thread_id),
-        turn_index=int(turn_index),
-        has_media=has_media,
-    )
-    _maybe_enqueue_episode_summary(int(thread_id), int(turn_index))
-    return int(msg_id)
-
-
-def _fetch_pending_fan_rows(limit: int) -> list[dict]:
-    return (
-        SB.table(TEST_TABLE)
-        .select(
-            "id,thread_id,message_text,media_payload,created_at,status,meta,source_message_id"
-        )
-        .eq("sender", "fan")
-        .eq("status", "pending")
-        .order("id", desc=False)
-        .limit(limit)
-        .execute()
-        .data
-        or []
-    )
-
-
-def _mark_fan_row(row_id: int, *, status: str, message_id: int | None = None, error: str | None = None) -> None:
-    payload = {
-        "status": status,
-        "processed_at": _utcnow().isoformat(),
-    }
-    if message_id:
-        payload["source_message_id"] = int(message_id)
-    if error:
-        payload["meta"] = {"error": str(error)}
-    SB.table(TEST_TABLE).update(payload).eq("id", int(row_id)).execute()
-
-
-def _mirror_creator_messages(thread_id: int, limit: int) -> int:
-    last_rows = (
-        SB.table(TEST_TABLE)
-        .select("source_message_id")
+def _get_cursor(thread_id: int) -> int | None:
+    rows = (
+        SB.table(CURSOR_TABLE)
+        .select("last_creator_message_id")
         .eq("thread_id", int(thread_id))
-        .eq("sender", "creator")
-        .order("source_message_id", desc=True)
         .limit(1)
         .execute()
         .data
         or []
     )
-    last_id = 0
-    if last_rows and last_rows[0].get("source_message_id"):
-        last_id = int(last_rows[0]["source_message_id"])
+    if not rows:
+        return None
+    value = rows[0].get("last_creator_message_id")
+    return int(value) if value is not None else None
 
+
+def _set_cursor(thread_id: int, message_id: int) -> None:
+    payload = {
+        "thread_id": int(thread_id),
+        "last_creator_message_id": int(message_id),
+        "updated_at": _utcnow().isoformat(),
+    }
+    SB.table(CURSOR_TABLE).upsert(payload).execute()
+
+
+def _latest_creator_message_id(thread_id: int) -> int | None:
     rows = (
         SB.table("messages")
-        .select("id,thread_id,message_text,created_at,ext_message_id")
+        .select("id")
         .eq("thread_id", int(thread_id))
         .eq("sender", "creator")
-        .gt("id", last_id)
-        .order("id", desc=False)
-        .limit(limit)
-        .execute()
-        .data
-        or []
-    )
-    count = 0
-    for row in rows:
-        payload = {
-            "thread_id": int(thread_id),
-            "sender": "creator",
-            "message_text": row.get("message_text") or "",
-            "created_at": row.get("created_at") or _utcnow().isoformat(),
-            "status": "mirrored",
-            "source_message_id": int(row.get("id")),
-            "meta": {"ext_message_id": row.get("ext_message_id")},
-        }
-        try:
-            SB.table(TEST_TABLE).insert(payload, upsert=False).execute()
-            count += 1
-        except APIError as exc:
-            err = exc.args[0] if exc.args and isinstance(exc.args[0], dict) else {}
-            if err.get("code") == "23505":
-                continue
-            if "duplicate key" in str(exc).lower():
-                continue
-            raise
-    return count
-
-
-def _latest_test_row(thread_id: int) -> dict | None:
-    rows = (
-        SB.table(TEST_TABLE)
-        .select("id,sender,created_at")
-        .eq("thread_id", int(thread_id))
         .order("id", desc=True)
         .limit(1)
         .execute()
         .data
         or []
     )
-    return rows[0] if rows else None
+    if not rows:
+        return None
+    return int(rows[0].get("id") or 0) or None
 
 
-def _pending_fan_exists(thread_id: int) -> bool:
-    rows = (
-        SB.table(TEST_TABLE)
-        .select("id")
+def _bootstrap_cursor(thread_id: int) -> int | None:
+    latest_id = _latest_creator_message_id(thread_id)
+    if latest_id is None:
+        return None
+    _set_cursor(thread_id, latest_id)
+    return latest_id
+
+
+def _fetch_creator_messages(thread_id: int, after_id: int, limit: int = 10) -> list[dict]:
+    return (
+        SB.table("messages")
+        .select("id,thread_id,message_text,created_at")
         .eq("thread_id", int(thread_id))
-        .eq("sender", "fan")
-        .eq("status", "pending")
-        .limit(1)
+        .eq("sender", "creator")
+        .gt("id", int(after_id))
+        .order("id", desc=False)
+        .limit(limit)
         .execute()
         .data
         or []
     )
-    return bool(rows)
 
 
 def _fetch_history(thread_id: int, limit: int) -> list[dict]:
-    query = (
-        SB.table(TEST_TABLE)
-        .select("sender,message_text,created_at,id")
+    if limit and int(limit) > 0:
+        rows = (
+            SB.table("messages")
+            .select("id,sender,message_text,created_at")
+            .eq("thread_id", int(thread_id))
+            .order("id", desc=True)
+            .limit(int(limit))
+            .execute()
+            .data
+            or []
+        )
+        return list(reversed(rows))
+    return (
+        SB.table("messages")
+        .select("id,sender,message_text,created_at")
         .eq("thread_id", int(thread_id))
         .order("id", desc=False)
+        .execute()
+        .data
+        or []
     )
-    if limit and int(limit) > 0:
-        query = query.limit(int(limit))
-    return query.execute().data or []
 
 
 def _call_fan_model(history: list[dict]) -> str:
-    base = (os.getenv("TEST_FAN_URL") or os.getenv("RUNPOD_URL") or "").rstrip("/")
+    base = (os.getenv("FAN_SIM_URL") or os.getenv("RUNPOD_URL") or "").rstrip("/")
     if not base:
-        raise RuntimeError("TEST_FAN_URL or RUNPOD_URL not set for fan simulator")
-    key = os.getenv("TEST_FAN_API_KEY") or os.getenv("RUNPOD_API_KEY") or os.getenv("OPENAI_API_KEY")
+        raise RuntimeError("FAN_SIM_URL or RUNPOD_URL not set for fan simulator")
+    key = os.getenv("FAN_SIM_API_KEY") or os.getenv("RUNPOD_API_KEY") or os.getenv("OPENAI_API_KEY")
     if not key:
-        raise RuntimeError("TEST_FAN_API_KEY or RUNPOD_API_KEY is not set")
+        raise RuntimeError("FAN_SIM_API_KEY or RUNPOD_API_KEY is not set")
     url = f"{base}/v1/chat/completions"
-    model = os.getenv("TEST_FAN_MODEL") or os.getenv("RUNPOD_MODEL_NAME", "gpt-oss-20b-uncensored")
+    model = os.getenv("FAN_SIM_MODEL") or os.getenv("RUNPOD_MODEL_NAME", "gpt-oss-20b-uncensored")
     system_prompt = os.getenv(
-        "TEST_FAN_SYSTEM_PROMPT",
+        "FAN_SIM_SYSTEM_PROMPT",
         "You are the fan in a private chat. Respond with the next fan message only.",
     )
+
     history_lines = []
     for idx, row in enumerate(history, 1):
         speaker = "Fan" if row.get("sender") == "fan" else "Creator"
@@ -491,21 +404,29 @@ def _call_fan_model(history: list[dict]) -> str:
         created_at = row.get("created_at") or ""
         line = f"{idx:02d}. [{created_at}] {speaker}: {text}"
         history_lines.append(line)
+
     user_prompt = (
         "Conversation (all turns, oldest -> newest):\n"
         + "\n".join(history_lines)
         + "\n\nNow produce the next FAN message."
     )
+
     payload = {
         "model": model,
         "messages": [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
         ],
-        "temperature": float(os.getenv("TEST_FAN_TEMPERATURE", "0.7")),
-        "max_tokens": int(os.getenv("TEST_FAN_MAX_TOKENS", "200")),
+        "temperature": float(os.getenv("FAN_SIM_TEMPERATURE", "0.7")),
+        "max_tokens": int(os.getenv("FAN_SIM_MAX_TOKENS", "200")),
     }
-    resp = requests.post(url, headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"}, json=payload, timeout=120)
+
+    resp = requests.post(
+        url,
+        headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+        json=payload,
+        timeout=120,
+    )
     resp.raise_for_status()
     data = resp.json()
     raw_text = ""
@@ -520,95 +441,101 @@ def _call_fan_model(history: list[dict]) -> str:
     return (raw_text or "").strip()
 
 
-def _maybe_generate_fan_reply(thread_id: int) -> None:
-    if not FAN_SIM_ENABLED:
-        return
-    if _pending_fan_exists(thread_id):
-        return
-    latest = _latest_test_row(thread_id)
-    if not latest or latest.get("sender") != "creator":
-        return
-    total_rows = (
-        SB.table(TEST_TABLE)
-        .select("id", count="exact")
-        .eq("thread_id", int(thread_id))
-        .execute()
-    )
-    count = total_rows.count if hasattr(total_rows, "count") else None
-    if count is not None and count >= FAN_SIM_MAX_TURNS:
-        return
-    history = _fetch_history(thread_id, FAN_SIM_HISTORY_LIMIT)
-    if not history:
-        return
-    try:
-        reply = _call_fan_model(history)
-    except Exception as exc:
-        print(f"[test_harness] fan sim error: {exc}", flush=True)
-        return
+def _insert_fan_message(thread_id: int, reply: str) -> int | None:
     if not reply:
-        return
+        return None
+    turn_index = _next_turn_index(int(thread_id))
     payload = {
         "thread_id": int(thread_id),
+        "ext_message_id": f"sim-{uuid.uuid4()}",
         "sender": "fan",
         "message_text": reply,
-        "status": "pending",
+        "source_channel": SOURCE_CHANNEL,
         "created_at": _utcnow().isoformat(),
+        "turn_index": int(turn_index),
     }
-    SB.table(TEST_TABLE).insert(payload).execute()
+    try:
+        res = SB.table("messages").insert(payload, upsert=False).execute().data
+        if not res:
+            return None
+        msg_id = res[0]["id"]
+    except APIError as exc:
+        err = exc.args[0] if exc.args and isinstance(exc.args[0], dict) else {}
+        if err.get("code") == "23505":
+            return None
+        raise
 
-
-def _fetch_test_thread_ids() -> list[int]:
-    rows = (
-        SB.table(TEST_TABLE)
-        .select("thread_id")
-        .order("thread_id", desc=False)
-        .execute()
-        .data
-        or []
+    SB.table("threads").update({"turn_count": turn_index}).eq("id", int(thread_id)).execute()
+    _kick_reply_flow(
+        message_id=int(msg_id),
+        thread_id=int(thread_id),
+        turn_index=int(turn_index),
+        has_media=False,
     )
-    seen = set()
-    ids: list[int] = []
-    for row in rows:
-        tid = row.get("thread_id")
-        if tid is None or tid in seen:
+    _maybe_enqueue_episode_summary(int(thread_id), int(turn_index))
+    return int(msg_id)
+
+
+def _should_stop_for_thread(thread_id: int) -> bool:
+    if MAX_TURNS and int(MAX_TURNS) > 0:
+        rows = (
+            SB.table("messages")
+            .select("id", count="exact")
+            .eq("thread_id", int(thread_id))
+            .execute()
+        )
+        count = rows.count if hasattr(rows, "count") else None
+        if count is not None and count >= int(MAX_TURNS):
+            return True
+    return False
+
+
+def _process_thread(thread_id: int) -> None:
+    if _should_stop_for_thread(thread_id):
+        return
+
+    cursor = _get_cursor(thread_id)
+    if cursor is None:
+        latest = _bootstrap_cursor(thread_id)
+        if BOOTSTRAP_MODE == "reply_latest" and latest:
+            cursor = latest - 1
+        else:
+            return
+
+    creator_rows = _fetch_creator_messages(thread_id, cursor, limit=10)
+    if not creator_rows:
+        return
+
+    for row in creator_rows:
+        creator_id = int(row.get("id") or 0)
+        if creator_id <= 0:
             continue
-        seen.add(tid)
-        ids.append(int(tid))
-    return ids
+        history = _fetch_history(thread_id, HISTORY_LIMIT)
+        if not history:
+            _set_cursor(thread_id, creator_id)
+            continue
+        try:
+            reply = _call_fan_model(history)
+        except Exception as exc:
+            print(f"[fan_sim] model error thread {thread_id}: {exc}", flush=True)
+            return
+        if not reply:
+            _set_cursor(thread_id, creator_id)
+            continue
+        msg_id = _insert_fan_message(thread_id, reply)
+        if msg_id:
+            _set_cursor(thread_id, creator_id)
 
 
 def run_loop() -> None:
-    print("[test_harness] started", flush=True)
+    print("[fan_sim] started", flush=True)
     while True:
-        try:
-            pending = _fetch_pending_fan_rows(FAN_BATCH_SIZE)
-            for row in pending:
-                row_id = row.get("id")
-                if not row_id:
-                    continue
+        if SIM_ENABLED:
+            for thread_id in THREAD_IDS:
                 try:
-                    msg_id = _insert_fan_message(row)
-                    if msg_id:
-                        _mark_fan_row(int(row_id), status="sent", message_id=int(msg_id))
-                    else:
-                        _mark_fan_row(int(row_id), status="error", error="insert_failed")
+                    _process_thread(int(thread_id))
                 except Exception as exc:
-                    _mark_fan_row(int(row_id), status="error", error=str(exc))
-                    print(f"[test_harness] fan ingest error: {exc}", flush=True)
-
-            thread_ids = _fetch_test_thread_ids()
-            for thread_id in thread_ids:
-                try:
-                    _mirror_creator_messages(int(thread_id), CREATOR_BATCH_SIZE)
-                except Exception as exc:
-                    print(f"[test_harness] mirror error thread {thread_id}: {exc}", flush=True)
-
-            if FAN_SIM_ENABLED:
-                for thread_id in thread_ids:
-                    _maybe_generate_fan_reply(int(thread_id))
-        except Exception as exc:
-            print(f"[test_harness] loop error: {exc}", flush=True)
-
+                    print(f"[fan_sim] error thread {thread_id}: {exc}", flush=True)
         time.sleep(POLL_SECONDS)
 
 
