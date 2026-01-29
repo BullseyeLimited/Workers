@@ -1,0 +1,12 @@
+app = "test-harness-worker"
+primary_region = "fra"
+
+[build]
+  dockerfile = "../../base/Dockerfile"
+  context    = "../.."
+
+[processes]
+  app = "python -m workers.test_harness.main"
+
+[deploy]
+  min_machines_running = 1
