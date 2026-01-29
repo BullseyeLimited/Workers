@@ -8,6 +8,7 @@ from postgrest.exceptions import APIError
 from supabase import ClientOptions, create_client
 
 from workers.lib.job_utils import job_exists
+from workers.lib.prompt_builder import PROMPTS_DIR
 from workers.lib.reply_run_tracking import upsert_step
 from workers.lib.simple_queue import send
 
@@ -392,10 +393,10 @@ def _call_fan_model(history: list[dict]) -> str:
         raise RuntimeError("FAN_SIM_API_KEY or RUNPOD_API_KEY is not set")
     url = f"{base}/v1/chat/completions"
     model = os.getenv("FAN_SIM_MODEL") or os.getenv("RUNPOD_MODEL_NAME", "gpt-oss-20b-uncensored")
-    system_prompt = os.getenv(
-        "FAN_SIM_SYSTEM_PROMPT",
-        "You are the fan in a private chat. Respond with the next fan message only.",
-    )
+    prompt_path = PROMPTS_DIR / "fan_sim.txt"
+    if not prompt_path.exists():
+        raise RuntimeError(f"Fan sim prompt template missing: {prompt_path}")
+    system_prompt = prompt_path.read_text(encoding="utf-8").strip()
 
     history_lines = []
     for idx, row in enumerate(history, 1):
