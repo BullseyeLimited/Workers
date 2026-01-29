@@ -1510,6 +1510,7 @@ def _render_template(
     boundary_turn: int | None = None,
     analysis_message_id: int | None = None,
     include_blocks: bool = True,
+    include_cards: bool = True,
     include_plans: bool = True,
     include_analyst: bool = True,
     include_episode_rolling: bool = False,
@@ -1559,20 +1560,21 @@ def _render_template(
             else:
                 context[macro] = make_block(thread_id, tier, limit, client=sb)
 
-    identity_keys: list[str] = []
-    if template_name in {"napoleon", "napoleon_lite"} and analysis_message_id:
-        identity_keys = _fetch_hermes_identity_keys(
-            analysis_message_id, client=sb
-        )
+    if include_cards:
+        identity_keys: list[str] = []
+        if template_name in {"napoleon", "napoleon_lite"} and analysis_message_id:
+            identity_keys = _fetch_hermes_identity_keys(
+                analysis_message_id, client=sb
+            )
 
-    context.update(
-        _load_cards(
-            thread_id,
-            client=sb,
-            worker_tier=worker_tier,
-            identity_keys=identity_keys,
+        context.update(
+            _load_cards(
+                thread_id,
+                client=sb,
+                worker_tier=worker_tier,
+                identity_keys=identity_keys,
+            )
         )
-    )
 
     if include_episode_rolling:
         context.update(_recent_episode_abstracts(thread_id, client=sb))
@@ -1632,6 +1634,7 @@ def build_prompt(
     boundary_turn: int | None = None,
     analysis_message_id: int | None = None,
     include_blocks: bool = True,
+    include_cards: bool = True,
     include_plans: bool = True,
     include_analyst: bool = True,
     include_episode_rolling: bool = False,
@@ -1648,6 +1651,7 @@ def build_prompt(
         boundary_turn=boundary_turn,
         analysis_message_id=analysis_message_id,
         include_blocks=include_blocks,
+        include_cards=include_cards,
         include_plans=include_plans,
         include_analyst=include_analyst,
         include_episode_rolling=include_episode_rolling,
@@ -1666,6 +1670,7 @@ def build_prompt_sections(
     boundary_turn: int | None = None,
     analysis_message_id: int | None = None,
     include_blocks: bool = True,
+    include_cards: bool = True,
     include_plans: bool = True,
     include_analyst: bool = True,
     include_episode_rolling: bool = False,
@@ -1685,6 +1690,7 @@ def build_prompt_sections(
         boundary_turn=boundary_turn,
         analysis_message_id=analysis_message_id,
         include_blocks=include_blocks,
+        include_cards=include_cards,
         include_plans=include_plans,
         include_analyst=include_analyst,
         include_episode_rolling=include_episode_rolling,

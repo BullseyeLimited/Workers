@@ -180,6 +180,7 @@ def process_job(payload: dict) -> bool:
         raw_turns,
         client=SB,
         include_blocks=False,
+        include_cards=False,
         include_plans=False,
         include_analyst=False,
         include_episode_rolling=True,
