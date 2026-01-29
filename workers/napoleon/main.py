@@ -39,6 +39,12 @@ IRIS_CONTROL_ENABLED = os.getenv("IRIS_CONTROL_ENABLED", "").lower() in {
     "yes",
     "on",
 }
+IRIS_LITE_AS_FULL = os.getenv("IRIS_LITE_AS_FULL", "1").lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
 
 SB = create_client(
     SUPABASE_URL,
@@ -1752,9 +1758,9 @@ def process_job(payload):
     napoleon_mode = str(payload.get("napoleon_mode") or "full").strip().lower()
     if napoleon_mode not in {"lite", "full"}:
         napoleon_mode = "full"
-    # Temporary policy: treat Napoleon LITE the same as FULL (we keep the Iris decision
-    # in message_ai_details.iris_* columns, but we run the full Napoleon prompt).
-    if napoleon_mode == "lite":
+    # Optional: keep Iris decisions visible without changing Napoleon compute cost.
+    # Set IRIS_LITE_AS_FULL=0 to actually use the LITE prompt.
+    if napoleon_mode == "lite" and IRIS_LITE_AS_FULL:
         napoleon_mode = "full"
     if not IRIS_CONTROL_ENABLED:
         napoleon_mode = "full"
@@ -2129,6 +2135,27 @@ def process_job(payload):
             error_message=f"RunPod error: {exc}",
         )
         print(f"[Napoleon] RunPod error for fan message {fan_message_id}: {exc}")
+        if run_id and not is_run_active(str(run_id), client=SB):
+            upsert_step(
+                run_id=str(run_id),
+                step="napoleon",
+                attempt=attempt,
+                status="canceled",
+                client=SB,
+                message_id=int(fan_message_id),
+                ended_at=datetime.now(timezone.utc).isoformat(),
+                error=f"run_canceled_post_runpod_error:{exc}",
+            )
+            return True
+        _enqueue_writer_fallback(
+            fan_message_id=int(fan_message_id),
+            thread_id=int(thread_id),
+            raw_turns=raw_turns,
+            msg_row=msg,
+            thread_row=thread_row,
+            details_row=details_row,
+            run_id=str(run_id) if run_id else None,
+        )
         if run_id:
             upsert_step(
                 run_id=str(run_id),
@@ -2221,6 +2248,40 @@ def process_job(payload):
             f"[Napoleon] Parse/validation error for fan message {fan_message_id}: "
             f"missing={missing_fields}, parse_error={parse_error}"
         )
+        if run_id and not is_run_active(str(run_id), client=SB):
+            upsert_step(
+                run_id=str(run_id),
+                step="napoleon",
+                attempt=attempt,
+                status="canceled",
+                client=SB,
+                message_id=int(fan_message_id),
+                ended_at=datetime.now(timezone.utc).isoformat(),
+                error=f"run_canceled_post_parse_error:{parse_error or 'parse_failed'}",
+                meta={"missing_fields": missing_fields},
+            )
+            return True
+        _enqueue_writer_fallback(
+            fan_message_id=int(fan_message_id),
+            thread_id=int(thread_id),
+            raw_turns=raw_turns,
+            msg_row=msg,
+            thread_row=thread_row,
+            details_row=details_row,
+            run_id=str(run_id) if run_id else None,
+        )
+        if run_id:
+            upsert_step(
+                run_id=str(run_id),
+                step="napoleon",
+                attempt=attempt,
+                status="failed",
+                client=SB,
+                message_id=int(fan_message_id),
+                ended_at=datetime.now(timezone.utc).isoformat(),
+                error=f"parse_error: {parse_error}",
+                meta={"missing_fields": missing_fields},
+            )
         return True
 
     content_actions, content_actions_error = parse_content_actions(raw_text)

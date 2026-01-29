@@ -36,6 +36,12 @@ from workers.lib.simple_queue import ack, receive, send
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+IRIS_LITE_AS_FULL = os.getenv("IRIS_LITE_AS_FULL", "1").lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
 
 if not SUPABASE_URL or not SUPABASE_KEY:
     raise RuntimeError("Missing Supabase configuration for Kairos")
@@ -705,9 +711,9 @@ def process_job(payload: Dict[str, Any], row_id: int) -> bool:
     kairos_mode = str(payload.get("kairos_mode") or "full").strip().lower()
     if kairos_mode not in {"lite", "full"}:
         kairos_mode = "full"
-    # Temporary policy: treat Kairos LITE the same as FULL (we keep the Iris decision
-    # in message_ai_details.iris_* columns, but we run the full Kairos prompt).
-    if kairos_mode == "lite":
+    # Optional: keep Iris decisions visible without changing Kairos compute cost.
+    # Set IRIS_LITE_AS_FULL=0 to actually use the LITE prompt.
+    if kairos_mode == "lite" and IRIS_LITE_AS_FULL:
         kairos_mode = "full"
 
     if run_id:

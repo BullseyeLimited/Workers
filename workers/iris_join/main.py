@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 import re
 import time
@@ -517,7 +518,40 @@ def process_job(payload: Dict[str, Any]) -> bool:
             or []
         )
     if not details_rows:
-        # Hermes hasn't persisted a routing decision row yet (or wrong DB/key).
+        # Best-effort: seed a minimal message_ai_details row so this joiner can still
+        # proceed in SKIP-heavy Iris routes. (Other workers also do this.)
+        try:
+            msg_seed_rows = (
+                SB.table("messages")
+                .select("thread_id")
+                .eq("id", fan_msg_id)
+                .limit(1)
+                .execute()
+                .data
+                or []
+            )
+            thread_id_seed = (
+                int(msg_seed_rows[0].get("thread_id")) if msg_seed_rows else None
+            )
+        except Exception:
+            thread_id_seed = None
+
+        if thread_id_seed:
+            try:
+                SB.table("message_ai_details").insert(
+                    {
+                        "message_id": int(fan_msg_id),
+                        "thread_id": int(thread_id_seed),
+                        "sender": "fan",
+                        "raw_hash": hashlib.sha256(
+                            f"iris_join_seed:{thread_id_seed}:{fan_msg_id}".encode("utf-8")
+                        ).hexdigest(),
+                        "kairos_status": "pending",
+                        "extras": {},
+                    }
+                ).execute()
+            except Exception:
+                pass
         return True
     details = details_rows[0]
 

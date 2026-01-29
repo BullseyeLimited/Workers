@@ -46,6 +46,12 @@ IRIS_CONTROL_ENABLED = os.getenv("IRIS_CONTROL_ENABLED", "").lower() in {
     "yes",
     "on",
 }
+IRIS_LITE_AS_FULL = os.getenv("IRIS_LITE_AS_FULL", "1").lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
 
 if not SUPABASE_URL or not SUPABASE_KEY:
     raise RuntimeError("Missing Supabase configuration for Hermes")
@@ -617,9 +623,9 @@ def process_job(payload: Dict[str, Any]) -> bool:
     hermes_mode = (payload.get("hermes_mode") or "full").strip().lower()
     if not IRIS_CONTROL_ENABLED:
         hermes_mode = "full"
-    # Temporary policy: treat Hermes LITE the same as FULL (we keep the Iris decision
-    # in message_ai_details.iris_* columns, but we run the full Hermes prompt).
-    if hermes_mode == "lite":
+    # Optional: keep Iris decisions visible without changing Hermes compute cost.
+    # Set IRIS_LITE_AS_FULL=0 to actually use the LITE prompt.
+    if hermes_mode == "lite" and IRIS_LITE_AS_FULL:
         hermes_mode = "full"
 
     if run_id:
