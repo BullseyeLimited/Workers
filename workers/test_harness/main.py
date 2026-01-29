@@ -40,7 +40,7 @@ FAN_SIM_ENABLED = os.getenv("TEST_FAN_SIM_ENABLED", "false").lower() in {
     "on",
 }
 FAN_SIM_MAX_TURNS = int(os.getenv("TEST_FAN_SIM_MAX_TURNS", "30"))
-FAN_SIM_HISTORY_LIMIT = int(os.getenv("TEST_FAN_SIM_HISTORY_LIMIT", "12"))
+FAN_SIM_HISTORY_LIMIT = int(os.getenv("TEST_FAN_SIM_HISTORY_LIMIT", "0"))
 
 
 def _utcnow() -> datetime.datetime:
@@ -457,16 +457,15 @@ def _pending_fan_exists(thread_id: int) -> bool:
 
 
 def _fetch_history(thread_id: int, limit: int) -> list[dict]:
-    return (
+    query = (
         SB.table(TEST_TABLE)
-        .select("sender,message_text,created_at")
+        .select("sender,message_text,created_at,id")
         .eq("thread_id", int(thread_id))
         .order("id", desc=False)
-        .limit(limit)
-        .execute()
-        .data
-        or []
     )
+    if limit and int(limit) > 0:
+        query = query.limit(int(limit))
+    return query.execute().data or []
 
 
 def _call_fan_model(history: list[dict]) -> str:
@@ -483,11 +482,17 @@ def _call_fan_model(history: list[dict]) -> str:
         "You are the fan in a private chat. Respond with the next fan message only.",
     )
     history_lines = []
-    for row in history:
+    for idx, row in enumerate(history, 1):
         speaker = "Fan" if row.get("sender") == "fan" else "Creator"
-        text = row.get("message_text") or ""
-        history_lines.append(f"{speaker}: {text}")
-    user_prompt = "Conversation so far:\n" + "\n".join(history_lines) + "\n\nNext fan message:"
+        text = (row.get("message_text") or "").strip()
+        created_at = row.get("created_at") or ""
+        line = f"{idx:02d}. [{created_at}] {speaker}: {text}"
+        history_lines.append(line)
+    user_prompt = (
+        "Conversation (all turns, oldest -> newest):\n"
+        + "\n".join(history_lines)
+        + "\n\nNow produce the next FAN message."
+    )
     payload = {
         "model": model,
         "messages": [
