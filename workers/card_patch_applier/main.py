@@ -1186,6 +1186,12 @@ def _maybe_enqueue_next(thread_id: int, tier: str):
     if len(chunk) < chunk_size:
         return
 
+    # Do not enqueue higher-tier rollups until the lower-tier abstracts exist.
+    # Otherwise the next-tier model sees empty placeholders and produces junk output.
+    for row in chunk:
+        if not (row.get("abstract_summary") or "").strip():
+            return
+
     start_turn = min(row.get("start_turn") or 0 for row in chunk) or None
     end_turn = max(row.get("end_turn") or 0 for row in chunk) or None
     next_tier_index = upper_count + 1

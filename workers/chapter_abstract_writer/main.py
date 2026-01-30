@@ -29,9 +29,10 @@ SB = create_client(
 QUEUE = "chapter.abstract"
 TIER = "chapter"
 
-ABSTRACT_MAX_TOKENS = int(os.getenv("ABSTRACT_MAX_TOKENS", "20000"))
+ABSTRACT_MAX_TOKENS = int(os.getenv("ABSTRACT_MAX_TOKENS", "30000"))
 ABSTRACT_TIMEOUT_SECONDS = int(os.getenv("ABSTRACT_TIMEOUT_SECONDS", "300"))
 ABSTRACT_QUEUE_VT = int(os.getenv("ABSTRACT_QUEUE_VT", "300"))
+ABSTRACT_TEMPERATURE = float(os.getenv("ABSTRACT_TEMPERATURE", "0.95"))
 
 
 def call_llm(prompt: str) -> str:
@@ -50,7 +51,7 @@ def call_llm(prompt: str) -> str:
             {"role": "user", "content": prompt},
         ],
         "max_tokens": ABSTRACT_MAX_TOKENS,
-        "temperature": 0,
+        "temperature": ABSTRACT_TEMPERATURE,
     }
 
     resp = requests.post(
@@ -128,4 +129,3 @@ if __name__ == "__main__":
             print("[chapter_abstract_writer] error:", exc)
             traceback.print_exc()
             time.sleep(2)
-
