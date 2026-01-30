@@ -122,7 +122,6 @@ def runpod_call(system_prompt: str, user_message: str) -> tuple[str, dict, dict]
     payload = {
         "model": os.getenv("RUNPOD_MODEL_NAME", "gpt-oss-20b-uncensored"),
         "messages": [
-            {"role": "system", "content": "Reasoning: high"},
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_message},
         ],
@@ -139,19 +138,11 @@ def runpod_call(system_prompt: str, user_message: str) -> tuple[str, dict, dict]
     try:
         if data.get("choices"):
             msg = data["choices"][0].get("message") or {}
-            raw_text = (
-                msg.get("content")
-                or msg.get("reasoning")
-                or msg.get("reasoning_content")
-                or ""
-            )
+            raw_text = msg.get("content") or ""
             if not raw_text:
                 raw_text = data["choices"][0].get("text") or ""
     except Exception:
         pass
-
-    if not raw_text:
-        raw_text = f"__DEBUG_FULL_RESPONSE__: {json.dumps(data)}"
 
     return raw_text, payload, response_payload
 
