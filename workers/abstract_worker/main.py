@@ -36,7 +36,7 @@ QUEUE_HANDLERS: List[Tuple[str, Callable[[Dict], bool]]] = [
     ("lifetime.abstract", process_lifetime),
 ]
 
-VISIBILITY_TIMEOUT = int(os.getenv("ABSTRACT_QUEUE_VT", "30"))
+VISIBILITY_TIMEOUT = int(os.getenv("ABSTRACT_QUEUE_VT", "300"))
 IDLE_SLEEP = float(os.getenv("ABSTRACT_IDLE_SLEEP", "1"))
 
 
