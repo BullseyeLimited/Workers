@@ -29,6 +29,10 @@ SB = create_client(
 QUEUE = "lifetime.abstract"
 TIER = "lifetime"
 
+ABSTRACT_MAX_TOKENS = int(os.getenv("ABSTRACT_MAX_TOKENS", "10000"))
+ABSTRACT_TIMEOUT_SECONDS = int(os.getenv("ABSTRACT_TIMEOUT_SECONDS", "300"))
+ABSTRACT_QUEUE_VT = int(os.getenv("ABSTRACT_QUEUE_VT", "300"))
+
 
 def call_llm(prompt: str) -> str:
     if not RUNPOD_URL:
@@ -45,11 +49,13 @@ def call_llm(prompt: str) -> str:
             {"role": "system", "content": "Reasoning: high"},
             {"role": "user", "content": prompt},
         ],
-        "max_tokens": 900,
+        "max_tokens": ABSTRACT_MAX_TOKENS,
         "temperature": 0,
     }
 
-    resp = requests.post(url, headers=headers, json=payload, timeout=120)
+    resp = requests.post(
+        url, headers=headers, json=payload, timeout=ABSTRACT_TIMEOUT_SECONDS
+    )
     resp.raise_for_status()
     data = resp.json()
     raw_text = ""
@@ -111,7 +117,7 @@ def process_job(payload: dict) -> bool:
 
 if __name__ == "__main__":
     while True:
-        job = receive(QUEUE, 30)
+        job = receive(QUEUE, ABSTRACT_QUEUE_VT)
         if not job:
             time.sleep(1)
             continue
