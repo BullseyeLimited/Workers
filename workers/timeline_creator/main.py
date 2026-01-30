@@ -279,7 +279,7 @@ def _call_llm(prompt: str) -> str:
             {"role": "system", "content": "Reasoning: high"},
             {"role": "user", "content": prompt},
         ],
-        "max_tokens": int(os.getenv("TIMELINE_MAX_TOKENS", "1200")),
+        "max_tokens": int(os.getenv("TIMELINE_MAX_TOKENS", "20000")),
         "temperature": float(os.getenv("TIMELINE_TEMPERATURE", "0.2")),
     }
 
@@ -464,3 +464,4 @@ if __name__ == "__main__":
             continue
 
         time.sleep(1)
+

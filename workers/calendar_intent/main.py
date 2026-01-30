@@ -109,7 +109,7 @@ def _call_llm(prompt: str) -> str:
             {"role": "system", "content": "Reasoning: high"},
             {"role": "user", "content": prompt},
         ],
-        "max_tokens": 600,
+        "max_tokens": 20000,
         "temperature": 0,
     }
 
@@ -297,3 +297,4 @@ if __name__ == "__main__":
             print("[calendar_intent] error:", exc)
             traceback.print_exc()
             time.sleep(2)
+

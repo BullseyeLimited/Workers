@@ -891,7 +891,7 @@ def runpod_call(system_prompt: str, user_message: str) -> tuple[str, dict, dict]
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_message},
         ],
-        "max_tokens": 4000,
+        "max_tokens": 20000,
         "temperature": 1.0,
     }
 
@@ -2619,3 +2619,4 @@ if __name__ == "__main__":
             traceback.print_exc()
             # Do not ack on unhandled errors; let the job retry.
             time.sleep(2)
+

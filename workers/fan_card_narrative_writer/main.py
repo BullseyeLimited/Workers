@@ -922,7 +922,7 @@ def runpod_call(system_prompt: str, user_prompt: str) -> str:
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
         ],
-        "max_tokens": 4096,
+        "max_tokens": 20000,
         "temperature": 0.4,
     }
     # Structured logging of the outbound request (excluding secrets).
@@ -1384,3 +1384,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+

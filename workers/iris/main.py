@@ -324,7 +324,7 @@ def _runpod_call(system_prompt: str, user_message: str) -> tuple[str, dict, dict
             {"role": "user", "content": user_message},
         ],
         "temperature": float(os.getenv("IRIS_TEMPERATURE", "0.1")),
-        "max_tokens": int(os.getenv("IRIS_MAX_TOKENS", "4000")),
+        "max_tokens": int(os.getenv("IRIS_MAX_TOKENS", "20000")),
     }
 
     timeout_seconds = int(os.getenv("IRIS_TIMEOUT_SECONDS", "300"))
@@ -630,3 +630,4 @@ if __name__ == "__main__":
             print("[Iris] error:", exc, flush=True)
             traceback.print_exc()
             time.sleep(2)
+

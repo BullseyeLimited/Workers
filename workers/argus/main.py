@@ -246,7 +246,7 @@ def _describe_images_multi(items: List[dict], context: str) -> Tuple[List[str] |
                 {"role": "user", "content": user_content},
             ],
             temperature=0.2,
-            max_tokens=1600,
+            max_tokens=20000,
         )
     except Exception as exc:  # noqa: BLE001
         return None, f"vision_error: {exc}"
@@ -325,7 +325,7 @@ def _describe_image(url: str, context: str) -> Tuple[str | None, str | None]:
                 },
             ],
             temperature=0.2,
-            max_tokens=1200,
+            max_tokens=20000,
         )
     except Exception as exc:  # noqa: BLE001
         return None, f"vision_error: {exc}"
@@ -380,7 +380,7 @@ def _describe_video(url: str, context: str) -> Tuple[str | None, str | None]:
                 },
             ],
             temperature=0.2,
-            max_tokens=1400,
+            max_tokens=20000,
         )
     except Exception as exc:  # noqa: BLE001
         return None, f"video_error: {exc}"
@@ -437,7 +437,7 @@ def _describe_voice(url: str, context: str) -> Tuple[str | None, str | None]:
                 },
             ],
             temperature=0.2,
-            max_tokens=1400,
+            max_tokens=20000,
         )
     except Exception as exc:  # noqa: BLE001
         return None, f"voice_error: {exc}"
@@ -649,7 +649,7 @@ def _describe_link(url: str, context: str) -> Tuple[str | None, str | None, List
                 {"role": "user", "content": user_block},
             ],
             temperature=0.2,
-            max_tokens=1400,
+            max_tokens=20000,
         )
     except Exception as exc:  # noqa: BLE001
         return None, f"link_error: {exc}", []
@@ -938,3 +938,4 @@ if __name__ == "__main__":
             print("[Argus] error:", exc)
             traceback.print_exc()
             time.sleep(2)
+

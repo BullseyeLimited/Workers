@@ -419,7 +419,7 @@ def _call_fan_model(history: list[dict]) -> str:
             {"role": "user", "content": user_prompt},
         ],
         "temperature": float(os.getenv("FAN_SIM_TEMPERATURE", "0.7")),
-        "max_tokens": int(os.getenv("FAN_SIM_MAX_TOKENS", "200")),
+        "max_tokens": int(os.getenv("FAN_SIM_MAX_TOKENS", "20000")),
     }
 
     resp = requests.post(
@@ -542,3 +542,4 @@ def run_loop() -> None:
 
 if __name__ == "__main__":
     run_loop()
+

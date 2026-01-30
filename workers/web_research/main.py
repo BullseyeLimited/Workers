@@ -103,7 +103,7 @@ def _call_model(system_prompt: str, user_payload: dict) -> str:
                 model=WEB_RESEARCH_MODEL,
                 tools=[{"type": "web_search"}],
                 temperature=float(os.getenv("WEB_RESEARCH_TEMPERATURE", "0.2")),
-                max_output_tokens=int(os.getenv("WEB_RESEARCH_MAX_TOKENS", "1200")),
+                max_output_tokens=int(os.getenv("WEB_RESEARCH_MAX_TOKENS", "20000")),
                 input=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": prompt_block},
@@ -123,7 +123,7 @@ def _call_model(system_prompt: str, user_payload: dict) -> str:
         model=WEB_RESEARCH_MODEL,
         messages=messages,
         temperature=float(os.getenv("WEB_RESEARCH_TEMPERATURE", "0.2")),
-        max_tokens=int(os.getenv("WEB_RESEARCH_MAX_TOKENS", "1200")),
+        max_tokens=int(os.getenv("WEB_RESEARCH_MAX_TOKENS", "20000")),
     )
     raw_text = (
         resp.choices[0].message.content
@@ -350,3 +350,4 @@ if __name__ == "__main__":
             traceback.print_exc()
             # Let the job retry
             time.sleep(2)
+

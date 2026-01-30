@@ -486,7 +486,7 @@ def _run_model(prompt: str, script_row: Dict[str, Any], items: List[Dict[str, An
             {"role": "user", "content": user_content},
         ],
         "temperature": float(os.getenv("CONTENT_TEMPERATURE", "0.2")),
-        "max_tokens": int(os.getenv("CONTENT_MAX_TOKENS", "2000")),
+        "max_tokens": int(os.getenv("CONTENT_MAX_TOKENS", "20000")),
     }
     try:
         resp = requests.post(url, headers=headers, json=payload, timeout=120)
@@ -649,3 +649,4 @@ if __name__ == "__main__":
             print("[content_script_finalizer] error:", exc, flush=True)
             traceback.print_exc()
             time.sleep(2)
+

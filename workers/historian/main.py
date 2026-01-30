@@ -33,7 +33,7 @@ def call_llm(prompt: str) -> str:
             {"role": "system", "content": "Reasoning: high"},
             {"role": "user", "content": prompt},
         ],
-        "max_tokens": 3500,
+        "max_tokens": 20000,
         "temperature": 0.1,
     }
 
@@ -146,3 +146,4 @@ if __name__ == "__main__":
             ack(job["row_id"])
         except Exception:
             traceback.print_exc()
+

@@ -565,7 +565,7 @@ def _runpod_call(
             {"role": "user", "content": user_message},
         ],
         "temperature": float(temperature) if temperature is not None else float(os.getenv("HERMES_TEMPERATURE", "0.2")),
-        "max_tokens": int(max_tokens) if max_tokens is not None else int(os.getenv("HERMES_MAX_TOKENS", "4000")),
+        "max_tokens": int(max_tokens) if max_tokens is not None else int(os.getenv("HERMES_MAX_TOKENS", "20000")),
     }
 
     # Keep Hermes consistent with Kairos/Napoleon: RunPod can be slow/queued and
@@ -831,7 +831,7 @@ def process_job(payload: Dict[str, Any]) -> bool:
         system_prompt = _load_prompt(mode=hermes_mode)
         max_tokens = None
         if hermes_mode == "lite":
-            max_tokens = int(os.getenv("HERMES_LITE_MAX_TOKENS", "1200"))
+            max_tokens = int(os.getenv("HERMES_LITE_MAX_TOKENS", "20000"))
 
         request_payload = None
         response_payload = None
@@ -1014,3 +1014,4 @@ if __name__ == "__main__":
             print("[Hermes] error:", exc, flush=True)
             traceback.print_exc()
             time.sleep(2)
+

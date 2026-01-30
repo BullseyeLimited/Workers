@@ -169,7 +169,7 @@ def runpod_call(system_prompt: str, user_message: str) -> tuple[str, dict, dict]
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_message},
         ],
-        "max_tokens": 4000,
+        "max_tokens": 20000,
         "temperature": 1.0,
     }
 
@@ -247,7 +247,7 @@ def translate_kairos_output(raw_text: str) -> Tuple[dict | None, str | None]:
                 },
             ],
             temperature=0,
-            max_tokens=1200,
+            max_tokens=20000,
         )
     except Exception as exc:  # noqa: BLE001
         return None, f"Translator API error: {exc}"
@@ -1045,3 +1045,4 @@ if __name__ == "__main__":
             print("Kairos error:", exc)
             traceback.print_exc()
             time.sleep(2)
+

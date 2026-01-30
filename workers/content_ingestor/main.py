@@ -1013,7 +1013,7 @@ def _runpod_is_reachable() -> Tuple[bool, Optional[str]]:
                 json={
                     "model": model,
                     "messages": [{"role": "user", "content": "ping"}],
-                    "max_tokens": 1,
+                    "max_tokens": 20000,
                     "temperature": 0,
                 },
                 timeout=RUNPOD_HEALTHCHECK_TIMEOUT_SECONDS,
@@ -1303,7 +1303,7 @@ def _runpod_call(
     model: str,
     messages: List[Dict[str, Any]],
     temperature: float = 0.2,
-    max_tokens: int = 2000,
+    max_tokens: int = 20000,
 ) -> Tuple[str, Optional[str]]:
     """
     Call the RunPod vLLM OpenAI-compatible server using chat completions.
@@ -1444,9 +1444,9 @@ def _run_model(
 
     temperature = float(os.getenv("CONTENT_TEMPERATURE", "0.2"))
     if media_type == "video":
-        max_tokens = int(os.getenv("CONTENT_VIDEO_MAX_TOKENS", "30000"))
+        max_tokens = int(os.getenv("CONTENT_VIDEO_MAX_TOKENS", "20000"))
     else:
-        max_tokens = int(os.getenv("CONTENT_MAX_TOKENS", "2000"))
+        max_tokens = int(os.getenv("CONTENT_MAX_TOKENS", "20000"))
 
     raw_text, error = _runpod_call(
         model=model,
@@ -1958,3 +1958,4 @@ if __name__ == "__main__":
             print("[content_ingestor] error:", exc, flush=True)
             traceback.print_exc()
             time.sleep(2)
+

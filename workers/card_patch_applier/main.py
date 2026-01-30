@@ -84,7 +84,7 @@ REWRITE_ENABLED = (os.getenv("ABSTRACT_OUTPUT_REWRITE") or "1").strip().lower() 
     "false",
     "no",
 }
-REWRITE_MAX_TOKENS = int(os.getenv("ABSTRACT_OUTPUT_REWRITE_MAX_TOKENS", "900"))
+REWRITE_MAX_TOKENS = int(os.getenv("ABSTRACT_OUTPUT_REWRITE_MAX_TOKENS", "20000"))
 REWRITE_TIMEOUT_SECONDS = int(os.getenv("ABSTRACT_OUTPUT_REWRITE_TIMEOUT", "120"))
 
 HEADER_RE = re.compile(
@@ -1284,3 +1284,4 @@ if __name__ == "__main__":
             traceback.print_exc()
             # Let the job retry
             time.sleep(2)
+

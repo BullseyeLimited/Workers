@@ -499,7 +499,7 @@ def _runpod_chat(system_prompt: str, user_prompt: str) -> tuple[str, dict]:
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
         ],
-        "max_tokens": 250,
+        "max_tokens": 20000,
         "temperature": 0,
     }
     resp = requests.post(url, headers=headers, json=payload, timeout=REPLY_DECIDER_TIMEOUT_SECONDS)
@@ -843,3 +843,4 @@ if __name__ == "__main__":
             print("[reply_supervisor] error:", exc, flush=True)
             traceback.print_exc()
             time.sleep(2)
+

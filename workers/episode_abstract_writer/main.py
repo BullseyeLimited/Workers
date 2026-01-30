@@ -30,7 +30,7 @@ SB = create_client(
 QUEUE = "episode.abstract"
 TIER = "episode"
 
-ABSTRACT_MAX_TOKENS = int(os.getenv("ABSTRACT_MAX_TOKENS", "10000"))
+ABSTRACT_MAX_TOKENS = int(os.getenv("ABSTRACT_MAX_TOKENS", "20000"))
 ABSTRACT_TIMEOUT_SECONDS = int(os.getenv("ABSTRACT_TIMEOUT_SECONDS", "300"))
 ABSTRACT_QUEUE_VT = int(os.getenv("ABSTRACT_QUEUE_VT", "300"))
 
@@ -225,3 +225,4 @@ if __name__ == "__main__":
             print("[episode_abstract_writer] error:", exc)
             traceback.print_exc()
             time.sleep(2)
+
