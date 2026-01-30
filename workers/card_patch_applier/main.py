@@ -138,17 +138,49 @@ def _sanitize_patches(patches: List[dict]) -> List[dict]:
     """
     cleaned: List[dict] = []
     for patch in patches or []:
-        cleaned.append(
-            {
-                "action": patch.get("action"),
-                "segment_id": patch.get("segment_id"),
-                "text": patch.get("text"),
-                "confidence": patch.get("confidence"),
-                "reason": patch.get("reason") or "",
-                "target_id": patch.get("target_id"),
-                "target_text": patch.get("target_text"),
-            }
-        )
+        if not isinstance(patch, dict):
+            continue
+
+        action = (patch.get("action") or "").strip().lower()
+        if action not in {"add", "reinforce", "revise"}:
+            continue
+
+        seg_raw = patch.get("segment_id")
+        try:
+            seg_id = int(seg_raw) if seg_raw is not None else None
+        except (TypeError, ValueError):
+            seg_id = None
+        if seg_id is None:
+            continue
+
+        confidence = (patch.get("confidence") or "possible").strip().lower()
+        if confidence not in CONFIDENCE_ORDER:
+            confidence = "possible"
+
+        text = (patch.get("text") or "").strip()
+        if not text:
+            continue
+        text = _normalize_text(text, confidence)
+
+        row = {
+            "action": action,
+            "segment_id": seg_id,
+            "text": text,
+            "confidence": confidence,
+            "reason": (patch.get("reason") or "").strip(),
+        }
+
+        raw_target_id = patch.get("target_id")
+        target_id = str(raw_target_id).strip() if raw_target_id is not None else ""
+        if target_id:
+            row["target_id"] = target_id
+
+        raw_target_text = patch.get("target_text")
+        target_text = str(raw_target_text).strip() if raw_target_text is not None else ""
+        if target_text:
+            row["target_text"] = target_text
+
+        cleaned.append(row)
     return cleaned
 
 
@@ -1012,33 +1044,38 @@ def _insert_summary_row(
     writer_json: dict | None = None,
 ) -> int:
     summary_idx = tier_index or _next_tier_index(thread_id, tier)
-    fan_action = patches or None
     writer_json = writer_json or {"raw_text": raw_text}
-    # Try update first (if row exists), then insert if missing.
-    update_payload = {
+
+    def _writer_json_with_patches() -> dict:
+        merged = dict(writer_json or {})
+        merged.setdefault("raw_text", raw_text)
+        merged.setdefault("patches", patches)
+        return merged
+
+    # Candidate encodings for fan_psychic_card_action; DB schemas vary.
+    # - Some expect a JSON array of patch objects.
+    # - Some expect a JSON object (e.g., wrapper) or disallow NULL keys/values.
+    action_candidates: List[object | None] = []
+    if patches:
+        action_candidates.append(patches)
+        action_candidates.append({"patches": patches})
+    action_candidates.append(None)
+
+    base_update = {
         "abstract_summary": abstract_summary,
-        "fan_psychic_card_action": fan_action,
         "raw_writer_json": writer_json,
         "raw_hash": raw_hash,
         "extract_status": extract_status,
     }
-    try:
-        res = (
-            SB.table("summaries")
-            .update(update_payload)
-            .eq("thread_id", thread_id)
-            .eq("tier", tier)
-            .eq("start_turn", start_turn)
-            .eq("end_turn", end_turn)
-            .execute()
-            .data
-        )
-    except APIError as exc:
-        # Some DB schemas disallow empty arrays or enforce a strict JSON shape.
-        # Fall back to NULL actions and preserve the parsed patches in raw_writer_json.
-        if _api_error_code(exc) == "23514" and fan_action is not None:
-            update_payload["fan_psychic_card_action"] = None
-            update_payload["raw_writer_json"] = {"raw_text": raw_text, "patches": patches}
+
+    # Try update first (if row exists), then insert if missing.
+    for fan_action in action_candidates:
+        update_payload = dict(base_update)
+        update_payload["fan_psychic_card_action"] = fan_action
+        if fan_action is None and patches:
+            update_payload["raw_writer_json"] = _writer_json_with_patches()
+
+        try:
             res = (
                 SB.table("summaries")
                 .update(update_payload)
@@ -1048,10 +1085,19 @@ def _insert_summary_row(
                 .eq("end_turn", end_turn)
                 .execute()
                 .data
+                or []
             )
-        else:
+        except APIError as exc:
+            if _api_error_code(exc) == "23514":
+                continue
             raise
-    if not res:
+
+        if res:
+            return res[0]["id"]
+        # If no row matched, stop trying alternate encodings; move to insert.
+        break
+
+    for fan_action in action_candidates:
         payload = {
             "thread_id": thread_id,
             "tier": tier,
@@ -1064,18 +1110,20 @@ def _insert_summary_row(
             "raw_hash": raw_hash,
             "extract_status": extract_status,
         }
+        if fan_action is None and patches:
+            payload["raw_writer_json"] = _writer_json_with_patches()
+
         try:
-            res = SB.table("summaries").insert(payload).execute().data
+            res = SB.table("summaries").insert(payload).execute().data or []
         except APIError as exc:
-            if _api_error_code(exc) == "23514" and fan_action is not None:
-                payload["fan_psychic_card_action"] = None
-                payload["raw_writer_json"] = {"raw_text": raw_text, "patches": patches}
-                res = SB.table("summaries").insert(payload).execute().data
-            else:
-                raise
-        if not res:
-            raise RuntimeError("failed to insert summary row")
-    return res[0]["id"]
+            if _api_error_code(exc) == "23514":
+                continue
+            raise
+
+        if res:
+            return res[0]["id"]
+
+    raise RuntimeError("failed to insert summary row")
 
 
 def _fetch_summaries(thread_id: int, tier: str) -> List[dict]:
@@ -1284,4 +1332,3 @@ if __name__ == "__main__":
             traceback.print_exc()
             # Let the job retry
             time.sleep(2)
-
