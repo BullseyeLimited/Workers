@@ -112,6 +112,20 @@ REWRITE_HINT_RE = re.compile(
 )
 _WS_RE = re.compile(r"\s+")
 
+_META_LEAK_RE = re.compile(
+    r"(?is)"
+    r"\bthe user wants me to act\b"
+    r"|<\s*rolling_history\s*>"
+    r"|<\s*reference_profiles\s*>"
+    r"|<\s*raw_turns\s*>"
+    r"|begin episode_input"
+    r"|important boundary"
+    r"|role\s*&\s*context"
+    r"|constraint checklist"
+    r"|mental sandbox"
+    r"|output contract"
+)
+
 SEGMENT_LABEL_MAP = {}
 for seg_id, label in SEGMENT_NAMES.items():
     normalized = re.sub(r"[^a-z0-9]+", "_", label.lower()).strip("_")
@@ -182,6 +196,18 @@ def _sanitize_patches(patches: List[dict]) -> List[dict]:
 
         cleaned.append(row)
     return cleaned
+
+
+def _looks_like_prompt_leak(text: str) -> bool:
+    """
+    Heuristic: detect when the model echoed system/prompt scaffolding instead of outputting a real abstract.
+
+    This is intentionally conservative: if we detect a leak, we retry the abstract writer rather than
+    persisting junk and cascading rollups from empty placeholders.
+    """
+    if not (text or "").strip():
+        return False
+    return bool(_META_LEAK_RE.search(text))
 
 
 def _parse_confidence(value: str) -> str:
@@ -1242,6 +1268,12 @@ def process_job(payload: Dict) -> bool:
         patches, summary = [], ""
         extract_status = "failed"
         print(f"[card_patch_applier] parse failed: {exc}")
+
+    # If the model output is clearly prompt/meta leakage, treat as a failure so we retry.
+    if extract_status == "ok" and _looks_like_prompt_leak(summary or raw_text):
+        patches, summary = [], ""
+        extract_status = "failed"
+        writer_json["validation_error"] = "prompt_leak"
 
     if _should_attempt_rewrite(raw_text, patches=patches, extract_status=extract_status):
         try:

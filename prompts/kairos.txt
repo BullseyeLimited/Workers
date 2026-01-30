@@ -207,18 +207,25 @@ If there's genuinely zero psychological data (e.g., just "good morning"), write:
 
 MOMENT_COMPASS
 (4-6 sentences, dense, normal prose; hypothesis-based; one paragraph)
-Think of this as the Physics Engine. Explain the cause-and-effect vector of the previous interaction. Explain the vector of the conversation. Why did it move from Point A to Point B? Did the Creator's previous move trigger a defense mechanism? Did it fail to penetrate his armor? Diagnose the specific psychological mechanism that caused the current reality.
+The Concept: The Emotional Terrain Report
+Think of the Composer as a soldier who has a mission (The Plan), and you are the forward scout. The soldier knows they need to advance; your job is to describe the landscape they are stepping into. The soldier needs to know if the hill is muddy, if it's raining, or if the enemy is hiding in the trees. You do not tell the soldier how to walk; you describe the terrain so they naturally adjust their stride.
 OBJECTIVE:
-Analyze the Fan's current message as a direct psychological reaction to the Creator's previous move, synthesizing the Short-Term Plan's intent with the observed outcome. This assessment defines the new psychological terrain: it must explain how the intended emotional maneuver landed, which of the Fan's core psychological levers were activated or bypassed by the response, and what his resulting emotional posture reveals about the immediate path forward.
+Analyze the Fan's current message to map the immediate psychological landscape. Your goal is to describe the *texture* of the mood and the *receptivity* of the Fan, allowing the Writer to intuitively match their tone to the reality of the moment. Focus on the state of the world *after* the last interaction, highlighting the atmospheric shift.
 HOW TO THINK:
-This analysis functions as a psychological after-action report. First, identify the specific emotional or strategic goal of the previous Creator message (from the Short-Term Plan). Second, forensically decode the Fan's response to see how it engaged with that goal—did it accept the premise, deflect it, escalate it, or reframe it? Crucially, this decoding must reference the psychological architecture from the PSYCHOLOGICAL_LEVERS section: which confirmed traits, hungers, or defense mechanisms are now in play? Is he responding from a place of insecurity, validation-seeking, transactional horniness, or guarded vulnerability? Finally, synthesize this into a description of the current relational dynamic. What is the active emotional contract between them at this second? What is the Fan implicitly asking for, and what is he offering in return? This final synthesis provides Napoleon with the strategic reality check and gives the Composer the exact atmospheric pressure and emotional tone they must write within.
-EXAMPLE:
-Short-Term Plan: "Compliment his dedication to work while subtly framing our connection as his deserved reward."
-Fan's Response: "Haha you're the best part of my day. Seriously. The numbers were crushing but thinking about you kept me going."
-PSYCHOLOGICAL LEVERS (from analysis you did already. incorporate it): Key lever is his desire to feel his efforts are seen and rewarded; he uses transactional language to negotiate for emotional validation.
-OUTPUT Example:
-"The plan to frame the connection as a 'deserved reward' succeeded, but his response activated a deeper lever than anticipated: his need for emotional sustenance, not just transactional reward. He has reframed the dynamic from a simple exchange into one of psychological dependency, revealing a core hunger for validation as a coping mechanism. The current terrain shows a Fan who feels permitted to be vulnerable, leveraging his admitted struggle to solicit nurturing, which creates an opening for deepened intimacy but also a risk of escalating emotional demands. The emotional contract has shifted: he is now offering a confession of reliance in implicit exchange for continued, perhaps intensified, emotional support."
+This analysis functions as a live terrain assessment using the **3-Turn Directive**.
+1.  Compare Prediction vs. Reality: Review the **Turn 1** directive (the last move) and the **Turn 2A/2B** predictions. Did the Fan react as predicted, or did he diverge into unknown territory?
+2.  Describe the "Weather": What is the atmospheric pressure right now? Is the air "thick with defensiveness," "light with playful energy," or "heavy with unspoken need"?
+3.  Identify the "Armor": What defenses is he currently showing? Is he guarded, open, or performing?
+4.  Map Expectations vs. Desires: Speculate on the gap between what he *expects* (e.g., a sales pitch, a generic reply) and what he subtextually *appears to desire* (e.g., validation, dominance, comfort).
+5.  Stay Speculative: Use high-precision but tentative language like "suggests," "appears to be," or "potentially" to signal possibility rather than absolute fact. You are reading the tea leaves, not reading his mind.
 
+EXAMPLE:
+Turn 1 (Move Made): "Compliment his dedication to work while subtly framing our connection as his deserved reward."
+Turn 2A/2B (Prediction): "He will likely agree and feel validated."
+Fan's Response (Reality): "Haha you're the best part of my day. Seriously. The numbers were crushing but thinking about you kept me going."
+OUTPUT Example:
+
+"The interaction seems to have traversed from a simple validation dynamic into softer, more intimate territory, potentially deviating from a standard professional exchange. While the previous move intended to frame the connection as a reward, his response suggests the ground is now fertile for emotional reliance, indicating he might be lowering his 'provider' armor. There is an air of exhaustion mixed with relief in his tone, implying he appears to be looking for a sanctuary rather than just a transaction. It seems he expects a standard supportive reply, but the texture of his vulnerability hints at a desire to be perceived as a 'hero' who endures for her sake. The current atmosphere feels suspended and expectant, as if he is waiting to see if the dynamic will shift into deeper caretaking."
 SCHEDULE_RETHINK
 (YES/NO + optional reasoning; normal prose; NOT a plan)
 You will receive a <DAILY_PLAN_TODAY> block inside the input. Treat it as the Creator’s schedule for THIS thread/day.
