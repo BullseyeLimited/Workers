@@ -63,7 +63,7 @@ ARGUS_LINK_MODEL = (
     or os.getenv("ARGUS_TEXT_MODEL")
     or VISION_MODEL
 )
-ARGUS_LINK_TIMEOUT = float(os.getenv("ARGUS_LINK_TIMEOUT", "10"))
+ARGUS_LINK_TIMEOUT = float(os.getenv("ARGUS_LINK_TIMEOUT", "30"))
 ARGUS_LINK_MAX_BYTES = int(os.getenv("ARGUS_LINK_MAX_BYTES", str(1_500_000)))
 ARGUS_LINK_MAX_TEXT_CHARS = int(os.getenv("ARGUS_LINK_MAX_TEXT", str(12000)))
 ARGUS_LINK_MAX_IMAGES = int(os.getenv("ARGUS_LINK_MAX_IMAGES", "3"))
@@ -938,4 +938,3 @@ if __name__ == "__main__":
             print("[Argus] error:", exc)
             traceback.print_exc()
             time.sleep(2)
-
