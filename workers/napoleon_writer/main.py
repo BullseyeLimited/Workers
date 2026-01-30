@@ -9,7 +9,7 @@ import os
 import re
 import time
 import traceback
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Any, Dict, List
 
@@ -43,6 +43,8 @@ SB = create_client(
 QUEUE = "napoleon.compose"
 PROMPTS_DIR = Path(__file__).resolve().parents[2] / "prompts"
 WRITER_PROMPT_PATH = PROMPTS_DIR / "napoleon_writer.txt"
+WRITER_MAX_RETRIES = int(os.getenv("NAPOLEON_WRITER_MAX_RETRIES", "1"))
+WRITER_RETRY_DELAY_SECONDS = int(os.getenv("NAPOLEON_WRITER_RETRY_DELAY_SECONDS", "60"))
 
 _message_ai_details_columns: set[str] | None = None
 
@@ -145,6 +147,19 @@ def runpod_call(system_prompt: str, user_message: str) -> tuple[str, dict, dict]
         pass
 
     return raw_text, payload, response_payload
+
+
+def _enqueue_retry(payload: Dict[str, Any], *, attempt: int) -> None:
+    if attempt >= WRITER_MAX_RETRIES:
+        return
+    retry_payload = dict(payload)
+    retry_payload["writer_retry"] = attempt + 1
+    available_at = (
+        datetime.now(timezone.utc) + timedelta(seconds=WRITER_RETRY_DELAY_SECONDS)
+    ).isoformat()
+    SB.table("job_queue").insert(
+        {"queue": QUEUE, "payload": retry_payload, "available_at": available_at}
+    ).execute()
 
 
 CHUNK_PATTERN = re.compile(r"^\s*(\d+)\s*\[(.*)\]\s*$")
@@ -626,7 +641,7 @@ def process_job(payload: Dict[str, Any]) -> bool:
     fan_message_id = payload["fan_message_id"]
     thread_id = payload["thread_id"]
     run_id = payload.get("run_id")
-    attempt = 0
+    attempt = int(payload.get("writer_retry", 0) or 0)
 
     if run_id:
         set_run_current_step(str(run_id), "writer", client=SB)
@@ -696,6 +711,9 @@ def process_job(payload: Dict[str, Any]) -> bool:
                 ended_at=datetime.now(timezone.utc).isoformat(),
                 error=f"runpod_error: {exc}",
             )
+            if not is_run_active(str(run_id), client=SB):
+                return True
+        _enqueue_retry(payload, attempt=attempt)
         return True
 
     chunks = parse_writer_output(raw_text)
@@ -760,6 +778,9 @@ def process_job(payload: Dict[str, Any]) -> bool:
                 ended_at=datetime.now(timezone.utc).isoformat(),
                 error="empty_writer_output",
             )
+            if not is_run_active(str(run_id), client=SB):
+                return True
+        _enqueue_retry(payload, attempt=attempt)
         return True
 
     if run_id and not is_run_active(str(run_id), client=SB):
