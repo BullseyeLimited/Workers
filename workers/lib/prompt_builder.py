@@ -58,6 +58,26 @@ ABSTRACT_KEYS = (
     "abstract_body",
 )
 MAX_RECENT_TURNS = 40
+
+_PROMPT_LEAK_RE = re.compile(
+    r"(?is)"
+    r"\bthe user wants me to act\b"
+    r"|<\s*rolling_history\s*>"
+    r"|<\s*reference_profiles\s*>"
+    r"|<\s*raw_turns\s*>"
+    r"|begin episode_input"
+    r"|important boundary"
+    r"|role\s*&\s*context"
+    r"|constraint checklist"
+    r"|mental sandbox"
+    r"|output contract"
+)
+
+
+def _looks_like_prompt_leak(text: str) -> bool:
+    if not (text or "").strip():
+        return False
+    return bool(_PROMPT_LEAK_RE.search(text))
 MIN_RECENT_TURNS = 20
 FRESH_FAN_SUMMARY_LIMIT = 10
 
@@ -857,7 +877,7 @@ def _recent_episode_abstracts(thread_id: int, *, client=None, count: int = 2) ->
         .eq("thread_id", thread_id)
         .eq("tier", "episode")
         .order("tier_index", desc=True)
-        .limit(count)
+        .limit(max(10, count * 5))
         .execute()
         .data
         or []
@@ -866,10 +886,20 @@ def _recent_episode_abstracts(thread_id: int, *, client=None, count: int = 2) ->
         "Abstract_N-2": "[No Episode N-2]",
         "Abstract_N-1": "[No Episode N-1]",
     }
-    if rows:
-        values["Abstract_N-1"] = rows[0].get("abstract_summary") or values["Abstract_N-1"]
-    if len(rows) > 1:
-        values["Abstract_N-2"] = rows[1].get("abstract_summary") or values["Abstract_N-2"]
+    abstracts: list[str] = []
+    for row in rows:
+        abstract = (row.get("abstract_summary") or "").strip()
+        if not abstract:
+            continue
+        if _looks_like_prompt_leak(abstract):
+            continue
+        abstracts.append(abstract)
+        if len(abstracts) >= count:
+            break
+    if abstracts:
+        values["Abstract_N-1"] = abstracts[0]
+    if len(abstracts) > 1:
+        values["Abstract_N-2"] = abstracts[1]
     return values
 
 
@@ -882,7 +912,7 @@ def _recent_tier_abstracts(thread_id: int, tier: str, *, client=None, count: int
         .eq("thread_id", thread_id)
         .eq("tier", tier)
         .order("tier_index", desc=True)
-        .limit(count)
+        .limit(max(10, count * 5))
         .execute()
         .data
         or []
@@ -891,10 +921,20 @@ def _recent_tier_abstracts(thread_id: int, tier: str, *, client=None, count: int
         "Abstract_N-2": f"[No {tier.title()} N-2]",
         "Abstract_N-1": f"[No {tier.title()} N-1]",
     }
-    if rows:
-        values["Abstract_N-1"] = rows[0].get("abstract_summary") or values["Abstract_N-1"]
-    if len(rows) > 1:
-        values["Abstract_N-2"] = rows[1].get("abstract_summary") or values["Abstract_N-2"]
+    abstracts: list[str] = []
+    for row in rows:
+        abstract = (row.get("abstract_summary") or "").strip()
+        if not abstract:
+            continue
+        if _looks_like_prompt_leak(abstract):
+            continue
+        abstracts.append(abstract)
+        if len(abstracts) >= count:
+            break
+    if abstracts:
+        values["Abstract_N-1"] = abstracts[0]
+    if len(abstracts) > 1:
+        values["Abstract_N-2"] = abstracts[1]
     return values
 
 

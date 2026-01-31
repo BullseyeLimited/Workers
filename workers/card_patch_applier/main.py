@@ -1153,7 +1153,7 @@ def _insert_summary_row(
 
 
 def _fetch_summaries(thread_id: int, tier: str) -> List[dict]:
-    return (
+    rows = (
         SB.table("summaries")
         .select("id,tier_index,start_turn,end_turn,abstract_summary")
         .eq("thread_id", thread_id)
@@ -1164,6 +1164,18 @@ def _fetch_summaries(thread_id: int, tier: str) -> List[dict]:
         .data
         or []
     )
+    # Only treat a contiguous prefix of non-empty, non-leaked abstracts as usable.
+    # This prevents higher-tier rollups from consuming placeholder/garbage text and
+    # also allows the pipeline to "self-heal" by re-enqueueing missing/invalid tiers.
+    usable: List[dict] = []
+    for row in rows:
+        abstract = (row.get("abstract_summary") or "").strip()
+        if not abstract:
+            break
+        if _looks_like_prompt_leak(abstract):
+            break
+        usable.append(row)
+    return usable
 
 
 def _pending_job(
