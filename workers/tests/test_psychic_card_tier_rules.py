@@ -156,6 +156,65 @@ class PsychicCardTierRuleTests(unittest.TestCase):
         self.assertIn("[SEASON]", entries[1]["text"])
         self.assertEqual(entries[1]["origin_tier"], "SEASON")
 
+    def test_episode_delete_is_ignored(self):
+        apply_patches_to_card = self.card_patch.apply_patches_to_card
+
+        card = new_base_card()
+        card["segments"]["7"] = [
+            {
+                "id": "episode-1",
+                "text": "Likes teasing [possible] [EPISODE]",
+                "confidence": "possible",
+                "origin_tier": "EPISODE",
+                "tier": "episode",
+                "created_at": "2020-01-01T00:00:00+00:00",
+            }
+        ]
+
+        patches = [
+            {
+                "action": "delete",
+                "segment_id": "7",
+                "target_id": "episode-1",
+                "reason": "test",
+            }
+        ]
+
+        updated = apply_patches_to_card(card, summary_id=5, tier="episode", patches=patches)
+        entries = updated["segments"]["7"]
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0]["id"], "episode-1")
+        self.assertFalse(entries[0].get("superseded_by"))
+
+    def test_season_delete_marks_entry_superseded(self):
+        apply_patches_to_card = self.card_patch.apply_patches_to_card
+
+        card = new_base_card()
+        card["segments"]["7"] = [
+            {
+                "id": "episode-1",
+                "text": "Likes teasing [possible] [EPISODE]",
+                "confidence": "possible",
+                "origin_tier": "EPISODE",
+                "tier": "episode",
+                "created_at": "2020-01-01T00:00:00+00:00",
+            }
+        ]
+
+        patches = [
+            {
+                "action": "delete",
+                "segment_id": "7",
+                "target_id": "episode-1",
+                "reason": "test",
+            }
+        ]
+
+        updated = apply_patches_to_card(card, summary_id=6, tier="season", patches=patches)
+        entry = updated["segments"]["7"][0]
+        self.assertTrue(str(entry.get("superseded_by") or "").startswith("deleted:"))
+        self.assertEqual(entry.get("deleted_by_tier"), "SEASON")
+
     def test_compact_psychic_card_limits_to_two_tiers(self):
         card = new_base_card()
         card["segments"]["7"] = [

@@ -87,6 +87,19 @@ Some extra prose that should not be here.
         with self.assertRaises(ValueError):
             parse_patch_output(raw)
 
+    def test_parser_parses_delete_block(self):
+        raw = """DELETE SEGMENT_7_ATTACHMENT_INTIMACY_STYLE
+TARGET_ID: entry-123
+REASON: duplicate/obsolete entry
+"""
+
+        patches, trailing = parse_patch_output(raw)
+        self.assertEqual(1, len(patches))
+        self.assertEqual("delete", patches[0]["action"])
+        self.assertEqual("7", patches[0]["segment_id"])
+        self.assertEqual("entry-123", patches[0]["target_id"])
+        self.assertEqual("", trailing)
+
 
 class ApiErrorCodeTests(unittest.TestCase):
     def test_extracts_code_from_postgrest_apierror(self):
@@ -170,7 +183,7 @@ class MutationLogicTests(unittest.TestCase):
         # Episode-tier workers reinforce/revise notes in-place to avoid bloating.
         entry = card["segments"][segment_id][0]
 
-        # Confidence bumps by at most one step, and is clamped to NOTE_MAX (default likely).
+        # Confidence bumps by at most one step, and is clamped to NOTE_MAX (default possible).
         self.assertEqual("possible", entry["confidence"])
         self.assertEqual(1, entry["text"].count("[EPISODE]"))
         self.assertIn("[possible]", entry["text"])
@@ -191,9 +204,9 @@ class MutationLogicTests(unittest.TestCase):
         self.assertEqual(1, len(card["segments"][segment_id]))
         entry = card["segments"][segment_id][0]
 
-        self.assertEqual("likely", entry["confidence"])
+        self.assertEqual("possible", entry["confidence"])
         self.assertEqual(1, entry["text"].count("[EPISODE]"))
-        self.assertIn("[likely]", entry["text"])
+        self.assertIn("[possible]", entry["text"])
 
 
 if __name__ == "__main__":

@@ -89,7 +89,7 @@ REWRITE_MAX_TOKENS = int(os.getenv("ABSTRACT_OUTPUT_REWRITE_MAX_TOKENS", "20000"
 REWRITE_TIMEOUT_SECONDS = int(os.getenv("ABSTRACT_OUTPUT_REWRITE_TIMEOUT", "120"))
 
 HEADER_RE = re.compile(
-    r"^(ADD|REINFORCE|REVISE)\s+SEGMENT[\s_\-:]*([A-Z0-9_\-\. ]+)\s*$",
+    r"^(ADD|REINFORCE|REVISE|DELETE|REMOVE)\s+SEGMENT[\s_\-:]*([A-Z0-9_\-\. ]+)\s*$",
     re.IGNORECASE,
 )
 TEXT_KEY_RE = re.compile(r"^\s*TEXT\b", re.IGNORECASE)
@@ -103,7 +103,7 @@ CONF_BRACKET_RE = re.compile(
 )
 
 REWRITE_HINT_RE = re.compile(
-    r"(?im)^\s*(add|revise|reinforce)\b.*\bsegment\b"
+    r"(?im)^\s*(add|revise|reinforce|delete|remove)\b.*\bsegment\b"
     r"|^\s*segment[\s_\-:]*\d+"
     r"|^\s*text\b"
     r"|^\s*confidence\b"
@@ -165,7 +165,9 @@ def _sanitize_patches(patches: List[dict]) -> List[dict]:
             continue
 
         action = (patch.get("action") or "").strip().lower()
-        if action not in {"add", "reinforce", "revise"}:
+        if action == "remove":
+            action = "delete"
+        if action not in {"add", "reinforce", "revise", "delete"}:
             continue
 
         seg_raw = patch.get("segment_id")
@@ -174,6 +176,32 @@ def _sanitize_patches(patches: List[dict]) -> List[dict]:
         except (TypeError, ValueError):
             seg_id = None
         if seg_id is None:
+            continue
+
+        if action == "delete":
+            row = {
+                "action": action,
+                "segment_id": seg_id,
+                "reason": (patch.get("reason") or "").strip(),
+            }
+
+            raw_target_id = patch.get("target_id")
+            target_id = str(raw_target_id).strip() if raw_target_id is not None else ""
+            if target_id:
+                row["target_id"] = target_id
+
+            raw_target_text = patch.get("target_text")
+            target_text = (
+                str(raw_target_text).strip() if raw_target_text is not None else ""
+            )
+            if target_text:
+                row["target_text"] = target_text
+
+            # A delete is meaningless without some way to identify the entry.
+            if not target_id and not target_text:
+                continue
+
+            cleaned.append(row)
             continue
 
         confidence = (patch.get("confidence") or "possible").strip().lower()
@@ -248,6 +276,8 @@ def _parse_header(line: str):
     if not match:
         return None
     action = match.group(1).lower()
+    if action == "remove":
+        action = "delete"
     tail = (match.group(2) or "").strip()
     if not tail:
         return None
@@ -347,6 +377,34 @@ def _parse_block(lines: List[str]) -> Tuple[str | None, str, str, str, str]:
     return text, confidence, reason, target_id, target_text
 
 
+def _parse_delete_block(lines: List[str]) -> Tuple[str, str, str]:
+    reason = ""
+    target_id = ""
+    target_text = ""
+
+    for raw in lines:
+        line = raw.strip()
+        if not line:
+            continue
+
+        if TARGET_ID_KEY_RE.match(line):
+            value = _split_value(line)
+            target_id = value.strip() or target_id
+            continue
+
+        if TARGET_KEY_RE.match(line):
+            value = _split_value(line)
+            target_text = value.strip() or target_text
+            continue
+
+        if REASON_KEY_RE.match(line):
+            value = _split_value(line)
+            reason = value.strip() or reason
+            continue
+
+    return reason, target_id, target_text
+
+
 def parse_patch_output(raw_text: str) -> Tuple[List[dict], str]:
     """
     Parse an abstract-writer output into patch blocks.
@@ -386,24 +444,40 @@ def parse_patch_output(raw_text: str) -> Tuple[List[dict], str]:
                 break
 
         last_consumed = idx
-        text_body, confidence, reason, target_id, target_text = _parse_block(block_lines)
-        if not text_body:
-            continue
+        if action == "delete":
+            reason, target_id, target_text = _parse_delete_block(block_lines)
+            if not target_id and not target_text:
+                continue
+            patches.append(
+                {
+                    "action": action,
+                    "segment_id": segment_id,
+                    "segment_label": segment_label,
+                    "segment_full_label": segment_full,
+                    "reason": reason,
+                    "target_id": target_id or None,
+                    "target_text": target_text or None,
+                }
+            )
+        else:
+            text_body, confidence, reason, target_id, target_text = _parse_block(block_lines)
+            if not text_body:
+                continue
 
-        text = _normalize_text(text_body, confidence)
-        patches.append(
-            {
-                "action": action,
-                "segment_id": segment_id,
-                "segment_label": segment_label,
-                "segment_full_label": segment_full,
-                "text": text,
-                "confidence": confidence,
-                "reason": reason,
-                "target_id": target_id or None,
-                "target_text": target_text or None,
-            }
-        )
+            text = _normalize_text(text_body, confidence)
+            patches.append(
+                {
+                    "action": action,
+                    "segment_id": segment_id,
+                    "segment_label": segment_label,
+                    "segment_full_label": segment_full,
+                    "text": text,
+                    "confidence": confidence,
+                    "reason": reason,
+                    "target_id": target_id or None,
+                    "target_text": target_text or None,
+                }
+            )
 
     if patches:
         trailing = "\n".join(lines[last_consumed:]).strip()
@@ -465,7 +539,7 @@ CRITICAL RULES (DO NOT BREAK THESE):
 
     OUTPUT CONTRACT (MUST MATCH EXACTLY):
     - Output ONLY patch blocks (0+), OR output exactly NO_UPDATES.
-    - Do NOT output any summary/prose after patch blocks.
+    - Do NOT output any extra text after patch blocks.
 
 PATCH BLOCK FORMAT:
 ADD SEGMENT_22
@@ -485,6 +559,11 @@ TARGET_ID: <copy-pasted id if present>
 TARGET: <copy-pasted old text if present>
 TEXT: <copy-pasted text> [likely]
 CONFIDENCE: likely
+REASON: <copy-pasted evidence line(s)>
+
+DELETE SEGMENT_22
+TARGET_ID: <copy-pasted id if present>
+TARGET: <copy-pasted old text if present>
 REASON: <copy-pasted evidence line(s)>
 
 Allowed confidence values (must match): tentative / possible / likely / confident / canonical
@@ -674,7 +753,14 @@ def _live_entries(entries: List[dict]) -> List[dict]:
 
 
 def _is_add_only_tier(worker_tier: TimeTier) -> bool:
-    """Lower tiers can only append; only SEASON+ may modify existing entries."""
+    """
+    Return True for lower tiers (TURN/EPISODE/CHAPTER).
+
+    Policy:
+    - Lower tiers may update existing NOTE entries in-place (REVISE/REINFORCE) to avoid duplicates.
+    - Lower tiers must not supersede/edit STABLE entries (SEASON+); if targeted, they record a dispute note.
+    - SEASON+ may supersede/promote and can perform deeper consolidation.
+    """
 
     return worker_tier < TimeTier.SEASON
 
@@ -712,7 +798,7 @@ def apply_patches_to_card(
         worker_tier = parse_tier("episode")
     add_only = _is_add_only_tier(worker_tier)
 
-    NOTE_MAX_CONFIDENCE: str = os.getenv("PSYCHIC_CARD_NOTE_MAX_CONFIDENCE", "likely")
+    NOTE_MAX_CONFIDENCE: str = os.getenv("PSYCHIC_CARD_NOTE_MAX_CONFIDENCE", "possible")
 
     def _clamp_confidence(value: str, *, max_value: str) -> str:
         value = (value or "").strip().lower()
@@ -864,14 +950,12 @@ def apply_patches_to_card(
         bucket = segments.get(seg_id) or []
         segments[seg_id] = bucket
         live_bucket = _live_entries([e for e in bucket if isinstance(e, dict)])
-        patch_conf = _parse_confidence(patch["confidence"])
-        if add_only:
-            patch_conf = _clamp_confidence(patch_conf, max_value=NOTE_MAX_CONFIDENCE)
-        patch_text = _normalize_text(patch["text"], patch_conf)
+        patch_action = (patch.get("action") or "").lower()
+        if patch_action == "remove":
+            patch_action = "delete"
         reason = patch.get("reason") or ""
         target_id = patch.get("target_id")
         target_text = patch.get("target_text") or ""
-        patch_action = (patch.get("action") or "").lower()
 
         # Resolve an explicit target (if present) against live entries first.
         target_any = None
@@ -887,6 +971,34 @@ def apply_patches_to_card(
             target_any = _find_best_match(
                 live_bucket, target_text, min_ratio=TARGET_MATCH_MIN_RATIO
             )
+
+        if patch_action == "delete":
+            # Only SEASON+ may delete entries, and only with an explicit TARGET_ID.
+            if add_only:
+                continue
+            if not target_id:
+                continue
+
+            all_entries = [e for e in bucket if isinstance(e, dict)]
+            target_delete = _find_entry_by_id(all_entries, target_id)
+            if not target_delete:
+                continue
+
+            target_tier = _entry_origin_tier(target_delete, fallback=worker_tier)
+            if target_tier > worker_tier:
+                continue
+
+            target_delete["superseded_by"] = f"deleted:{summary_id}"
+            target_delete["deleted_at"] = datetime.now(timezone.utc).isoformat()
+            target_delete["deleted_by_tier"] = worker_tier.name
+            if reason:
+                target_delete["deleted_reason"] = reason
+            continue
+
+        patch_conf = _parse_confidence(patch["confidence"])
+        if add_only:
+            patch_conf = _clamp_confidence(patch_conf, max_value=NOTE_MAX_CONFIDENCE)
+        patch_text = _normalize_text(patch["text"], patch_conf)
 
         if add_only:
             # Episode/Chapter behavior:
@@ -1435,9 +1547,13 @@ def _maybe_enqueue_next(thread_id: int, tier: str):
         target_text = patch.get("target_text")
         if target_text:
             lines.append(f"TARGET: {target_text}")
+        reason = patch.get("reason") or ""
+        if action == "DELETE":
+            lines.append(f"REASON: {reason}".rstrip())
+            return "\n".join(lines).strip()
+
         text = patch.get("text") or ""
         conf = patch.get("confidence") or ""
-        reason = patch.get("reason") or ""
         lines.append(f"TEXT: {text}".rstrip())
         lines.append(f"CONFIDENCE: {conf}".rstrip())
         lines.append(f"REASON: {reason}".rstrip())
