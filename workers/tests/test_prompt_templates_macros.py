@@ -14,15 +14,15 @@ def _extract_macros(text: str) -> set[str]:
 def test_abstract_prompt_templates_reference_expected_macros() -> None:
     prompts_dir = Path(__file__).resolve().parents[2] / "prompts"
     expectations: dict[str, set[str]] = {
-        "episode_abstract.txt": {"RAW_TURNS", "Abstract_N-1", "Abstract_N-2"},
+        "episode_abstract.txt": {"RAW_TURNS", "FAN_IDENTITY_CARD", "FAN_PSYCHIC_CARD"},
         "chapter_abstract.txt": {
             "RAW_TURNS",
-            "Abstract_N-1",
-            "Abstract_N-2",
             "FAN_IDENTITY_CARD",
             "FAN_PSYCHIC_CARD",
         },
-        "season_abstract.txt": {"RAW_TURNS", "Abstract_N-1", "Abstract_N-2"},
+        "season_abstract.txt": {"RAW_TURNS", "FAN_IDENTITY_CARD", "FAN_PSYCHIC_CARD"},
+        "year_abstract.txt": {"RAW_TURNS", "FAN_IDENTITY_CARD", "FAN_PSYCHIC_CARD"},
+        "lifetime_abstract.txt": {"RAW_TURNS", "FAN_IDENTITY_CARD", "FAN_PSYCHIC_CARD"},
     }
 
     for filename, required in expectations.items():
@@ -30,4 +30,3 @@ def test_abstract_prompt_templates_reference_expected_macros() -> None:
         macros = _extract_macros(text)
         missing = required - macros
         assert not missing, f"{filename} missing macros: {sorted(missing)}"
-

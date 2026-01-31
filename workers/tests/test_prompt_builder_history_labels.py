@@ -113,21 +113,11 @@ class PromptBuilderHistoryLabelTests(unittest.TestCase):
         )
 
         block = make_block(1, "episode", limit=2, client=client)
-        self.assertIn("2nd newest Episode – Abstract:\nA2", block)
         self.assertIn("2nd newest Episode – Narrative:\nN2", block)
-        self.assertIn("Newest Episode – Abstract:\nA3", block)
         self.assertIn("Newest Episode – Narrative:\nN3", block)
         self.assertLess(
-            block.index("2nd newest Episode – Abstract:"),
             block.index("2nd newest Episode – Narrative:"),
-        )
-        self.assertLess(
-            block.index("Newest Episode – Abstract:"),
             block.index("Newest Episode – Narrative:"),
-        )
-        self.assertLess(
-            block.index("2nd newest Episode – Abstract:"),
-            block.index("Newest Episode – Abstract:"),
         )
 
     def test_live_turn_window_numbers_turns_by_recency(self):

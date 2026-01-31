@@ -15,8 +15,8 @@ from pathlib import Path
 from typing import Any, Dict, Iterable
 
 from supabase import create_client
-from workers.lib.cards import compact_psychic_card, filter_card_by_tier
-from workers.lib.time_tier import parse_tier
+from workers.lib.cards import compact_psychic_card, prune_fan_psychic_card
+from workers.lib.time_tier import TimeTier, parse_tier
 
 _SB = None  # Lazily created Supabase client
 
@@ -252,28 +252,87 @@ def _format_psychic_card(card: Any) -> str:
         stripped = card.strip()
         return stripped
     if isinstance(card, dict):
-        compact = compact_psychic_card(
+        # Render a two-layer view:
+        # - STABLE: SEASON+ entries (higher trust, compacted)
+        # - NOTES: TURN/EPISODE/CHAPTER entries (lower trust, recent observations)
+        pruned = prune_fan_psychic_card(
             card,
-            key_by="name",
-            max_entries_per_segment=2,
+            stable_max_per_segment=int(os.getenv("PSYCHIC_CARD_STABLE_MAX_PER_SEGMENT", "3")),
+            notes_max_per_segment=int(os.getenv("PSYCHIC_CARD_NOTES_MAX_PER_SEGMENT", "5")),
             drop_superseded=True,
-            entry_fields=("id", "text", "confidence", "origin_tier"),
         )
-        if compact is None:
+
+        segments = pruned.get("segments") if isinstance(pruned, dict) else None
+        if not isinstance(segments, dict) or not segments:
             return ""
-        if not isinstance(compact, dict):
-            return _stringify(compact)
-        if "segments" not in compact:
-            return _stringify(compact)
-        segments = compact.get("segments") or {}
-        if not segments:
-            return ""
-        lines: list[str] = []
-        for label, value in segments.items():
-            if not value:
+
+        stable_segments: dict[str, list[dict]] = {}
+        note_segments: dict[str, list[dict]] = {}
+
+        for seg_id, entries in segments.items():
+            if not isinstance(entries, list):
                 continue
-            lines.append(f"{label}: {_stringify(value)}")
-        return "Psychic card:\n" + "\n".join(lines) if lines else ""
+            for entry in entries:
+                if not isinstance(entry, dict):
+                    continue
+                try:
+                    origin = parse_tier(entry.get("origin_tier") or entry.get("tier"))
+                except Exception:
+                    origin = TimeTier.TURN
+                if origin >= TimeTier.SEASON:
+                    stable_segments.setdefault(str(seg_id), []).append(entry)
+                else:
+                    note_segments.setdefault(str(seg_id), []).append(entry)
+
+        def _render_layer(layer_segments: dict[str, list[dict]], *, max_entries: int) -> str:
+            if not layer_segments:
+                return ""
+            layer_card = dict(pruned)
+            layer_card["segments"] = layer_segments
+            compact = compact_psychic_card(
+                layer_card,
+                key_by="name",
+                max_entries_per_segment=max_entries,
+                drop_superseded=True,
+                entry_fields=(
+                    "id",
+                    "text",
+                    "confidence",
+                    "origin_tier",
+                    "seen_count",
+                    "last_seen_tier",
+                ),
+            )
+            if compact is None:
+                return ""
+            if not isinstance(compact, dict):
+                return _stringify(compact)
+            segs = compact.get("segments") or {}
+            if not segs:
+                return ""
+            lines: list[str] = []
+            for label, value in segs.items():
+                if not value:
+                    continue
+                lines.append(f"{label}: {_stringify(value)}")
+            return "\n".join(lines)
+
+        stable_text = _render_layer(
+            stable_segments,
+            max_entries=int(os.getenv("PSYCHIC_CARD_STABLE_MAX_PER_SEGMENT", "3")),
+        )
+        notes_text = _render_layer(
+            note_segments,
+            # Notes are intentionally narrower in prompts to reduce repetition.
+            max_entries=int(os.getenv("PSYCHIC_CARD_NOTES_MAX_PER_SEGMENT_PROMPT", "2")),
+        )
+
+        parts: list[str] = []
+        if stable_text:
+            parts.append("Psychic card (STABLE — SEASON+):\n" + stable_text)
+        if notes_text:
+            parts.append("Psychic card (NOTES — TURN/EPISODE/CHAPTER):\n" + notes_text)
+        return "\n\n".join(parts).strip()
     return _stringify(card)
 
 
@@ -734,7 +793,7 @@ def make_block(
         .select(
             "id,thread_id,tier,tier_index,"
             "start_turn,end_turn,"
-            "narrative_summary,abstract_summary"
+            "narrative_summary"
         )
         .eq("thread_id", thread_id)
         .eq("tier", tier)
@@ -749,7 +808,7 @@ def make_block(
     if not rows:
         return f"[No {tier.title()} summaries yet]"
 
-    blocks = []
+    blocks: list[str] = []
     total = len(rows)
     # Summaries are shown oldest → newest (top to bottom), but labeled by recency
     # (Newest / 2nd newest / ...), so "Newest" appears at the bottom.
@@ -771,11 +830,10 @@ def make_block(
         else:
             label = f"{recency} {tier.title()} – #{row.get('id') or recency_number}"
         narrative = row.get("narrative_summary")
-        abstract = row.get("abstract_summary")
-        if abstract:
-            blocks.append(f"{label} – Abstract:\n{abstract.strip()}")
         if narrative:
             blocks.append(f"{label} – Narrative:\n{narrative.strip()}")
+    if not blocks:
+        return f"[No {tier.title()} summaries yet]"
     return "\n\n".join(blocks)
 
 
@@ -834,13 +892,6 @@ def _load_cards(
             creator_row = {}
 
     fan_psychic = row.get("fan_psychic_card")
-    if worker_tier is not None and isinstance(fan_psychic, dict):
-        try:
-            tier_enum = parse_tier(worker_tier)
-            fan_psychic = filter_card_by_tier(fan_psychic, tier_enum)
-        except ValueError:
-            # Fall back to the unfiltered card if tier parsing fails
-            pass
 
     # Prefer canonical creator cards from the creators table when available.
     creator_identity_card_value = (
@@ -867,76 +918,6 @@ def _load_cards(
         ),
         "CREATOR_PSYCHIC_CARD": _format_psychic_card(creator_psychic_card),
     }
-
-
-def _recent_episode_abstracts(thread_id: int, *, client=None, count: int = 2) -> Dict[str, str]:
-    """Fetch the two freshest episode abstracts for rolling history slots."""
-    sb = _resolve_client(client)
-    rows = (
-        sb.table("summaries")
-        .select("tier,tier_index,abstract_summary")
-        .eq("thread_id", thread_id)
-        .eq("tier", "episode")
-        .order("tier_index", desc=True)
-        .limit(max(10, count * 5))
-        .execute()
-        .data
-        or []
-    )
-    values = {
-        "Abstract_N-2": "[No Episode N-2]",
-        "Abstract_N-1": "[No Episode N-1]",
-    }
-    abstracts: list[str] = []
-    for row in rows:
-        abstract = (row.get("abstract_summary") or "").strip()
-        if not abstract:
-            continue
-        if _looks_like_prompt_leak(abstract):
-            continue
-        abstracts.append(abstract)
-        if len(abstracts) >= count:
-            break
-    if abstracts:
-        values["Abstract_N-1"] = abstracts[0]
-    if len(abstracts) > 1:
-        values["Abstract_N-2"] = abstracts[1]
-    return values
-
-
-def _recent_tier_abstracts(thread_id: int, tier: str, *, client=None, count: int = 2) -> Dict[str, str]:
-    """Fetch freshest abstracts for an arbitrary tier."""
-    sb = _resolve_client(client)
-    rows = (
-        sb.table("summaries")
-        .select("tier,tier_index,abstract_summary")
-        .eq("thread_id", thread_id)
-        .eq("tier", tier)
-        .order("tier_index", desc=True)
-        .limit(max(10, count * 5))
-        .execute()
-        .data
-        or []
-    )
-    values = {
-        "Abstract_N-2": f"[No {tier.title()} N-2]",
-        "Abstract_N-1": f"[No {tier.title()} N-1]",
-    }
-    abstracts: list[str] = []
-    for row in rows:
-        abstract = (row.get("abstract_summary") or "").strip()
-        if not abstract:
-            continue
-        if _looks_like_prompt_leak(abstract):
-            continue
-        abstracts.append(abstract)
-        if len(abstracts) >= count:
-            break
-    if abstracts:
-        values["Abstract_N-1"] = abstracts[0]
-    if len(abstracts) > 1:
-        values["Abstract_N-2"] = abstracts[1]
-    return values
 
 
 def live_turn_window(
@@ -1554,7 +1535,6 @@ def _render_template(
     include_cards: bool = True,
     include_plans: bool = True,
     include_analyst: bool = True,
-    include_episode_rolling: bool = False,
     worker_tier=None,
 ) -> str:
     """Shared renderer that replaces macros in a prompt template."""
@@ -1617,9 +1597,6 @@ def _render_template(
             )
         )
 
-    if include_episode_rolling:
-        context.update(_recent_episode_abstracts(thread_id, client=sb))
-
     if extra_context:
         context.update(extra_context)
 
@@ -1678,7 +1655,6 @@ def build_prompt(
     include_cards: bool = True,
     include_plans: bool = True,
     include_analyst: bool = True,
-    include_episode_rolling: bool = False,
     worker_tier=None,
 ) -> str:
     """Load a template and replace all macro tags in one pass."""
@@ -1695,7 +1671,6 @@ def build_prompt(
         include_cards=include_cards,
         include_plans=include_plans,
         include_analyst=include_analyst,
-        include_episode_rolling=include_episode_rolling,
         worker_tier=worker_tier,
     )
 
@@ -1714,7 +1689,6 @@ def build_prompt_sections(
     include_cards: bool = True,
     include_plans: bool = True,
     include_analyst: bool = True,
-    include_episode_rolling: bool = False,
     worker_tier=None,
 ) -> tuple[str, str]:
     """
@@ -1734,7 +1708,6 @@ def build_prompt_sections(
         include_cards=include_cards,
         include_plans=include_plans,
         include_analyst=include_analyst,
-        include_episode_rolling=include_episode_rolling,
         worker_tier=worker_tier,
     )
 
@@ -1762,5 +1735,4 @@ __all__ = [
     "build_prompt_sections",
     "live_turn_window",
     "make_block",
-    "_recent_tier_abstracts",
 ]

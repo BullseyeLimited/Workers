@@ -187,10 +187,9 @@ def process_job(payload: dict) -> bool:
         raw_turns,
         client=SB,
         include_blocks=False,
-        include_cards=False,
+        include_cards=True,
         include_plans=False,
         include_analyst=False,
-        include_episode_rolling=True,
         worker_tier=TimeTier.EPISODE,
     )
     raw_text = call_llm(prompt)

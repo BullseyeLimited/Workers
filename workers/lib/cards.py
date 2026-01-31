@@ -195,6 +195,103 @@ def filter_card_by_tier(card: dict, max_origin_tier: TimeTier) -> dict:
     return filtered
 
 
+def prune_fan_psychic_card(
+    card: Optional[dict],
+    *,
+    stable_max_per_segment: int = 3,
+    notes_max_per_segment: int = 5,
+    drop_superseded: bool = True,
+) -> dict:
+    """
+    Return a smaller, storage-friendly card by trimming each segment.
+
+    Policy:
+    - Treat Season+ entries as STABLE facts (more trusted) and keep up to `stable_max_per_segment`.
+    - Treat Turn/Episode/Chapter entries as NOTES (lower trust) and keep up to `notes_max_per_segment`.
+    - Optionally drop superseded entries to avoid unbounded growth in threads.fan_psychic_card.
+
+    Rationale:
+    - Full history already exists in summaries; the threads card should stay compact for prompt use.
+    """
+
+    pruned = ensure_card_shape(card)
+    segments = pruned.get("segments")
+    if not isinstance(segments, dict):
+        return pruned
+
+    def _entry_origin(entry: dict) -> TimeTier:
+        try:
+            return parse_tier(entry.get("origin_tier") or entry.get("tier") or TimeTier.TURN)
+        except Exception:  # noqa: BLE001
+            return TimeTier.TURN
+
+    def _confidence_index(entry: dict) -> int:
+        conf = entry.get("confidence")
+        if isinstance(conf, str) and conf in CONFIDENCE_ORDER:
+            return CONFIDENCE_ORDER.index(conf)
+        return 0
+
+    def _stamp(entry: dict) -> str:
+        for key in ("last_seen_at", "created_at"):
+            value = entry.get(key)
+            if isinstance(value, str) and value:
+                return value
+        return ""
+
+    def _seen_count(entry: dict) -> int:
+        try:
+            return int(entry.get("seen_count") or 0)
+        except Exception:
+            return 0
+
+    for seg_id, entries in list(segments.items()):
+        if not isinstance(entries, list):
+            segments[seg_id] = []
+            continue
+
+        dict_entries = [e for e in entries if isinstance(e, dict)]
+        superseded_ids = {
+            e.get("supersedes") for e in dict_entries if e.get("supersedes")
+        }
+
+        live: list[dict] = []
+        for entry in dict_entries:
+            if drop_superseded:
+                if entry.get("superseded_by"):
+                    continue
+                if entry.get("id") in superseded_ids:
+                    continue
+            live.append(entry)
+
+        stable = [e for e in live if _entry_origin(e) >= TimeTier.SEASON]
+        notes = [e for e in live if _entry_origin(e) < TimeTier.SEASON]
+
+        stable.sort(
+            key=lambda e: (
+                _entry_origin(e),
+                _confidence_index(e),
+                _seen_count(e),
+                _stamp(e),
+            ),
+            reverse=True,
+        )
+        notes.sort(
+            key=lambda e: (
+                _seen_count(e),
+                _confidence_index(e),
+                _stamp(e),
+            ),
+            reverse=True,
+        )
+
+        keep_stable = stable[: max(stable_max_per_segment, 0)]
+        keep_notes = notes[: max(notes_max_per_segment, 0)]
+        segments[seg_id] = keep_stable + keep_notes
+
+    pruned["cards_updated_at"] = _now_iso()
+    return pruned
+
+
 def compact_psychic_card(
     card: Any,
     *,
@@ -427,4 +524,5 @@ __all__ = [
     "make_entry",
     "append_origin_tag",
     "filter_card_by_tier",
+    "prune_fan_psychic_card",
 ]

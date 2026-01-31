@@ -7,7 +7,7 @@ import traceback
 import requests
 from supabase import create_client, ClientOptions
 
-from workers.lib.prompt_builder import build_prompt, _recent_tier_abstracts
+from workers.lib.prompt_builder import build_prompt
 from workers.lib.simple_queue import ack, receive, send
 from workers.lib.time_tier import TimeTier
 
@@ -84,13 +84,11 @@ def process_job(payload: dict) -> bool:
     end_turn = payload.get("end_turn")
     attempt = int(payload.get("attempt") or 1)
 
-    extra_ctx = _recent_tier_abstracts(thread_id, "lifetime", client=SB)
     prompt = build_prompt(
         "lifetime_abstract",
         thread_id,
         raw_block,
         client=SB,
-        extra_context=extra_ctx,
         include_blocks=False,
         include_plans=False,
         include_analyst=False,

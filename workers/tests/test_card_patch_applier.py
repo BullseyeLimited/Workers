@@ -43,7 +43,7 @@ from workers.lib.time_tier import TimeTier
 
 
 class ParsePatchOutputTests(unittest.TestCase):
-    def test_parses_blocks_and_summary(self):
+    def test_parses_blocks(self):
         raw = """ADD SEGMENT_1_CORE_MOTIVATIONS
 TEXT: First insight [tentative]
 CONFIDENCE: tentative
@@ -53,32 +53,37 @@ REINFORCE SEGMENT_2_TRUST_AND_SAFETY
 TEXT: Continues behavior [possible]
 CONFIDENCE: possible
 REASON: evidence B
+"""
 
-Summary starts here.
-More summary lines."""
-
-        patches, summary = parse_patch_output(raw)
+        patches, trailing = parse_patch_output(raw)
 
         self.assertEqual(2, len(patches))
         self.assertEqual("1", patches[0]["segment_id"])
         self.assertEqual("CORE_MOTIVATIONS", patches[0]["segment_label"])
         self.assertEqual("reinforce", patches[1]["action"])
-        self.assertTrue(summary.startswith("Summary starts here."))
+        self.assertEqual("", trailing)
 
     def test_parser_handles_crlf_and_missing_blank_line(self):
-        raw = "ADD SEGMENT_3_MONETIZATION\r\nTEXT: Willing to tip [likely]\r\nCONFIDENCE: likely\r\nREASON: mentioned tipping\r\nSummary with no blank line."
-        patches, summary = parse_patch_output(raw)
+        raw = "ADD SEGMENT_3_MONETIZATION\r\nTEXT: Willing to tip [likely]\r\nCONFIDENCE: likely\r\nREASON: mentioned tipping\r\n"
+        patches, trailing = parse_patch_output(raw)
 
         self.assertEqual(1, len(patches))
         self.assertEqual("3", patches[0]["segment_id"])
-        self.assertEqual("Summary with no blank line.", summary)
+        self.assertEqual("", trailing)
 
-    def test_parser_requires_summary(self):
+    def test_parser_accepts_no_updates_sentinel(self):
+        patches, trailing = parse_patch_output("NO_UPDATES")
+        self.assertEqual([], patches)
+        self.assertEqual("", trailing)
+
+    def test_parser_rejects_trailing_text_after_blocks(self):
         raw = """ADD SEGMENT_4_BOUNDARIES
 TEXT: Cautious about oversharing [possible]
 CONFIDENCE: possible
-REASON: pulled back when asked"""
+REASON: pulled back when asked
 
+Some extra prose that should not be here.
+"""
         with self.assertRaises(ValueError):
             parse_patch_output(raw)
 
@@ -140,6 +145,7 @@ class MutationLogicTests(unittest.TestCase):
         ]
         card = apply_patches_to_card(card, summary_id=1, tier="episode", patches=add_patch)
         entry = card["segments"][segment_id][0]
+        entry_id = entry["id"]
 
         self.assertEqual("tentative", entry["confidence"])
         self.assertIn("[EPISODE]", entry["text"])
@@ -154,18 +160,20 @@ class MutationLogicTests(unittest.TestCase):
                 "text": "Enjoys praise [confident]",
                 "confidence": "confident",
                 "reason": "turn 5",
+                "target_id": entry_id,
             }
         ]
         card = apply_patches_to_card(
             card, summary_id=2, tier="episode", patches=reinforce_patch
         )
-        self.assertEqual(2, len(card["segments"][segment_id]))
-        # Episode-tier workers are append-only; REINFORCE becomes a competing entry.
-        entry = card["segments"][segment_id][1]
+        self.assertEqual(1, len(card["segments"][segment_id]))
+        # Episode-tier workers reinforce/revise notes in-place to avoid bloating.
+        entry = card["segments"][segment_id][0]
 
-        self.assertEqual("confident", entry["confidence"])
+        # Confidence bumps by at most one step, and is clamped to NOTE_MAX (default likely).
+        self.assertEqual("possible", entry["confidence"])
         self.assertEqual(1, entry["text"].count("[EPISODE]"))
-        self.assertIn("[confident]", entry["text"])
+        self.assertIn("[possible]", entry["text"])
 
         revise_patch = [
             {
@@ -176,11 +184,12 @@ class MutationLogicTests(unittest.TestCase):
                 "text": "Responds very well to warm praise [likely]",
                 "confidence": "likely",
                 "reason": "turn 9",
+                "target_id": entry_id,
             }
         ]
         card = apply_patches_to_card(card, summary_id=3, tier="episode", patches=revise_patch)
-        self.assertEqual(3, len(card["segments"][segment_id]))
-        entry = card["segments"][segment_id][2]
+        self.assertEqual(1, len(card["segments"][segment_id]))
+        entry = card["segments"][segment_id][0]
 
         self.assertEqual("likely", entry["confidence"])
         self.assertEqual(1, entry["text"].count("[EPISODE]"))

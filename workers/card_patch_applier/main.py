@@ -18,6 +18,7 @@ from workers.lib.cards import (
     append_origin_tag,
     ensure_card_shape,
     make_entry,
+    prune_fan_psychic_card,
 )
 from workers.lib.simple_queue import ack, receive, send
 from workers.lib.time_tier import TimeTier, parse_tier
@@ -348,8 +349,15 @@ def _parse_block(lines: List[str]) -> Tuple[str | None, str, str, str, str]:
 
 def parse_patch_output(raw_text: str) -> Tuple[List[dict], str]:
     """
-    Parse the Episode/Chapter abstract output into patch blocks + summary.
-    Returns (patches, summary_text).
+    Parse an abstract-writer output into patch blocks.
+
+    Output contract:
+    - Zero or more patch blocks.
+    - If there are no patch blocks, the output must be either empty/whitespace
+      or exactly "NO_UPDATES".
+    - No trailing prose is allowed after patch blocks.
+
+    Returns (patches, trailing_text). trailing_text is always "" for valid outputs.
     """
     lines = (raw_text or "").replace("\r", "").splitlines()
     idx = 0
@@ -397,10 +405,18 @@ def parse_patch_output(raw_text: str) -> Tuple[List[dict], str]:
             }
         )
 
-    summary = "\n".join(lines[last_consumed:]).strip() if patches else "\n".join(lines).strip()
-    if not summary:
-        raise ValueError("summary section missing")
-    return patches, summary
+    if patches:
+        trailing = "\n".join(lines[last_consumed:]).strip()
+        if trailing:
+            raise ValueError("unexpected trailing text after patch blocks")
+        return patches, ""
+
+    stripped = "\n".join(lines).strip()
+    if not stripped:
+        return [], ""
+    if stripped.strip().upper() == "NO_UPDATES":
+        return [], ""
+    raise ValueError("no patch blocks found")
 
 
 def _should_attempt_rewrite(
@@ -447,10 +463,9 @@ CRITICAL RULES (DO NOT BREAK THESE):
 - If the ORIGINAL_OUTPUT does not explicitly contain a card update instruction, output NO patch block for it.
 - If you cannot confidently reformat without changing meaning, output the ORIGINAL_OUTPUT unchanged.
 
-OUTPUT CONTRACT (MUST MATCH EXACTLY):
-- Optional patch blocks first (0+).
-- Then ONE blank line.
-- Then the abstract summary text.
+    OUTPUT CONTRACT (MUST MATCH EXACTLY):
+    - Output ONLY patch blocks (0+), OR output exactly NO_UPDATES.
+    - Do NOT output any summary/prose after patch blocks.
 
 PATCH BLOCK FORMAT:
 ADD SEGMENT_22
@@ -475,7 +490,10 @@ REASON: <copy-pasted evidence line(s)>
 Allowed confidence values (must match): tentative / possible / likely / confident / canonical
 TEXT must end with a bracket tag matching CONFIDENCE (e.g. [likely]).
 
-Tier for context: {tier}
+    If the ORIGINAL_OUTPUT contains no explicit card updates, output exactly:
+    NO_UPDATES
+
+    Tier for context: {tier}
 
 ORIGINAL_OUTPUT:
 <ORIGINAL_OUTPUT>
@@ -694,6 +712,46 @@ def apply_patches_to_card(
         worker_tier = parse_tier("episode")
     add_only = _is_add_only_tier(worker_tier)
 
+    NOTE_MAX_CONFIDENCE: str = os.getenv("PSYCHIC_CARD_NOTE_MAX_CONFIDENCE", "likely")
+
+    def _clamp_confidence(value: str, *, max_value: str) -> str:
+        value = (value or "").strip().lower()
+        max_value = (max_value or "").strip().lower()
+        if value not in CONFIDENCE_ORDER:
+            return "possible"
+        if max_value not in CONFIDENCE_ORDER:
+            return value
+        return (
+            value
+            if CONFIDENCE_ORDER.index(value) <= CONFIDENCE_ORDER.index(max_value)
+            else max_value
+        )
+
+    def _touch_meta(target: dict, *, seen_action: str, reason: str, confidence: str) -> None:
+        # Lightweight "note log" so Season+ can decide what to promote without bloating
+        # the card with near-duplicate entries.
+        try:
+            target["seen_count"] = int(target.get("seen_count") or 0) + 1
+        except Exception:
+            target["seen_count"] = 1
+
+        seen_by_tier = target.setdefault("seen_by_tier", {})
+        if isinstance(seen_by_tier, dict):
+            key = worker_tier.name
+            try:
+                seen_by_tier[key] = int(seen_by_tier.get(key) or 0) + 1
+            except Exception:
+                seen_by_tier[key] = 1
+
+        target["last_seen_at"] = datetime.now(timezone.utc).isoformat()
+        target["last_seen_summary_id"] = summary_id
+        target["last_seen_tier"] = worker_tier.name
+        target["last_seen_action"] = seen_action
+        if reason:
+            target["last_seen_reason"] = reason
+        if confidence:
+            target["last_seen_confidence"] = confidence
+
     def _extract_dispute_tier(text: str) -> TimeTier | None:
         match = re.search(r"\[DISPUTES:([A-Z]+)\]", text or "")
         if not match:
@@ -728,6 +786,12 @@ def apply_patches_to_card(
             origin_tier=origin.name,
             supersedes=supersedes,
         )
+        now_entry["seen_count"] = 1
+        now_entry["seen_by_tier"] = {worker_tier.name: 1}
+        now_entry["last_seen_at"] = now_entry.get("created_at")
+        now_entry["last_seen_summary_id"] = summary_id
+        now_entry["last_seen_tier"] = worker_tier.name
+        now_entry["last_seen_action"] = action
         return now_entry
 
     def _supersede(
@@ -770,16 +834,26 @@ def apply_patches_to_card(
         target["confidence"] = confidence
         target["text"] = append_origin_tag(next_text, origin_tier)
         target["reason"] = reason or target.get("reason")
-        evidence = target.setdefault("evidence", [])
-        evidence.append(
-            {
-                "summary_id": summary_id,
-                "reason": reason,
-                "confidence": confidence,
-                "created_at": datetime.now(timezone.utc).isoformat(),
-                "action": evidence_action,
-            }
+        _touch_meta(
+            target,
+            seen_action=evidence_action,
+            reason=reason,
+            confidence=confidence,
         )
+        evidence = target.setdefault("evidence", [])
+        if isinstance(evidence, list):
+            evidence.append(
+                {
+                    "summary_id": summary_id,
+                    "reason": reason,
+                    "confidence": confidence,
+                    "created_at": datetime.now(timezone.utc).isoformat(),
+                    "action": evidence_action,
+                }
+            )
+            # Prevent unbounded growth in the stored card JSON.
+            if len(evidence) > 5:
+                target["evidence"] = evidence[-5:]
 
     for patch in patches:
         seg_id = str(patch["segment_id"])
@@ -791,6 +865,8 @@ def apply_patches_to_card(
         segments[seg_id] = bucket
         live_bucket = _live_entries([e for e in bucket if isinstance(e, dict)])
         patch_conf = _parse_confidence(patch["confidence"])
+        if add_only:
+            patch_conf = _clamp_confidence(patch_conf, max_value=NOTE_MAX_CONFIDENCE)
         patch_text = _normalize_text(patch["text"], patch_conf)
         reason = patch.get("reason") or ""
         target_id = patch.get("target_id")
@@ -813,29 +889,93 @@ def apply_patches_to_card(
             )
 
         if add_only:
-            disputed = None
+            # Episode/Chapter behavior:
+            # - Operate in the NOTES layer (origin < SEASON) to avoid bloating the card.
+            # - Never edit stable Season+ entries; if targeted, append a DISPUTES note.
+            stable_entries = [
+                entry
+                for entry in live_bucket
+                if _entry_origin_tier(entry, fallback=TimeTier.TURN) >= TimeTier.SEASON
+            ]
+            note_entries = [
+                entry
+                for entry in live_bucket
+                if _entry_origin_tier(entry, fallback=TimeTier.TURN) < TimeTier.SEASON
+            ]
+
+            # If model tries to edit a stable entry, record a dispute note instead.
             if patch_action in {"reinforce", "revise"} and target_any:
                 target_tier = _entry_origin_tier(target_any, fallback=worker_tier)
-                if target_tier > worker_tier:
-                    disputed = target_tier
-            if disputed is None and patch_action in {"reinforce", "revise"}:
-                higher_match = _find_best_match(
-                    [
-                        entry
-                        for entry in live_bucket
-                        if _entry_origin_tier(entry, fallback=TimeTier.TURN) > worker_tier
-                    ],
-                    target_text or patch_text,
+                if target_tier >= TimeTier.SEASON:
+                    now_entry = _add_entry(
+                        text=patch_text,
+                        confidence=patch_conf,
+                        reason=reason,
+                        action="add",
+                        disputed_tier=target_tier,
+                        origin=worker_tier,
+                    )
+                    bucket.append(now_entry)
+                    continue
+
+            target_note = None
+            if target_any and _entry_origin_tier(target_any, fallback=worker_tier) < TimeTier.SEASON:
+                target_note = target_any
+            if not target_note and target_id:
+                target_note = _find_entry_by_id(note_entries, target_id)
+            if not target_note and target_text:
+                target_note = _find_best_match(
+                    note_entries,
+                    target_text,
                     min_ratio=TARGET_MATCH_MIN_RATIO,
                 )
-                if higher_match:
-                    disputed = _entry_origin_tier(higher_match, fallback=worker_tier)
+            if not target_note:
+                target_note = _find_best_match(
+                    note_entries,
+                    patch_text,
+                    min_ratio=TARGET_MATCH_MIN_RATIO,
+                )
+
+            # If this is just repeating a stable fact, don't create a redundant note.
+            if patch_action == "add" and not target_note:
+                if _find_best_match(
+                    stable_entries, patch_text, min_ratio=TARGET_MATCH_MIN_RATIO
+                ):
+                    continue
+
+            if target_note:
+                current_conf = target_note.get("confidence") or patch_conf
+                try:
+                    bumped = _one_step_confidence(current_conf, patch_conf)
+                except Exception:
+                    bumped = patch_conf
+                bumped = _clamp_confidence(bumped, max_value=NOTE_MAX_CONFIDENCE)
+
+                if patch_action in {"add", "reinforce"}:
+                    base = _strip_confidence(target_note.get("text") or patch_text)
+                    _mutate_in_place(
+                        target=target_note,
+                        text=base,
+                        confidence=bumped,
+                        reason=reason,
+                        evidence_action="reinforce",
+                    )
+                else:
+                    base = _strip_confidence(patch_text)
+                    _mutate_in_place(
+                        target=target_note,
+                        text=base,
+                        confidence=bumped,
+                        reason=reason,
+                        evidence_action="revise",
+                    )
+                continue
+
             now_entry = _add_entry(
                 text=patch_text,
                 confidence=patch_conf,
                 reason=reason,
                 action="add",
-                disputed_tier=disputed,
                 origin=worker_tier,
             )
             bucket.append(now_entry)
@@ -1049,6 +1189,18 @@ def _load_card(thread_id: int) -> dict:
 
 
 def _save_card(thread_id: int, card: dict):
+    stable_max = int(os.getenv("PSYCHIC_CARD_STABLE_MAX_PER_SEGMENT", "3"))
+    notes_max = int(os.getenv("PSYCHIC_CARD_NOTES_MAX_PER_SEGMENT", "5"))
+    try:
+        card = prune_fan_psychic_card(
+            card,
+            stable_max_per_segment=stable_max,
+            notes_max_per_segment=notes_max,
+            drop_superseded=True,
+        )
+    except Exception:
+        # Never fail the pipeline due to compaction; fallback to raw card.
+        card = ensure_card_shape(card)
     SB.table("threads").update(
         {
             "fan_psychic_card": card,
@@ -1079,6 +1231,8 @@ def _insert_summary_row(
 ) -> int:
     summary_idx = tier_index or _next_tier_index(thread_id, tier)
     writer_json = writer_json or {"raw_text": raw_text}
+    # Abstract summaries are deprecated; keep the column empty for backwards compatibility.
+    abstract_summary = ""
 
     def _writer_json_with_patches() -> dict:
         merged = dict(writer_json or {})
@@ -1163,7 +1317,9 @@ def _insert_summary_row(
 def _fetch_summaries(thread_id: int, tier: str) -> List[dict]:
     rows = (
         SB.table("summaries")
-        .select("id,tier_index,start_turn,end_turn,abstract_summary")
+        .select(
+            "id,tier_index,start_turn,end_turn,raw_writer_json,fan_psychic_card_action"
+        )
         .eq("thread_id", thread_id)
         .eq("tier", tier)
         .eq("extract_status", "ok")
@@ -1172,17 +1328,28 @@ def _fetch_summaries(thread_id: int, tier: str) -> List[dict]:
         .data
         or []
     )
-    # Only treat a contiguous prefix of non-empty, non-leaked abstracts as usable.
-    # This prevents higher-tier rollups from consuming placeholder/garbage text and
-    # also allows the pipeline to "self-heal" by re-enqueueing missing/invalid tiers.
+    # Only treat a contiguous prefix as usable.
+    # This prevents higher-tier rollups from consuming past a missing/invalid tier_index
+    # and allows the pipeline to self-heal.
     usable: List[dict] = []
+    expected = 1
     for row in rows:
-        abstract = (row.get("abstract_summary") or "").strip()
-        if not abstract:
+        try:
+            idx = int(row.get("tier_index") or 0)
+        except Exception:
             break
-        if _looks_like_prompt_leak(abstract):
+        if idx != expected:
             break
+
+        raw_writer_json = row.get("raw_writer_json") or {}
+        raw_text = ""
+        if isinstance(raw_writer_json, dict):
+            raw_text = raw_writer_json.get("raw_text") or ""
+        if raw_text and _looks_like_prompt_leak(raw_text):
+            break
+
         usable.append(row)
+        expected += 1
     return usable
 
 
@@ -1232,21 +1399,59 @@ def _maybe_enqueue_next(thread_id: int, tier: str):
     if len(chunk) < chunk_size:
         return
 
-    # Do not enqueue higher-tier rollups until the lower-tier abstracts exist.
-    # Otherwise the next-tier model sees empty placeholders and produces junk output.
-    for row in chunk:
-        if not (row.get("abstract_summary") or "").strip():
-            return
-
     start_turn = min(row.get("start_turn") or 0 for row in chunk) or None
     end_turn = max(row.get("end_turn") or 0 for row in chunk) or None
     next_tier_index = upper_count + 1
 
+    def _extract_patches(row: dict) -> list[dict]:
+        raw_writer_json = row.get("raw_writer_json") or {}
+        if isinstance(raw_writer_json, dict):
+            patches = raw_writer_json.get("patches")
+            if isinstance(patches, list):
+                return [p for p in patches if isinstance(p, dict)]
+
+        action_blob = row.get("fan_psychic_card_action")
+        if isinstance(action_blob, dict):
+            patches = action_blob.get("patches")
+            if isinstance(patches, list):
+                return [p for p in patches if isinstance(p, dict)]
+        if isinstance(action_blob, list):
+            return [p for p in action_blob if isinstance(p, dict)]
+
+        return []
+
+    def _format_patch_block(patch: dict) -> str:
+        header = patch.get("segment_full_label") or patch.get("segment_label") or patch.get(
+            "segment_id"
+        )
+        header = str(header or "").strip()
+        if header and not header.lower().startswith("segment"):
+            header = f"SEGMENT_{header}"
+        action = str(patch.get("action") or "").strip().upper() or "ADD"
+        lines = [f"{action} {header}".strip()]
+        target_id = patch.get("target_id")
+        if target_id:
+            lines.append(f"TARGET_ID: {target_id}")
+        target_text = patch.get("target_text")
+        if target_text:
+            lines.append(f"TARGET: {target_text}")
+        text = patch.get("text") or ""
+        conf = patch.get("confidence") or ""
+        reason = patch.get("reason") or ""
+        lines.append(f"TEXT: {text}".rstrip())
+        lines.append(f"CONFIDENCE: {conf}".rstrip())
+        lines.append(f"REASON: {reason}".rstrip())
+        return "\n".join(lines).strip()
+
     lines = []
     for row in chunk:
         idx = row.get("tier_index")
-        abstract = row.get("abstract_summary") or ""
-        lines.append(f"{lower_tier.title()} {idx}: {abstract}")
+        patches = _extract_patches(row)
+        if patches:
+            rendered = "\n\n".join(_format_patch_block(p) for p in patches).strip()
+        else:
+            rendered = "NO_UPDATES"
+        lines.append(f"{lower_tier.title()} {idx}:\n{rendered}")
     raw_block = "\n\n".join(lines)
 
     if backlog < trigger:
@@ -1281,17 +1486,17 @@ def process_job(payload: Dict) -> bool:
     writer_json: dict = {"raw_text": raw_text}
 
     try:
-        patches, summary = parse_patch_output(raw_text)
+        patches, _ = parse_patch_output(raw_text)
         patches = _sanitize_patches(patches)
         extract_status = "ok"
     except Exception as exc:  # noqa: BLE001
-        patches, summary = [], ""
+        patches = []
         extract_status = "failed"
         print(f"[card_patch_applier] parse failed: {exc}")
 
     # If the model output is clearly prompt/meta leakage, treat as a failure so we retry.
-    if extract_status == "ok" and _looks_like_prompt_leak(summary or raw_text):
-        patches, summary = [], ""
+    if extract_status == "ok" and _looks_like_prompt_leak(raw_text):
+        patches = []
         extract_status = "failed"
         writer_json["validation_error"] = "prompt_leak"
 
@@ -1314,7 +1519,7 @@ def process_job(payload: Dict) -> bool:
                 if _rewrite_is_verbatim(
                     raw_text, patches=rewritten_patches, summary=rewritten_summary
                 ):
-                    patches, summary = rewritten_patches, rewritten_summary
+                    patches = rewritten_patches
                     extract_status = "ok"
                 else:
                     writer_json["rewrite_rejected"] = "not_verbatim"
@@ -1344,7 +1549,7 @@ def process_job(payload: Dict) -> bool:
             start_turn=start_turn,
             end_turn=end_turn,
             tier_index=tier_index,
-            abstract_summary=summary,
+            abstract_summary="",
             patches=patches,
             raw_text=raw_text,
             raw_hash=raw_hash,
@@ -1359,7 +1564,7 @@ def process_job(payload: Dict) -> bool:
         start_turn=start_turn,
         end_turn=end_turn,
         tier_index=tier_index,
-        abstract_summary=summary,
+        abstract_summary="",
         patches=patches,
         raw_text=raw_text,
         raw_hash=raw_hash,

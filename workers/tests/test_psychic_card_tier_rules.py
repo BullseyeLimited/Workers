@@ -50,7 +50,7 @@ class PsychicCardTierRuleTests(unittest.TestCase):
         self.assertIn("[EPISODE]", entries[1]["text"])
         self.assertEqual(entries[1]["origin_tier"], "EPISODE")
 
-    def test_episode_revise_still_appends_not_mutates(self):
+    def test_episode_revise_mutates_note_in_place(self):
         apply_patches_to_card = self.card_patch.apply_patches_to_card
 
         card = new_base_card()
@@ -79,11 +79,11 @@ class PsychicCardTierRuleTests(unittest.TestCase):
         updated = apply_patches_to_card(card, summary_id=2, tier="episode", patches=patches)
         entries = updated["segments"]["7"]
 
-        self.assertEqual(len(entries), 2)
-        # Original remains intact; episode tiers always append.
+        self.assertEqual(len(entries), 1)
         self.assertEqual(entries[0]["id"], "episode-1")
-        self.assertIn("[EPISODE]", entries[1]["text"])
-        self.assertEqual(entries[1]["origin_tier"], "EPISODE")
+        self.assertIn("Likes teasing a lot", entries[0]["text"])
+        self.assertIn("[EPISODE]", entries[0]["text"])
+        self.assertEqual(entries[0]["origin_tier"], "EPISODE")
 
     def test_season_can_promote_episode_entry_via_supersedes(self):
         apply_patches_to_card = self.card_patch.apply_patches_to_card
@@ -199,4 +199,3 @@ class PsychicCardTierRuleTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-
