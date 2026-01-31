@@ -115,6 +115,7 @@ _WS_RE = re.compile(r"\s+")
 _META_LEAK_RE = re.compile(
     r"(?is)"
     r"\bthe user wants me to act\b"
+    r"|ready to engage with high-level reasoning"
     r"|<\s*rolling_history\s*>"
     r"|<\s*reference_profiles\s*>"
     r"|<\s*raw_turns\s*>"

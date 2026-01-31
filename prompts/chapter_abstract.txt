@@ -470,11 +470,15 @@ Follow this format exactly for each update. Pay attention to spacing and punctua
 
 Abstract Summary Output Format
 
-After listing all necessary profile updates, you will output the abstract narrative summary (task B). This should come after all the profile update blocks. We want a clear separation between the profile mutation section and the summary. The easiest way to ensure separation is to have a blank line after the last REASON: line of the last update, then begin the summary on a new line. Also, the summary will not start with an all-caps action keyword, so the parser will know it’s not a profile command. You do not need to label the summary with any header like “SUMMARY:” (in fact, do not do that). Just start writing the summary in normal prose immediately after the blank line.
+	After listing all necessary profile updates, you will output the abstract narrative summary (task B). This should come after all the profile update blocks. We want a clear separation between the profile mutation section and the summary. The easiest way to ensure separation is to have a blank line after the last REASON: line of the last update, then begin the summary on a new line. Also, the summary will not start with an all-caps action keyword, so the parser will know it’s not a profile command. You do not need to label the summary with any header like “SUMMARY:” (in fact, do not do that). Just start writing the summary in normal prose immediately after the blank line.
 
-The summary should be one cohesive paragraph (or two short paragraphs if it really helps readability, but usually one is fine). As detailed above, it should be 3rd person, past tense, narrative style. Aim for about 10-20 sentences if the episode was rich; shorter if it was simple. You have flexibility, but ensure it’s comprehensive enough to cover every important development.
+	The summary should be one cohesive paragraph (or two short paragraphs if it really helps readability, but usually one is fine). As detailed above, it should be 3rd person, past tense, narrative style. Aim for about 10-20 sentences if the episode was rich; shorter if it was simple. You have flexibility, but ensure it’s comprehensive enough to cover every important development.
 
-Recap of key points for writing the summary:
+	Summary continuity rule: Do NOT start the summary with meta framing like “In this chapter/episode/season/year/lifetime…” or “This chapter…”. Start directly with the events (e.g., “He…”, “They…”) so it reads like a continuous story rather than a fresh intro every time.
+	No headings/separators: Do NOT start the summary with “=” or any Markdown heading/separator line. Do not write “SUMMARY:” or any title.
+	Minimum descriptiveness: The summary must be at least two complete sentences, even if the chapter was brief (do not invent facts; just describe what did and did not happen).
+
+	Recap of key points for writing the summary:
 	•	Use pronouns appropriately (typically “she” for the creator persona, “he” for the fan). If the fan uses they/them or some other pronoun in their profile, use that accordingly.
 	•	Keep it chronological and logically flowing. It should read like you’re telling the story of this chat segment from start to finish.
 	•	Include emotional tone descriptions and cause-effect (e.g. “he opened up about X, so she responded by Y, which made him feel Z”).

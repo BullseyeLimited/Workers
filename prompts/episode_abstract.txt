@@ -159,10 +159,13 @@ REVISE SEGMENT_XX_SEGMENTNAME.
 	•	Then the next line is TEXT:  followed by the updated text you wrote for that entry (including the confidence label at the end).
 	•	Next line: CONFIDENCE:  followed by the confidence level word.
 	•	Next line: REASON:  followed by the one-sentence explanation with turn reference.
-	•	Leave one blank line after each update block (including after the last one).
-	•	After all update blocks, insert one additional blank line, then paste the summary narrative you wrote. The summary should not have any special formatting or heading; just plain text sentences in a new paragraph. It will typically be separated by that blank line and then run for one or two paragraphs of text.
-	•	Ensure the summary text follows all the style rules (third-person, past tense, etc.) and does not contain disallowed content or system mentions as checked above.
-An example of the correct output structure (for illustration; do not include this example text in output) would be:
+		•	Leave one blank line after each update block (including after the last one).
+		•	After all update blocks, insert one additional blank line, then paste the summary narrative you wrote. The summary should not have any special formatting or heading; just plain text sentences in a new paragraph. It will typically be separated by that blank line and then run for one or two paragraphs of text.
+		•	Summary continuity rule: Do NOT start the summary with meta framing like “In this episode/chapter/season/year/lifetime…” or “This episode…”. Start directly with the events (e.g., “He…”, “They…”) so it reads like a continuous story rather than a fresh intro every time.
+		•	No headings/separators: Do NOT start the summary with “=” or any Markdown heading/separator line. Do not write “SUMMARY:” or any title.
+		•	Minimum descriptiveness: The summary must be at least two complete sentences, even if the episode was brief (do not invent facts; just describe what did and did not happen).
+		•	Ensure the summary text follows all the style rules (third-person, past tense, etc.) and does not contain disallowed content or system mentions as checked above.
+	An example of the correct output structure (for illustration; do not include this example text in output) would be:
 
 ADD SEGMENT_22_TONE_REGISTER_LEXICON_MAP  
 TEXT: He responds enthusiastically to affectionate pet names, indicating positive reception to sweet tones. [possible]  

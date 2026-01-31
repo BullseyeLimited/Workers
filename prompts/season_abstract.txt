@@ -140,11 +140,14 @@ REVISE SEGMENT_XX_SEGMENTNAME
 (Use the exact segment number and name from the list, in uppercase, and the action in all caps as shown. There must be one space after the action and after the segment label’s number.)
 	•	On the next line, write TEXT:  followed by the new or revised content for that segment entry, including the confidence tag at the end. (E.g. TEXT: He has started to openly express affection through pet names and terms of endearment, indicating increased comfort with intimacy. [possible])
 	•	Next line: CONFIDENCE:  followed by the confidence level word (tentative, possible, likely, etc.) that corresponds to the bracket tag you used.
-	•	Next line: REASON:  followed by one sentence citing the chapter evidence (with chapter index) that justified this update.
-	•	Leave one blank line after each update block (even after the last one). Each update is a separate block of 4–5 lines (including the optional TARGET_ID line if applicable – note: if an update should target a specific existing entry and an ID was provided in the input for that purpose, include TARGET_ID: <id> as given; otherwise, do not write a TARGET_ID line at all).
-	•	After all the update blocks, insert one additional blank line, then begin the Season summary narrative. The summary should be written as a normal paragraph (or two paragraphs) of plain text with no special markup or labels. Do not prefix it with “Summary:” or any title. Just start with the first sentence of the narrative.
-	•	The summary narrative should follow all the style rules discussed (third-person, past tense, etc.) and not include any disallowed content or formatting. It should read as a fluid story.
-	•	Example format: (for illustration only – this is how your output should look structurally, but with Season-appropriate content and citing chapters as evidence)
+		•	Next line: REASON:  followed by one sentence citing the chapter evidence (with chapter index) that justified this update.
+		•	Leave one blank line after each update block (even after the last one). Each update is a separate block of 4–5 lines (including the optional TARGET_ID line if applicable – note: if an update should target a specific existing entry and an ID was provided in the input for that purpose, include TARGET_ID: <id> as given; otherwise, do not write a TARGET_ID line at all).
+		•	After all the update blocks, insert one additional blank line, then begin the Season summary narrative. The summary should be written as a normal paragraph (or two paragraphs) of plain text with no special markup or labels. Do not prefix it with “Summary:” or any title. Just start with the first sentence of the narrative.
+		•	Summary continuity rule: Do NOT start the summary with meta framing like “In this season/chapter/episode/year/lifetime…” or “This season…”. Start directly with the events (e.g., “He…”, “They…”) so it reads like a continuous story rather than a fresh intro every time.
+		•	No headings/separators: Do NOT start the summary with “=” or any Markdown heading/separator line. Do not write “SUMMARY:” or any title.
+		•	Minimum descriptiveness: The summary must be at least two complete sentences, even if the season was brief (do not invent facts; just describe what did and did not happen).
+		•	The summary narrative should follow all the style rules discussed (third-person, past tense, etc.) and not include any disallowed content or formatting. It should read as a fluid story.
+		•	Example format: (for illustration only – this is how your output should look structurally, but with Season-appropriate content and citing chapters as evidence)
 
 REINFORCE SEGMENT_05_RELATIONSHIP_TEMPLATE_SOUGHT  
 TEXT: He consistently treats her like a true romantic partner rather than a casual performer, seeking genuine girlfriend-style connection. [likely]  
