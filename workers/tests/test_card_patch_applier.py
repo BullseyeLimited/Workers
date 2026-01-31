@@ -35,7 +35,9 @@ if "supabase" not in sys.modules:
         ClientOptions=_ClientOptions,
     )
 
-from workers.card_patch_applier.main import apply_patches_to_card, parse_patch_output
+from postgrest.exceptions import APIError
+
+from workers.card_patch_applier.main import _api_error_code, apply_patches_to_card, parse_patch_output
 from workers.lib.cards import ensure_card_shape, filter_card_by_tier
 from workers.lib.time_tier import TimeTier
 
@@ -79,6 +81,19 @@ REASON: pulled back when asked"""
 
         with self.assertRaises(ValueError):
             parse_patch_output(raw)
+
+
+class ApiErrorCodeTests(unittest.TestCase):
+    def test_extracts_code_from_postgrest_apierror(self):
+        exc = APIError(
+            {
+                "message": "new row for relation violates check constraint",
+                "code": "23514",
+                "hint": None,
+                "details": None,
+            }
+        )
+        self.assertEqual("23514", _api_error_code(exc))
 
 
 class CardVisibilityTests(unittest.TestCase):

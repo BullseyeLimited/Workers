@@ -139,8 +139,15 @@ for seg_id, label in SEGMENT_NAMES.items():
 def _api_error_code(exc: Exception) -> str | None:
     if not isinstance(exc, APIError):
         return None
-    if exc.args and isinstance(exc.args[0], dict):
-        return exc.args[0].get("code")
+    code = getattr(exc, "code", None)
+    if code is not None:
+        return str(code)
+    try:
+        raw = exc.json()
+        if isinstance(raw, dict) and raw.get("code") is not None:
+            return str(raw.get("code"))
+    except Exception:
+        pass
     return None
 
 
@@ -1083,8 +1090,8 @@ def _insert_summary_row(
     # - Some expect a JSON object (e.g., wrapper) or disallow NULL keys/values.
     action_candidates: List[object | None] = []
     if patches:
-        action_candidates.append(patches)
         action_candidates.append({"patches": patches})
+        action_candidates.append(patches)
     action_candidates.append(None)
 
     base_update = {
