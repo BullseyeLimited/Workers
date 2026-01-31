@@ -521,6 +521,19 @@ def parse_patch_output(raw_text: str) -> Tuple[List[dict], str]:
     raise ValueError("no patch blocks found")
 
 
+def _enforce_tier_patch_rules(tier: str, patches: List[dict]) -> None:
+    """
+    Enforce policy constraints that depend on the tier.
+
+    These are stricter than the generic patch parser. Violations should be treated
+    as extract failures so the job retries with a compliant output.
+    """
+    tier_norm = (tier or "").strip().lower()
+    if tier_norm == "chapter":
+        if any((p.get("action") or "").strip().lower() == "delete" for p in patches or []):
+            raise ValueError("chapter tier may not DELETE patches")
+
+
 def _should_attempt_rewrite(
     raw_text: str, *, patches: List[dict], extract_status: str
 ) -> bool:
@@ -1645,6 +1658,7 @@ def process_job(payload: Dict) -> bool:
     try:
         patches, abstract_summary = parse_patch_output(raw_text)
         patches = _sanitize_patches(patches)
+        _enforce_tier_patch_rules(tier, patches)
         extract_status = "ok"
     except Exception as exc:  # noqa: BLE001
         patches = []
@@ -1678,6 +1692,7 @@ def process_job(payload: Dict) -> bool:
                 if _rewrite_is_verbatim(
                     raw_text, patches=rewritten_patches, summary=rewritten_summary
                 ):
+                    _enforce_tier_patch_rules(tier, rewritten_patches)
                     patches = rewritten_patches
                     abstract_summary = rewritten_summary
                     extract_status = "ok"

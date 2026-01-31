@@ -37,7 +37,12 @@ if "supabase" not in sys.modules:
 
 from postgrest.exceptions import APIError
 
-from workers.card_patch_applier.main import _api_error_code, apply_patches_to_card, parse_patch_output
+from workers.card_patch_applier.main import (
+    _api_error_code,
+    _enforce_tier_patch_rules,
+    apply_patches_to_card,
+    parse_patch_output,
+)
 from workers.lib.cards import ensure_card_shape, filter_card_by_tier
 from workers.lib.time_tier import TimeTier
 
@@ -113,6 +118,10 @@ He shows a repeated reassurance-seeking stance and responds best to direct valid
         patches, summary = parse_patch_output(raw)
         self.assertEqual(1, len(patches))
         self.assertIn("reassurance-seeking", summary)
+
+    def test_chapter_tier_rejects_delete_patches(self):
+        with self.assertRaises(ValueError):
+            _enforce_tier_patch_rules("chapter", [{"action": "delete", "segment_id": "1"}])
 
 
 class ApiErrorCodeTests(unittest.TestCase):
