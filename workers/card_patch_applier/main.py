@@ -41,37 +41,29 @@ SB = create_client(
 
 QUEUE = "card.patch"
 TIER_PIPELINE = {
-    "episode": {
-        "next": "chapter",
-        "lower": "episode",
-        "chunk_size": 3,
-        "trigger_backlog": 6,
-        "queue": "chapter.abstract",
-    },
     "chapter": {
         "next": "season",
         "lower": "chapter",
         "chunk_size": 3,
-        "trigger_backlog": 6,
+        "trigger_backlog": 3,
         "queue": "season.abstract",
     },
     "season": {
         "next": "year",
         "lower": "season",
         "chunk_size": 3,
-        "trigger_backlog": 6,
+        "trigger_backlog": 3,
         "queue": "year.abstract",
     },
     "year": {
         "next": "lifetime",
         "lower": "year",
         "chunk_size": 3,
-        "trigger_backlog": 6,
+        "trigger_backlog": 3,
         "queue": "lifetime.abstract",
     },
 }
 ABSTRACT_QUEUE_MAP = {
-    "episode": "episode.abstract",
     "chapter": "chapter.abstract",
     "season": "season.abstract",
     "year": "year.abstract",
@@ -120,7 +112,7 @@ _META_LEAK_RE = re.compile(
     r"|<\s*rolling_history\s*>"
     r"|<\s*reference_profiles\s*>"
     r"|<\s*raw_turns\s*>"
-    r"|begin episode_input"
+    r"|begin\s+(?:episode|chapter|season|year|lifetime)_input"
     r"|important boundary"
     r"|role\s*&\s*context"
     r"|constraint checklist"
@@ -405,19 +397,52 @@ def _parse_delete_block(lines: List[str]) -> Tuple[str, str, str]:
     return reason, target_id, target_text
 
 
+SUMMARY_OPEN_TAG = "<ABSTRACT_SUMMARY>"
+SUMMARY_CLOSE_TAG = "</ABSTRACT_SUMMARY>"
+
+
+def _extract_summary_block(raw_text: str) -> tuple[str, str]:
+    """
+    Split an abstract-writer output into (patch_text, abstract_summary).
+
+    Summary is optional but, when present, must appear at the end of the output as:
+
+      <ABSTRACT_SUMMARY>
+      ...
+      </ABSTRACT_SUMMARY>
+
+    Any non-whitespace after the closing tag is treated as invalid.
+    """
+
+    raw = (raw_text or "").replace("\r", "")
+    if SUMMARY_OPEN_TAG not in raw:
+        return raw, ""
+
+    before, rest = raw.split(SUMMARY_OPEN_TAG, 1)
+    if SUMMARY_OPEN_TAG in rest:
+        raise ValueError("multiple ABSTRACT_SUMMARY blocks found")
+    if SUMMARY_CLOSE_TAG not in rest:
+        raise ValueError("missing </ABSTRACT_SUMMARY> closing tag")
+
+    summary, after = rest.split(SUMMARY_CLOSE_TAG, 1)
+    if after.strip():
+        raise ValueError("unexpected trailing text after </ABSTRACT_SUMMARY>")
+
+    return before.strip(), summary.strip()
+
+
 def parse_patch_output(raw_text: str) -> Tuple[List[dict], str]:
     """
     Parse an abstract-writer output into patch blocks.
 
     Output contract:
-    - Zero or more patch blocks.
-    - If there are no patch blocks, the output must be either empty/whitespace
-      or exactly "NO_UPDATES".
-    - No trailing prose is allowed after patch blocks.
+    - Either: exactly "NO_UPDATES"
+    - Or: one or more patch blocks, optionally followed by an <ABSTRACT_SUMMARY> block.
 
-    Returns (patches, trailing_text). trailing_text is always "" for valid outputs.
+    Returns (patches, abstract_summary). abstract_summary is "" when absent.
     """
-    lines = (raw_text or "").replace("\r", "").splitlines()
+    patch_text, abstract_summary = _extract_summary_block(raw_text)
+    lines = (patch_text or "").splitlines()
     idx = 0
     patches: List[dict] = []
     last_consumed = 0
@@ -478,18 +503,21 @@ def parse_patch_output(raw_text: str) -> Tuple[List[dict], str]:
                     "target_text": target_text or None,
                 }
             )
+        last_consumed = idx
 
     if patches:
         trailing = "\n".join(lines[last_consumed:]).strip()
         if trailing:
             raise ValueError("unexpected trailing text after patch blocks")
-        return patches, ""
+        return patches, abstract_summary
 
     stripped = "\n".join(lines).strip()
     if not stripped:
         return [], ""
     if stripped.strip().upper() == "NO_UPDATES":
         return [], ""
+    if abstract_summary:
+        raise ValueError("abstract summary present without patch blocks")
     raise ValueError("no patch blocks found")
 
 
@@ -538,8 +566,14 @@ CRITICAL RULES (DO NOT BREAK THESE):
 - If you cannot confidently reformat without changing meaning, output the ORIGINAL_OUTPUT unchanged.
 
     OUTPUT CONTRACT (MUST MATCH EXACTLY):
-    - Output ONLY patch blocks (0+), OR output exactly NO_UPDATES.
-    - Do NOT output any extra text after patch blocks.
+    - Output either:
+      A) exactly NO_UPDATES
+      OR
+      B) patch blocks (1+), optionally followed by ONE abstract summary block:
+         <ABSTRACT_SUMMARY>
+         <copy-pasted summary text>
+         </ABSTRACT_SUMMARY>
+    - Do NOT output any extra text after </ABSTRACT_SUMMARY>.
 
 PATCH BLOCK FORMAT:
 ADD SEGMENT_22
@@ -1343,8 +1377,6 @@ def _insert_summary_row(
 ) -> int:
     summary_idx = tier_index or _next_tier_index(thread_id, tier)
     writer_json = writer_json or {"raw_text": raw_text}
-    # Abstract summaries are deprecated; keep the column empty for backwards compatibility.
-    abstract_summary = ""
 
     def _writer_json_with_patches() -> dict:
         merged = dict(writer_json or {})
@@ -1362,7 +1394,7 @@ def _insert_summary_row(
     action_candidates.append(None)
 
     base_update = {
-        "abstract_summary": abstract_summary,
+        "abstract_summary": abstract_summary or "",
         "raw_writer_json": writer_json,
         "raw_hash": raw_hash,
         "extract_status": extract_status,
@@ -1404,7 +1436,7 @@ def _insert_summary_row(
             "tier_index": summary_idx,
             "start_turn": start_turn,
             "end_turn": end_turn,
-            "abstract_summary": abstract_summary,
+            "abstract_summary": abstract_summary or "",
             "fan_psychic_card_action": fan_action,
             "raw_writer_json": writer_json,
             "raw_hash": raw_hash,
@@ -1430,7 +1462,7 @@ def _fetch_summaries(thread_id: int, tier: str) -> List[dict]:
     rows = (
         SB.table("summaries")
         .select(
-            "id,tier_index,start_turn,end_turn,raw_writer_json,fan_psychic_card_action"
+            "id,tier_index,start_turn,end_turn,abstract_summary,raw_writer_json,fan_psychic_card_action"
         )
         .eq("thread_id", thread_id)
         .eq("tier", tier)
@@ -1567,7 +1599,15 @@ def _maybe_enqueue_next(thread_id: int, tier: str):
             rendered = "\n\n".join(_format_patch_block(p) for p in patches).strip()
         else:
             rendered = "NO_UPDATES"
-        lines.append(f"{lower_tier.title()} {idx}:\n{rendered}")
+        summary_text = (row.get("abstract_summary") or "").strip()
+        if not summary_text:
+            summary_text = "[No abstract summary available]"
+
+        lines.append(
+            f"{lower_tier.title()} {idx}:\n"
+            f"ABSTRACT_SUMMARY:\n{summary_text}\n\n"
+            f"PATCHES:\n{rendered}"
+        )
     raw_block = "\n\n".join(lines)
 
     if backlog < trigger:
@@ -1600,19 +1640,22 @@ def process_job(payload: Dict) -> bool:
     attempt = int(payload.get("attempt") or 1)
 
     writer_json: dict = {"raw_text": raw_text}
+    abstract_summary = ""
 
     try:
-        patches, _ = parse_patch_output(raw_text)
+        patches, abstract_summary = parse_patch_output(raw_text)
         patches = _sanitize_patches(patches)
         extract_status = "ok"
     except Exception as exc:  # noqa: BLE001
         patches = []
+        abstract_summary = ""
         extract_status = "failed"
         print(f"[card_patch_applier] parse failed: {exc}")
 
     # If the model output is clearly prompt/meta leakage, treat as a failure so we retry.
     if extract_status == "ok" and _looks_like_prompt_leak(raw_text):
         patches = []
+        abstract_summary = ""
         extract_status = "failed"
         writer_json["validation_error"] = "prompt_leak"
 
@@ -1636,6 +1679,7 @@ def process_job(payload: Dict) -> bool:
                     raw_text, patches=rewritten_patches, summary=rewritten_summary
                 ):
                     patches = rewritten_patches
+                    abstract_summary = rewritten_summary
                     extract_status = "ok"
                 else:
                     writer_json["rewrite_rejected"] = "not_verbatim"
@@ -1665,7 +1709,7 @@ def process_job(payload: Dict) -> bool:
             start_turn=start_turn,
             end_turn=end_turn,
             tier_index=tier_index,
-            abstract_summary="",
+            abstract_summary=abstract_summary,
             patches=patches,
             raw_text=raw_text,
             raw_hash=raw_hash,
@@ -1680,7 +1724,7 @@ def process_job(payload: Dict) -> bool:
         start_turn=start_turn,
         end_turn=end_turn,
         tier_index=tier_index,
-        abstract_summary="",
+        abstract_summary=abstract_summary,
         patches=patches,
         raw_text=raw_text,
         raw_hash=raw_hash,

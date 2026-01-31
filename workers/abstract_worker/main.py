@@ -2,7 +2,6 @@
 Unified abstract worker.
 
 Handles all abstract summarization queues plus card patching in one process:
-- episode.abstract
 - chapter.abstract
 - season.abstract
 - year.abstract
@@ -19,7 +18,6 @@ from typing import Callable, Dict, List, Tuple
 
 from workers.lib.simple_queue import ack, receive
 
-from workers.episode_abstract_writer.main import process_job as process_episode
 from workers.chapter_abstract_writer.main import process_job as process_chapter
 from workers.season_abstract_writer.main import process_job as process_season
 from workers.year_abstract_writer.main import process_job as process_year
@@ -29,7 +27,6 @@ from workers.card_patch_applier.main import process_job as process_card_patch
 
 QUEUE_HANDLERS: List[Tuple[str, Callable[[Dict], bool]]] = [
     ("card.patch", process_card_patch),
-    ("episode.abstract", process_episode),
     ("chapter.abstract", process_chapter),
     ("season.abstract", process_season),
     ("year.abstract", process_year),

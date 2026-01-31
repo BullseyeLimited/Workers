@@ -3,6 +3,7 @@ import json
 import os
 import time
 import traceback
+from typing import List
 
 import requests
 from supabase import create_client, ClientOptions
@@ -76,20 +77,100 @@ def call_llm(prompt: str) -> str:
     return raw_text
 
 
+def fetch_turns(thread_id: int, start_turn: int, end_turn: int) -> List[dict]:
+    rows = (
+        SB.table("messages")
+        .select("id,turn_index,sender,message_text")
+        .eq("thread_id", thread_id)
+        .gte("turn_index", start_turn)
+        .lte("turn_index", end_turn)
+        .order("turn_index")
+        .execute()
+        .data
+        or []
+    )
+
+    fan_message_ids = [
+        row.get("id") for row in rows if row.get("sender") == "fan" and row.get("id")
+    ]
+    micro_by_message_id: dict[str, str] = {}
+    if fan_message_ids:
+        try:
+            details_rows = (
+                SB.table("message_ai_details")
+                .select("message_id,kairos_summary,turn_micro_note")
+                .in_("message_id", fan_message_ids)
+                .execute()
+                .data
+                or []
+            )
+        except Exception:
+            details_rows = []
+        for detail in details_rows:
+            if not isinstance(detail, dict):
+                continue
+            msg_id = detail.get("message_id")
+            if msg_id is None:
+                continue
+
+            summary = ""
+            micro = detail.get("turn_micro_note")
+            if isinstance(micro, dict):
+                val = micro.get("SUMMARY")
+                if isinstance(val, str) and val.strip():
+                    summary = val.strip()
+            if not summary:
+                val = detail.get("kairos_summary")
+                if isinstance(val, str) and val.strip():
+                    summary = val.strip()
+
+            if summary:
+                micro_by_message_id[str(msg_id)] = summary
+
+    for row in rows:
+        if row.get("sender") != "fan":
+            continue
+        msg_id = row.get("id")
+        row["turn_micro_note"] = micro_by_message_id.get(str(msg_id)) or ""
+
+    return rows
+
+
+def render_raw_turns(rows: List[dict]) -> str:
+    lines = []
+    for row in rows:
+        idx = row.get("turn_index")
+        sender = (row.get("sender") or "?")[0].upper()
+        text = row.get("message_text") or ""
+        lines.append(f"[{idx}:{sender}] {text}")
+        if sender == "F":
+            note = (row.get("turn_micro_note") or "").strip()
+            if not note:
+                note = "No Kairos micro note available."
+            lines.append(f"    (TURN_MICRO_NOTE): {note}")
+    return "\n".join(lines)
+
+
 def process_job(payload: dict) -> bool:
     thread_id = payload["thread_id"]
-    raw_block = payload.get("raw_block") or ""
-    tier_index = int(payload.get("tier_index") or 0)
-    start_turn = payload.get("start_turn")
-    end_turn = payload.get("end_turn")
+    end_turn = int(payload.get("end_turn") or 0)
+    start_turn = int(payload.get("start_turn") or 0) or max(1, end_turn - 59)
+    tier_index = payload.get("tier_index")
     attempt = int(payload.get("attempt") or 1)
 
+    rows = fetch_turns(thread_id, start_turn, end_turn)
+    if len(rows) < 1:
+        print(f"[chapter_abstract_writer] no turns for thread {thread_id}")
+        return True
+
+    raw_turns = render_raw_turns(rows)
     prompt = build_prompt(
         "chapter_abstract",
         thread_id,
-        raw_block,
+        raw_turns,
         client=SB,
         include_blocks=False,
+        include_cards=True,
         include_plans=False,
         include_analyst=False,
         worker_tier=TimeTier.CHAPTER,
@@ -97,18 +178,21 @@ def process_job(payload: dict) -> bool:
     raw_text = call_llm(prompt)
     raw_hash = hashlib.sha256(raw_text.encode("utf-8")).hexdigest()
 
+    patch_payload = {
+        "thread_id": thread_id,
+        "tier": "chapter",
+        "start_turn": start_turn,
+        "end_turn": end_turn,
+        "raw_text": raw_text,
+        "raw_hash": raw_hash,
+        "attempt": attempt,
+    }
+    if tier_index is not None:
+        patch_payload["tier_index"] = int(tier_index or 0) or None
+
     send(
         "card.patch",
-        {
-            "thread_id": thread_id,
-            "tier": "chapter",
-            "start_turn": start_turn,
-            "end_turn": end_turn,
-            "tier_index": tier_index,
-            "raw_text": raw_text,
-            "raw_hash": raw_hash,
-            "attempt": attempt,
-        },
+        patch_payload,
     )
 
     return True

@@ -232,6 +232,25 @@ def _latest_summary_end(thread_id: int, tier: str) -> int:
         return 0
     return int(row[0].get("end_turn") or 0)
 
+def _latest_abstract_end(thread_id: int, tier: str) -> int:
+    try:
+        row = (
+            SB.table("summaries")
+            .select("end_turn")
+            .eq("thread_id", thread_id)
+            .eq("tier", tier)
+            .in_("extract_status", ["ok", "failed"])
+            .order("tier_index", desc=True)
+            .limit(1)
+            .execute()
+            .data
+        )
+    except Exception:
+        return _latest_summary_end(thread_id, tier)
+    if not row:
+        return 0
+    return int(row[0].get("end_turn") or 0)
+
 
 def _summary_exists(thread_id: int, tier: str, start_turn: int, end_turn: int) -> bool:
     existing = (
@@ -246,6 +265,24 @@ def _summary_exists(thread_id: int, tier: str, start_turn: int, end_turn: int) -
         .data
     )
     return bool(existing)
+
+def _abstract_done(thread_id: int, tier: str, start_turn: int, end_turn: int) -> bool:
+    try:
+        rows = (
+            SB.table("summaries")
+            .select("id")
+            .eq("thread_id", thread_id)
+            .eq("tier", tier)
+            .eq("start_turn", start_turn)
+            .eq("end_turn", end_turn)
+            .in_("extract_status", ["ok", "failed"])
+            .limit(1)
+            .execute()
+            .data
+        )
+        return bool(rows)
+    except Exception:
+        return False
 
 
 def _pending_summary_job(queue: str, thread_id: int, start_turn: int, end_turn: int) -> bool:
@@ -263,19 +300,19 @@ def _pending_summary_job(queue: str, thread_id: int, start_turn: int, end_turn: 
     return bool(jobs)
 
 
-def _maybe_enqueue_episode_summary(thread_id: int, latest_turn_index: int) -> None:
-    last_episode_end = _latest_summary_end(thread_id, "episode")
-    unsummarized = latest_turn_index - last_episode_end
-    if unsummarized < 40:
+def _maybe_enqueue_chapter_abstract(thread_id: int, latest_turn_index: int) -> None:
+    last_chapter_end = _latest_abstract_end(thread_id, "chapter")
+    unsummarized = latest_turn_index - last_chapter_end
+    if unsummarized < 60:
         return
-    start_turn = last_episode_end + 1
-    end_turn = start_turn + 19
-    if _summary_exists(thread_id, "episode", start_turn, end_turn):
+    start_turn = last_chapter_end + 1
+    end_turn = start_turn + 59
+    if _abstract_done(thread_id, "chapter", start_turn, end_turn):
         return
-    if _pending_summary_job("episode.abstract", thread_id, start_turn, end_turn):
+    if _pending_summary_job("chapter.abstract", thread_id, start_turn, end_turn):
         return
     send(
-        "episode.abstract",
+        "chapter.abstract",
         {"thread_id": thread_id, "start_turn": start_turn, "end_turn": end_turn},
     )
 
@@ -472,7 +509,7 @@ def _insert_fan_message(thread_id: int, reply: str) -> int | None:
         turn_index=int(turn_index),
         has_media=False,
     )
-    _maybe_enqueue_episode_summary(int(thread_id), int(turn_index))
+    _maybe_enqueue_chapter_abstract(int(thread_id), int(turn_index))
     return int(msg_id)
 
 
@@ -541,4 +578,3 @@ def run_loop() -> None:
 
 if __name__ == "__main__":
     run_loop()
-

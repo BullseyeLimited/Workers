@@ -55,26 +55,26 @@ CONFIDENCE: possible
 REASON: evidence B
 """
 
-        patches, trailing = parse_patch_output(raw)
+        patches, summary = parse_patch_output(raw)
 
         self.assertEqual(2, len(patches))
         self.assertEqual("1", patches[0]["segment_id"])
         self.assertEqual("CORE_MOTIVATIONS", patches[0]["segment_label"])
         self.assertEqual("reinforce", patches[1]["action"])
-        self.assertEqual("", trailing)
+        self.assertEqual("", summary)
 
     def test_parser_handles_crlf_and_missing_blank_line(self):
         raw = "ADD SEGMENT_3_MONETIZATION\r\nTEXT: Willing to tip [likely]\r\nCONFIDENCE: likely\r\nREASON: mentioned tipping\r\n"
-        patches, trailing = parse_patch_output(raw)
+        patches, summary = parse_patch_output(raw)
 
         self.assertEqual(1, len(patches))
         self.assertEqual("3", patches[0]["segment_id"])
-        self.assertEqual("", trailing)
+        self.assertEqual("", summary)
 
     def test_parser_accepts_no_updates_sentinel(self):
-        patches, trailing = parse_patch_output("NO_UPDATES")
+        patches, summary = parse_patch_output("NO_UPDATES")
         self.assertEqual([], patches)
-        self.assertEqual("", trailing)
+        self.assertEqual("", summary)
 
     def test_parser_rejects_trailing_text_after_blocks(self):
         raw = """ADD SEGMENT_4_BOUNDARIES
@@ -93,12 +93,26 @@ TARGET_ID: entry-123
 REASON: duplicate/obsolete entry
 """
 
-        patches, trailing = parse_patch_output(raw)
+        patches, summary = parse_patch_output(raw)
         self.assertEqual(1, len(patches))
         self.assertEqual("delete", patches[0]["action"])
         self.assertEqual("7", patches[0]["segment_id"])
         self.assertEqual("entry-123", patches[0]["target_id"])
-        self.assertEqual("", trailing)
+        self.assertEqual("", summary)
+
+    def test_parser_extracts_abstract_summary_block(self):
+        raw = """ADD SEGMENT_1_CORE_MOTIVATIONS
+TEXT: Wants reassurance [possible]
+CONFIDENCE: possible
+REASON: asked directly
+
+<ABSTRACT_SUMMARY>
+He shows a repeated reassurance-seeking stance and responds best to direct validation and steady attention. The slice contains clear signals that emotional continuity matters to him, especially when uncertainty rises.
+</ABSTRACT_SUMMARY>
+"""
+        patches, summary = parse_patch_output(raw)
+        self.assertEqual(1, len(patches))
+        self.assertIn("reassurance-seeking", summary)
 
 
 class ApiErrorCodeTests(unittest.TestCase):

@@ -66,7 +66,7 @@ _PROMPT_LEAK_RE = re.compile(
     r"|<\s*rolling_history\s*>"
     r"|<\s*reference_profiles\s*>"
     r"|<\s*raw_turns\s*>"
-    r"|begin episode_input"
+    r"|begin\s+(?:episode|chapter|season|year|lifetime)_input"
     r"|important boundary"
     r"|role\s*&\s*context"
     r"|constraint checklist"

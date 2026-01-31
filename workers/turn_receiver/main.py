@@ -352,6 +352,33 @@ def _latest_summary_end(thread_id: int, tier: str) -> int:
         return 0
     return int(row[0].get("end_turn") or 0)
 
+def _latest_abstract_end(thread_id: int, tier: str) -> int:
+    """
+    Return the end_turn of the most recent abstract (card-patch) summary row.
+
+    Narrative summaries may exist without an abstract extract_status; we only advance
+    the abstract cursor once card_patch_applier has set extract_status.
+    """
+    try:
+        row = (
+            SB.table("summaries")
+            .select("end_turn")
+            .eq("thread_id", thread_id)
+            .eq("tier", tier)
+            .in_("extract_status", ["ok", "failed"])
+            .order("tier_index", desc=True)
+            .limit(1)
+            .execute()
+            .data
+        )
+    except Exception:
+        # Older schemas may not have extract_status; fall back to any summary rows.
+        return _latest_summary_end(thread_id, tier)
+
+    if not row:
+        return 0
+    return int(row[0].get("end_turn") or 0)
+
 
 def _summary_exists(thread_id: int, tier: str, start_turn: int, end_turn: int) -> bool:
     existing = (
@@ -366,6 +393,30 @@ def _summary_exists(thread_id: int, tier: str, start_turn: int, end_turn: int) -
         .data
     )
     return bool(existing)
+
+def _abstract_done(thread_id: int, tier: str, start_turn: int, end_turn: int) -> bool:
+    """
+    Return True if a summary row exists for this tier window and has an extract_status.
+
+    This prevents narrative-only rows from blocking the abstract pipeline.
+    """
+    try:
+        rows = (
+            SB.table("summaries")
+            .select("id")
+            .eq("thread_id", thread_id)
+            .eq("tier", tier)
+            .eq("start_turn", start_turn)
+            .eq("end_turn", end_turn)
+            .in_("extract_status", ["ok", "failed"])
+            .limit(1)
+            .execute()
+            .data
+        )
+        return bool(rows)
+    except Exception:
+        # Best-effort fallback when extract_status doesn't exist.
+        return False
 
 def _pending_summary_job(
     queue: str, thread_id: int, start_turn: int, end_turn: int
@@ -387,28 +438,31 @@ def _pending_summary_job(
     return bool(jobs)
 
 
-def _maybe_enqueue_episode_summary(thread_id: int, latest_turn_index: int):
+def _maybe_enqueue_chapter_abstract(thread_id: int, latest_turn_index: int):
     """
-    Maintain the rolling 20-40 turn window by summarizing the oldest 20
-    once 40 unsummarized turns accumulate.
-    """
-    last_episode_end = _latest_summary_end(thread_id, "episode")
-    unsummarized = latest_turn_index - last_episode_end
+    Enqueue the next Chapter abstract job once 60 unsummarized turns accumulate.
 
-    if unsummarized < 40:
+    Chapter is the smallest abstract tier (Episode abstract is disabled).
+    The chapter abstract worker will ingest 60 raw turns (+ fan micro-notes) and
+    output (a) psychic-card patch blocks and (b) an abstract summary string.
+    """
+    last_chapter_end = _latest_abstract_end(thread_id, "chapter")
+    unsummarized = latest_turn_index - last_chapter_end
+
+    if unsummarized < 60:
         return
 
-    start_turn = last_episode_end + 1
-    end_turn = start_turn + 19
+    start_turn = last_chapter_end + 1
+    end_turn = start_turn + 59
 
-    if _summary_exists(thread_id, "episode", start_turn, end_turn):
+    if _abstract_done(thread_id, "chapter", start_turn, end_turn):
         return
 
-    if _pending_summary_job("episode.abstract", thread_id, start_turn, end_turn):
+    if _pending_summary_job("chapter.abstract", thread_id, start_turn, end_turn):
         return
 
     send(
-        "episode.abstract",
+        "chapter.abstract",
         {
             "thread_id": thread_id,
             "start_turn": start_turn,
@@ -546,7 +600,7 @@ async def receive(request: Request):
         has_media=has_media,
     )
 
-    _maybe_enqueue_episode_summary(thread_id, turn_index)
+    _maybe_enqueue_chapter_abstract(thread_id, turn_index)
 
     return {"message_id": msg_id, "thread_id": thread_id}
 

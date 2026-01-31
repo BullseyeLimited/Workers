@@ -14,7 +14,6 @@ def _extract_macros(text: str) -> set[str]:
 def test_abstract_prompt_templates_reference_expected_macros() -> None:
     prompts_dir = Path(__file__).resolve().parents[2] / "prompts"
     expectations: dict[str, set[str]] = {
-        "episode_abstract.txt": {"RAW_TURNS", "FAN_IDENTITY_CARD", "FAN_PSYCHIC_CARD"},
         "chapter_abstract.txt": {
             "RAW_TURNS",
             "FAN_IDENTITY_CARD",
