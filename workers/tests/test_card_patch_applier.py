@@ -120,8 +120,15 @@ He shows a repeated reassurance-seeking stance and responds best to direct valid
         self.assertIn("reassurance-seeking", summary)
 
     def test_chapter_tier_rejects_delete_patches(self):
-        with self.assertRaises(ValueError):
-            _enforce_tier_patch_rules("chapter", [{"action": "delete", "segment_id": "1"}])
+        filtered = _enforce_tier_patch_rules(
+            "chapter",
+            [
+                {"action": "delete", "segment_id": "1"},
+                {"action": "add", "segment_id": "1"},
+            ],
+        )
+        self.assertEqual(1, len(filtered))
+        self.assertEqual("add", filtered[0]["action"])
 
 
 class ApiErrorCodeTests(unittest.TestCase):
